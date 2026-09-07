@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pq-shield
+description: Enterprise Post-Quantum Edge Ingress Interceptor (FIPS 203/204 Enveloped)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

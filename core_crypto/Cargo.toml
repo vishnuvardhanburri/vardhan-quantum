@@ -1,0 +1,18 @@
+[package]
+name = "core_crypto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ml-kem  = { version = "0.2", features = ["zeroize"] }
+fips204 = { version = "0.4", features = ["default-rng"] }
+blake3  = "1.5"
+rand    = "0.8"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "pq_crypto_benches"
+harness = false

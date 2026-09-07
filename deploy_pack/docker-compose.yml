@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  # Legacy Financial Settlement App (Unmodified Plaintext Target)
+  legacy_clearing_service:
+    image: hashicorp/http-echo:latest
+    command: ["-text={\"status\":\"SETTLED\",\"account\":\"VGI-CH-8801\",\"amount\":\"1500000_GBP\"}"]
+    networks:
+      - internal_isolated_net
+    ports:
+      - "5678:5678"
+
+  # Zero-Touch Post-Quantum Ingress Interceptor
+  pq_shield_interceptor:
+    build:
+      context: ..
+      dockerfile: deploy_pack/Dockerfile
+    environment:
+      - RUST_LOG=info
+      - BIND_ADDR=0.0.0.0:8080
+      - TARGET_UPSTREAM=legacy_clearing_service:5678
+      - TENANT_ID=TENANT_LLOYDS_BANK_01
+      - SLA_TIER=ENTERPRISE_MASTER
+    ports:
+      - "8080:8080"
+    networks:
+      - external_ingress_net
+      - internal_isolated_net
+    depends_on:
+      - legacy_clearing_service
+
+  # P2P Mesh Consensus Node
+  quantum_mesh_node:
+    build:
+      context: ..
+      dockerfile: deploy_pack/Dockerfile
+    entrypoint: ["/app/quantum_node"]
+    command: ["--bind", "0.0.0.0:7001", "--data-dir", "/var/data/quantum"]
+    ports:
+      - "7001:7001"
+    networks:
+      - external_ingress_net
+
+networks:
+  external_ingress_net:
+    driver: bridge
+  internal_isolated_net:
+    internal: true

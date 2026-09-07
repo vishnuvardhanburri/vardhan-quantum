@@ -1,0 +1,43 @@
+replicaCount: 3
+
+image:
+  repository: vardhan-quantum/pq_shield
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+tenant:
+  id: "TENANT_ENTERPRISE_POC"
+  slaTier: "ENTERPRISE_MASTER"
+  maxTps: 50000
+
+service:
+  type: ClusterIP
+  port: 8080
+  metricsPort: 9090
+
+upstream:
+  host: "legacy-banking-service.internal.svc.cluster.local"
+  port: 8080
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop:
+      - ALL
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
