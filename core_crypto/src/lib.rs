@@ -3,6 +3,8 @@
 //! Post-quantum cryptographic identity for a proxy node.
 //! Wraps FIPS 203 (ML-KEM-1024) and FIPS 204 (ML-DSA-87).
 
+pub mod avx512;
+
 use ml_kem::kem::{Decapsulate, Encapsulate};
 use ml_kem::{Ciphertext, EncodedSizeUser, KemCore, MlKem1024, SharedKey};
 use fips204::ml_dsa_87;
