@@ -1,5 +1,5 @@
 # Stage 1: Build Environment
-FROM rust:1.80-slim-bookworm AS builder
+FROM rust:slim-bookworm AS builder
 
 WORKDIR /usr/src/vardhan-quantum-proxy
 
