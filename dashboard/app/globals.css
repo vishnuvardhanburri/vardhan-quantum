@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-space: #05060A;
+  --surface-card: #0D0F17;
+  --accent-teal: #00F5D4;
+  --accent-indigo: #8A2BE2;
+  --accent-crimson: #FF0055;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-space);
+  color: #FFFFFF;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #05060A;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00F5D4;
+}
+
+/* Cyber Glow Shadows */
+.glow-teal {
+  box-shadow: 0 0 25px -5px rgba(0, 245, 212, 0.3);
+}
+.glow-purple {
+  box-shadow: 0 0 25px -5px rgba(138, 43, 226, 0.3);
+}
+.glow-crimson {
+  box-shadow: 0 0 25px -5px rgba(255, 0, 85, 0.4);
+}
+
+/* Background Grid Mesh */
+.bg-grid-pattern {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
