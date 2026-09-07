@@ -59,26 +59,29 @@ impl IngressShield {
             let tx = telemetry_tx.clone();
 
             tokio::spawn(async move {
-                let start = Instant::now();
                 let mut buffer = vec![0u8; 4096];
-                
-                if let Ok(n) = stream.read(&mut buffer).await {
-                    if n > 0 {
-                        let plaintext = buffer[..n].to_vec();
-                        if let Ok(ciphertext) = aes_gcm_seal(&key, &plaintext) {
-                            let entropy = Self::calculate_entropy(&ciphertext);
-                            let elapsed = start.elapsed().as_millis() as u64;
+                loop {
+                    let start = Instant::now();
+                    match stream.read(&mut buffer).await {
+                        Ok(0) => break, // Connection closed
+                        Ok(n) => {
+                            let plaintext = buffer[..n].to_vec();
+                            if let Ok(ciphertext) = aes_gcm_seal(&key, &plaintext) {
+                                let entropy = Self::calculate_entropy(&ciphertext);
+                                let elapsed = start.elapsed().as_millis() as u64;
 
-                            let event = IngressTelemetryEvent {
-                                raw_bytes: plaintext,
-                                encrypted_bytes: ciphertext,
-                                entropy_bits: entropy,
-                                latency_ms: elapsed,
-                                peer_addr,
-                            };
+                                let event = IngressTelemetryEvent {
+                                    raw_bytes: plaintext,
+                                    encrypted_bytes: ciphertext,
+                                    entropy_bits: entropy,
+                                    latency_ms: elapsed,
+                                    peer_addr,
+                                };
 
-                            let _ = tx.send(event).await;
+                                let _ = tx.send(event).await;
+                            }
                         }
+                        Err(_) => break, // Error
                     }
                 }
             });
