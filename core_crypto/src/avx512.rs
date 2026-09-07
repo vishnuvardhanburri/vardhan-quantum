@@ -20,10 +20,10 @@ pub unsafe fn ntt_butterfly_avx512(a: &mut [i16], b: &[i16], zeta: i16) {
     let zeta_vec = _mm512_set1_epi16(zeta);
 
     // 2. Load 32 x 16-bit integers from slice 'a' into AVX-512 register ZMM0
-    let mut a_vec = _mm512_loadu_si512(a.as_ptr() as *const i32);
+    let mut a_vec = _mm512_loadu_si512(a.as_ptr() as *const __m512i);
     
     // 3. Load 32 x 16-bit integers from slice 'b' into AVX-512 register ZMM1
-    let b_vec = _mm512_loadu_si512(b.as_ptr() as *const i32);
+    let b_vec = _mm512_loadu_si512(b.as_ptr() as *const __m512i);
 
     // 4. Cooley-Tukey Butterfly Operation (Vectorized)
     // t = b[i] * zeta
@@ -33,7 +33,7 @@ pub unsafe fn ntt_butterfly_avx512(a: &mut [i16], b: &[i16], zeta: i16) {
     a_vec = _mm512_add_epi16(a_vec, t_vec);          // 32 parallel additions!
 
     // 5. Store the 512-bit result back into memory
-    _mm512_storeu_si512(a.as_mut_ptr() as *mut i32, a_vec);
+    _mm512_storeu_si512(a.as_mut_ptr() as *mut __m512i, a_vec);
 }
 
 /// A safe wrapper that probes the CPU at runtime to ensure AVX-512 is supported
