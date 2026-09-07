@@ -1,0 +1,46 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: quantumebpfnodes.vardhan.tech
+spec:
+  group: vardhan.tech
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                tenantId:
+                  type: string
+                  description: "The Enterprise UAT or Production Tenant ID"
+                ebpfNicOffload:
+                  type: boolean
+                  description: "Enable Hardware XDP offloading directly to the AWS Nitro / Mellanox NIC"
+                shannonEntropyTarget:
+                  type: number
+                  description: "Target bits/byte threshold for cryptographic finality (Default: 7.998)"
+                nodeMeshRegion:
+                  type: string
+                  description: "Epidemic P2P Gossip Mesh region (e.g., eu-central-1)"
+              required: ["tenantId", "ebpfNicOffload"]
+            status:
+              type: object
+              properties:
+                activeReqSec:
+                  type: integer
+                  description: "Real-time throughput metrics populated by the UMEM poller"
+                doraComplianceState:
+                  type: string
+                  description: "Enum: COMPLIANT | DEGRADED | FAILED"
+  scope: Namespaced
+  names:
+    plural: quantumebpfnodes
+    singular: quantumebpfnode
+    kind: QuantumEbpfNode
+    shortNames:
+    - qnode

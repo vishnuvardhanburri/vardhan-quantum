@@ -1,0 +1,47 @@
+apiVersion: vardhan.tech/v1alpha1
+kind: QuantumEbpfNode
+metadata:
+  name: lloyds-clearing-edge-1
+  namespace: quantum-proxy
+spec:
+  tenantId: "TENANT_LLOYDS_BANK_01"
+  ebpfNicOffload: true
+  shannonEntropyTarget: 7.9982
+  nodeMeshRegion: "eu-west-2"
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vardhan-ebpf-daemon
+  namespace: quantum-proxy
+spec:
+  selector:
+    matchLabels:
+      name: vardhan-ebpf-daemon
+  template:
+    metadata:
+      labels:
+        name: vardhan-ebpf-daemon
+    spec:
+      hostNetwork: true
+      containers:
+        - name: pq-shield-ebpf-agent
+          image: vardhan-quantum/pq_shield:latest
+          securityContext:
+            privileged: true # Required for eBPF program injection via bpf() syscall
+            capabilities:
+              add: ["CAP_BPF", "CAP_NET_ADMIN", "CAP_PERFMON"]
+          volumeMounts:
+            - name: bpf-fs
+              mountPath: /sys/fs/bpf
+            - name: host-run
+              mountPath: /run
+      volumes:
+        - name: bpf-fs
+          hostPath:
+            path: /sys/fs/bpf
+            type: Directory
+        - name: host-run
+          hostPath:
+            path: /run
+            type: Directory
