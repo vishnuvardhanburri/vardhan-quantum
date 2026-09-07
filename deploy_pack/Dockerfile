@@ -21,6 +21,8 @@ COPY quantum_tui ./quantum_tui
 COPY pq_shield ./pq_shield
 COPY enterprise_tenant ./enterprise_tenant
 COPY saas_metering ./saas_metering
+COPY load_tester ./load_tester
+COPY poc_auditor ./poc_auditor
 
 # Build release binaries
 RUN cargo build --release -p pq_shield -p quantum_node
