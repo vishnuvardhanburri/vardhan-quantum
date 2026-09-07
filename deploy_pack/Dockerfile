@@ -7,6 +7,9 @@ WORKDIR /usr/src/vardhan-quantum-proxy
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
+    build-essential \
+    clang \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace files
