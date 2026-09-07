@@ -2,11 +2,7 @@
 
 import React from 'react';
 
-interface SplitStreamProps {
-  ciphertextStream: string;
-}
-
-export const SplitStream: React.FC<SplitStreamProps> = ({ ciphertextStream }) => {
+export const SplitStream = ({ ciphertextStream }) => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
       {/* LEFT: Unshielded Ingress */}

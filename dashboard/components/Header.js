@@ -3,13 +3,7 @@
 import React from 'react';
 import { ShieldCheck, Cpu, Download, Activity } from 'lucide-react';
 
-interface HeaderProps {
-  nodeId: string;
-  quorumStatus: string;
-  onExport: () => void;
-}
-
-export const Header: React.FC<HeaderProps> = ({ nodeId, quorumStatus, onExport }) => {
+export const Header = ({ nodeId, quorumStatus, onExport }) => {
   return (
     <header className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8 bg-[#0D0F17]/80 backdrop-blur-xl border border-white/10 p-4 rounded-xl shadow-2xl">
       <div className="flex items-center gap-4">

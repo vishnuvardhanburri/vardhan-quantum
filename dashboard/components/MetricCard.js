@@ -2,16 +2,7 @@
 
 import React from 'react';
 
-interface MetricCardProps {
-  title: string;
-  badge: string;
-  value: string;
-  unit?: string;
-  subtitle: string;
-  glowColor?: 'teal' | 'purple' | 'crimson';
-}
-
-export const MetricCard: React.FC<MetricCardProps> = ({
+export const MetricCard = ({
   title,
   badge,
   value,

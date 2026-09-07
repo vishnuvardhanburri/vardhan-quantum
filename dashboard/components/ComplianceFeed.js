@@ -2,19 +2,7 @@
 
 import React from 'react';
 
-export interface AuditEvent {
-  timestamp: number;
-  mandate: string;
-  primitive: string;
-  entropy: string;
-  status: string;
-}
-
-interface ComplianceFeedProps {
-  events: AuditEvent[];
-}
-
-export const ComplianceFeed: React.FC<ComplianceFeedProps> = ({ events }) => {
+export const ComplianceFeed = ({ events }) => {
   return (
     <div className="relative rounded-xl bg-[#0D0F17]/80 backdrop-blur-xl border border-white/10 p-6 font-mono text-xs overflow-hidden shadow-2xl">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%)] bg-[length:100%_4px] z-10 opacity-40"></div>
