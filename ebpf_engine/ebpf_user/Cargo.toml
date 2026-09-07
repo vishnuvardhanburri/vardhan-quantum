@@ -1,0 +1,11 @@
+[package]
+name = "ebpf_user"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aya = "0.3.0"
+aya-log = "0.2.0"
+tokio = { version = "1.0", features = ["full"] }
+xsk-rs = "0.3.0" # AF_XDP Zero-Copy Socket library
+core_crypto = { path = "../../core_crypto" }
