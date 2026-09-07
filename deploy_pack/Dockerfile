@@ -26,6 +26,7 @@ COPY enterprise_tenant ./enterprise_tenant
 COPY saas_metering ./saas_metering
 COPY load_tester ./load_tester
 COPY poc_auditor ./poc_auditor
+COPY orchestration_ai ./orchestration_ai
 
 # Build release binaries
 RUN cargo build --release -p pq_shield -p quantum_node
