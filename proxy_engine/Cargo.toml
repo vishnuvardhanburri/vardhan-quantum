@@ -15,6 +15,7 @@ aes-gcm       = { version = "0.10", features = ["zeroize"] }
 zeroize       = { version = "1", features = ["zeroize_derive"] }
 tracing       = "0.1"
 rand          = "0.8"
+blake3 = "1.8.7"
 
 [dev-dependencies]
 tokio              = { version = "1", features = ["full", "test-util"] }

@@ -3,5 +3,20 @@ resolver = "2"
 members = [
     "core_crypto",
     "proxy_engine",
-    "ledger_sync", "quantum_node", "ledger_persistence", "quantum_network", "quantum_tui", "pq_shield", "enterprise_tenant", "saas_metering", "load_tester", "poc_auditor", "orchestration_ai",
+    "ledger_sync",
+    "quantum_node",
+    "ledger_persistence",
+    "quantum_network",
+    "quantum_tui",
+    "pq_shield",
+    "enterprise_tenant",
+    "saas_metering",
+    "load_tester",
+    "verifier",
+    "mock_upstream",
+    "poc_auditor",
+    "orchestration_ai",
+    "audit_ledger",
+    "pq_verify",
 ]
+

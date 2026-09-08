@@ -5,11 +5,18 @@
 
 pub mod avx512;
 
+pub mod vault;
+
 use ml_kem::kem::{Decapsulate, Encapsulate};
 use ml_kem::{Ciphertext, EncodedSizeUser, KemCore, MlKem1024, SharedKey};
 use fips204::ml_dsa_87;
 use fips204::traits::{SerDes, Signer, Verifier};
 use rand::rngs::OsRng;
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
+use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
+use crate::vault::{KeyProtector, EncryptedEnvelope, VaultError};
 
 /// ML-KEM-1024 encapsulation key byte length (1568 bytes).
 pub const ENCAP_KEY_LEN: usize = 1568;
@@ -64,6 +71,105 @@ impl QuantumNodeIdentity {
             dsa_private_key_bytes: dsa_sk_bytes,
         })
     }
+
+    /// Load the persistent node identity from a vault, or generate a new one.
+    pub fn load_or_generate<P: KeyProtector>(
+        vault_path: &Path,
+        protector: &P,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        if vault_path.exists() {
+            let env_json = std::fs::read_to_string(vault_path)?;
+            let env: EncryptedEnvelope = serde_json::from_str(&env_json)?;
+            let plaintext = vault::unwrap_envelope(protector, &env)?;
+            
+            let stored: StoredIdentity = serde_json::from_slice(&plaintext)?;
+            
+            // Reconstruct ML-KEM
+            let ek_arr: [u8; ENCAP_KEY_LEN] = stored.kem_encap_key_bytes.as_slice().try_into().map_err(|_| "Invalid encap key length")?;
+            let ek_encoded = ml_kem::Encoded::<<MlKem1024 as KemCore>::EncapsulationKey>::from(ek_arr);
+            let ek = <MlKem1024 as KemCore>::EncapsulationKey::from_bytes(&ek_encoded);
+            
+            // Reconstruct ML-DSA
+            let pk_arr: [u8; ml_dsa_87::PK_LEN] = stored.dsa_public_key_bytes.as_slice().try_into().map_err(|_| "Invalid DSA pk length")?;
+            let pk = ml_dsa_87::PublicKey::try_from_bytes(pk_arr).map_err(|e| e.to_string())?;
+
+            let mut dsa_sk = [0u8; ml_dsa_87::SK_LEN];
+            dsa_sk.copy_from_slice(&stored.dsa_private_key_bytes);
+
+            return Ok(QuantumNodeIdentity {
+                kem_encap_key: ek,
+                dsa_public_key: pk,
+                kem_decap_key_bytes: zeroize::Zeroizing::new(stored.kem_decap_key_bytes.clone()),
+                dsa_private_key_bytes: zeroize::Zeroizing::new(dsa_sk),
+            });
+        }
+
+        let new_id = Self::generate_node_identity()?;
+        
+        let mut stored = StoredIdentity {
+            kem_encap_key_bytes: new_id.kem_encap_key.as_bytes().to_vec(),
+            kem_decap_key_bytes: new_id.kem_decap_key_bytes.to_vec(),
+            dsa_public_key_bytes: new_id.dsa_public_key_bytes(),
+            dsa_private_key_bytes: new_id.dsa_private_key_bytes.to_vec(),
+        };
+
+        let pt = serde_json::to_vec(&stored)?;
+        stored.zeroize();
+        
+        let env = vault::wrap_envelope(protector, &pt)?;
+        let env_json = serde_json::to_string_pretty(&env)?;
+        std::fs::write(vault_path, env_json)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(vault_path)?.permissions();
+            perms.set_mode(0o600);
+            std::fs::set_permissions(vault_path, perms)?;
+        }
+        
+        Ok(new_id)
+    }
+
+    /// Re-wrap the persistent identity using a new or rotated key protector
+    pub fn rotate_key_protector<P: KeyProtector>(
+        &self,
+        vault_path: &Path,
+        new_protector: &P,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut stored = StoredIdentity {
+            kem_encap_key_bytes: self.kem_encap_key.as_bytes().to_vec(),
+            kem_decap_key_bytes: self.kem_decap_key_bytes.to_vec(),
+            dsa_public_key_bytes: self.dsa_public_key_bytes(),
+            dsa_private_key_bytes: self.dsa_private_key_bytes.to_vec(),
+        };
+
+        let pt = serde_json::to_vec(&stored)?;
+        stored.zeroize();
+
+        let env = vault::wrap_envelope(new_protector, &pt)?;
+        let env_json = serde_json::to_string_pretty(&env)?;
+        std::fs::write(vault_path, env_json)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(vault_path)?.permissions();
+            perms.set_mode(0o600);
+            std::fs::set_permissions(vault_path, perms)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+pub struct StoredIdentity {
+    kem_encap_key_bytes: Vec<u8>,
+    kem_decap_key_bytes: Vec<u8>,
+    dsa_public_key_bytes: Vec<u8>,
+    dsa_private_key_bytes: Vec<u8>,
+}
+
+impl QuantumNodeIdentity {
 
     // ──────────────────────────────────────────────────────────────────
     // Byte-level serialization / deserialization

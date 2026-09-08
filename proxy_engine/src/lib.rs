@@ -1,45 +1,50 @@
-//! # proxy_engine — Sprint 2 (High-Security Production Build)
-//!
-//! A zero-trust post-quantum proxy engine providing:
-//!
-//! - **[`QuantumFrameCodec`]** — bounded length-prefixed frame codec
-//!   (`tokio-util` `Decoder` / `Encoder`) with a configurable 64 KiB anti-DoS
-//!   ceiling on application frames.
-//! - **[`derive_session_keys`]** — HKDF-SHA-256 session key derivation that
-//!   wraps the derived key in [`Zeroizing`] so it is wiped from memory on drop.
-//! - **[`run_initiator`] / [`run_responder`]** — 4-frame in-line handshake:
-//!   ML-KEM-1024 bidirectional key encapsulation + ML-DSA-87 node
-//!   authentication. Each side derives an independent HKDF session key from
-//!   the combined shared secret.
-//! - **[`QuantumProxyServer`]** — production accept-loop bound to any address.
-//! - **[`QuantumProxyListener`]** — test-friendly listener accepting a
-//!   pre-built `TcpListener`.
-//!
-//! ## Wire Protocol
-//!
-//! All handshake frames are length-prefixed: `[u32 BE length][payload bytes]`.
-//!
-//! ```text
-//! Initiator (A)                                    Responder (B)
-//!  ──── HELLO ──────────────────────────────────▶
-//!       encap_key (1568) || sig (4627) || dsa_pub (2592)  = 8787 B
-//!
-//!  ◀─── HELLO_ACK ───────────────────────────────
-//!       encap_key (1568) || sig (4627) || dsa_pub (2592)  = 8787 B
-//!
-//!  ◀─── KEM_CT_B ────────────────────────────────
-//!       ciphertext_B (1568) || sig_B (4627)               = 6195 B
-//!
-//!  ──── KEM_CT_A ───────────────────────────────▶
-//!       ciphertext_A (1568) || sig_A (4627)               = 6195 B
-//!
-//!  Both sides compute:
-//!    raw_secret = XOR(ss_B, ss_A)              -- 32 bytes
-//!    session_key = HKDF-SHA256(raw_secret, transcript_hash)
-//! ```
-//!
-//! **Frame overhead per handshake**: 4 × 4 B length headers = 16 B.
-//! **Total handshake wire cost**: 16 B + 8787 + 8787 + 6195 + 6195 = **29 980 B** (≈29.3 KiB).
+pub mod session;
+pub mod transport;
+use crate::session::{derive_session_context, SessionContext};
+use crate::transport::AeadTransport;
+
+// # proxy_engine — Sprint 2 (High-Security Production Build)
+//
+// A zero-trust post-quantum proxy engine providing:
+//
+// - **[`QuantumFrameCodec`]** — bounded length-prefixed frame codec
+//   (`tokio-util` `Decoder` / `Encoder`) with a configurable 64 KiB anti-DoS
+//   ceiling on application frames.
+// - **[`derive_session_keys`]** — HKDF-SHA-256 session key derivation that
+//   wraps the derived key in [`Zeroizing`] so it is wiped from memory on drop.
+// - **[`run_initiator`] / [`run_responder`]** — 4-frame in-line handshake:
+//   ML-KEM-1024 bidirectional key encapsulation + ML-DSA-87 node
+//   authentication. Each side derives an independent HKDF session key from
+//   the combined shared secret.
+// - **[`QuantumProxyServer`]** — production accept-loop bound to any address.
+// - **[`QuantumProxyListener`]** — test-friendly listener accepting a
+//   pre-built `TcpListener`.
+//
+// ## Wire Protocol
+//
+// All handshake frames are length-prefixed: `[u32 BE length][payload bytes]`.
+//
+// ```text
+// Initiator (A)                                    Responder (B)
+//  ──── HELLO ──────────────────────────────────▶
+//       encap_key (1568) || sig (4627) || dsa_pub (2592)  = 8787 B
+//
+//  ◀─── HELLO_ACK ───────────────────────────────
+//       encap_key (1568) || sig (4627) || dsa_pub (2592)  = 8787 B
+//
+//  ◀─── KEM_CT_B ────────────────────────────────
+//       ciphertext_B (1568) || sig_B (4627)               = 6195 B
+//
+//  ──── KEM_CT_A ───────────────────────────────▶
+//       ciphertext_A (1568) || sig_A (4627)               = 6195 B
+//
+//  Both sides compute:
+//    raw_secret = XOR(ss_B, ss_A)              -- 32 bytes
+//    session_key = HKDF-SHA256(raw_secret, transcript_hash)
+// ```
+//
+// **Frame overhead per handshake**: 4 × 4 B length headers = 16 B.
+// **Total handshake wire cost**: 16 B + 8787 + 8787 + 6195 + 6195 = **29 980 B** (≈29.3 KiB).
 
 use std::io;
 use std::net::SocketAddr;
@@ -175,61 +180,6 @@ impl Encoder<Vec<u8>> for QuantumFrameCodec {
 // HKDF session key derivation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Derive a 256-bit symmetric session key from `shared_secret` and `salt`
-/// (typically a BLAKE3 transcript hash).
-///
-/// Uses HKDF-SHA-256 with a fixed info string that domain-separates this
-/// output from any other derivation. The returned key is wrapped in
-/// [`Zeroizing`] so memory is overwritten on drop.
-///
-/// # Errors
-/// Returns [`ProxyError::CryptoError`] if HKDF expand fails (only possible if
-/// the output length exceeds 255 × hash-length, which 32 bytes never does).
-pub fn derive_session_keys(
-    shared_secret: &[u8],
-    salt: &[u8],
-) -> Result<Zeroizing<[u8; 32]>, ProxyError> {
-    let hk = Hkdf::<Sha256>::new(Some(salt), shared_secret);
-    let mut okm = Zeroizing::new([0u8; 32]);
-    hk.expand(b"VARDHAN_QUANTUM_PROXY_SESSION_KEY_V1", okm.as_mut())
-        .map_err(|_| ProxyError::CryptoError)?;
-    Ok(okm)
-}
-
-/// Encrypt `plaintext` with AES-256-GCM using `key` and a random 12-byte
-/// nonce. Returns `[nonce (12 B) || ciphertext+tag]`.
-///
-/// `key` must be 32 bytes. The function is intentionally standalone and
-/// stateless — nonce uniqueness is the caller's responsibility when reusing
-/// the same key across multiple messages.
-pub fn aes_gcm_seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ProxyError> {
-    use rand::RngCore;
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-    let mut nonce_bytes = [0u8; 12];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    let ciphertext = cipher
-        .encrypt(nonce, plaintext)
-        .map_err(|_| ProxyError::CryptoError)?;
-    let mut out = nonce_bytes.to_vec();
-    out.extend_from_slice(&ciphertext);
-    Ok(out)
-}
-
-/// Decrypt data produced by [`aes_gcm_seal`].
-///
-/// Expects `[nonce (12 B) || ciphertext+tag]`.
-pub fn aes_gcm_open(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>, ProxyError> {
-    if data.len() < 12 {
-        return Err(ProxyError::CryptoError);
-    }
-    let (nonce_bytes, ct) = data.split_at(12);
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-    let nonce = Nonce::from_slice(nonce_bytes);
-    cipher
-        .decrypt(nonce, ct)
-        .map_err(|_| ProxyError::CryptoError)
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Low-level framing helpers (handshake only)
@@ -347,39 +297,28 @@ fn xor_secrets(a: &[u8], b: &[u8]) -> Vec<u8> {
 
 /// Compute a BLAKE3 transcript hash over both hello frames for use as the
 /// HKDF salt, binding the session key to the specific exchange transcript.
-fn transcript_hash(hello_a: &[u8], hello_b: &[u8]) -> [u8; 32] {
-    QuantumNodeIdentity::hash_ledger_block(
-        &[hello_a, hello_b].concat(),
-    )
+fn transcript_hash(hello_a: &[u8], hello_b: &[u8], kem_a: &[u8], kem_b: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"V1.0");
+    hasher.update(hello_a);
+    hasher.update(hello_b);
+    hasher.update(kem_b);
+    hasher.update(kem_a);
+    *hasher.finalize().as_bytes()
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Completed session
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// A successfully established post-quantum authenticated proxy session.
-pub struct ProxySession {
-    /// Remote peer address.
-    pub peer_addr: SocketAddr,
-    /// Raw 32-byte XOR-combined ML-KEM shared secret.
-    pub shared_secret: Vec<u8>,
-    /// HKDF-derived AES-256-GCM session key (memory-zeroized on drop).
-    pub session_key: Zeroizing<[u8; 32]>,
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Public handshake functions
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Run the **responder** side of the post-quantum handshake.
 ///
-/// Returns a [`ProxySession`] containing both the raw shared secret and the
+/// Returns a [`SessionContext`] containing both the raw shared secret and the
 /// HKDF-derived session key on success.
 #[instrument(skip(stream, identity), fields(peer = ?stream.peer_addr().ok()))]
 pub async fn run_responder(
     stream: &mut TcpStream,
     identity: &QuantumNodeIdentity,
-) -> Result<ProxySession, ProxyError> {
+) -> Result<SessionContext, ProxyError> {
     let peer_addr = stream.peer_addr()?;
     info!("Responder: beginning post-quantum handshake");
 
@@ -397,7 +336,8 @@ pub async fn run_responder(
     // 3. Encapsulate toward initiator; send KEM_CT_B
     let (ct_b, ss_b) = QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(&peer_ek)
         .map_err(|e| ProxyError::Crypto(e.to_string()))?;
-    write_frame(stream, &build_kem_ct(identity, &ct_b)?).await?;
+    let f3 = build_kem_ct(identity, &ct_b)?;
+    write_frame(stream, &f3).await?;
     debug!("Responder: KEM_CT_B sent");
 
     // 4. Receive KEM_CT_A
@@ -412,25 +352,21 @@ pub async fn run_responder(
 
     // 6. Combine secrets + derive session key
     let raw_secret = xor_secrets(&ss_b, &ss_a);
-    let salt = transcript_hash(&f1, &our_hello);
-    let session_key = derive_session_keys(&raw_secret, &salt)?;
+    let salt = transcript_hash(&f1, &our_hello, &f4, &f3);
+    let session_ctx = derive_session_context(&raw_secret, &salt)?;
 
-    info!("Responder: handshake complete — session key derived");
-    Ok(ProxySession {
-        peer_addr,
-        shared_secret: raw_secret,
-        session_key,
-    })
+    info!("Responder: handshake complete — session context derived");
+    Ok(session_ctx)
 }
 
 /// Run the **initiator** side of the post-quantum handshake.
 ///
-/// Returns a [`ProxySession`] on success.
+/// Returns a [`SessionContext`] on success.
 #[instrument(skip(stream, identity), fields(peer = ?stream.peer_addr().ok()))]
 pub async fn run_initiator(
     stream: &mut TcpStream,
     identity: &QuantumNodeIdentity,
-) -> Result<ProxySession, ProxyError> {
+) -> Result<SessionContext, ProxyError> {
     let peer_addr = stream.peer_addr()?;
     info!("Initiator: beginning post-quantum handshake");
 
@@ -453,7 +389,8 @@ pub async fn run_initiator(
     // 4. Encapsulate toward responder; send KEM_CT_A
     let (ct_a, ss_a) = QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(&peer_ek)
         .map_err(|e| ProxyError::Crypto(e.to_string()))?;
-    write_frame(stream, &build_kem_ct(identity, &ct_a)?).await?;
+    let f4 = build_kem_ct(identity, &ct_a)?;
+    write_frame(stream, &f4).await?;
     debug!("Initiator: KEM_CT_A sent");
 
     // 5. Decapsulate
@@ -463,15 +400,11 @@ pub async fn run_initiator(
 
     // 6. Combine + derive
     let raw_secret = xor_secrets(&ss_b, &ss_a);
-    let salt = transcript_hash(&our_hello, &f2);
-    let session_key = derive_session_keys(&raw_secret, &salt)?;
+    let salt = transcript_hash(&our_hello, &f2, &f4, &f3);
+    let session_ctx = derive_session_context(&raw_secret, &salt)?;
 
-    info!("Initiator: handshake complete — session key derived");
-    Ok(ProxySession {
-        peer_addr,
-        shared_secret: raw_secret,
-        session_key,
-    })
+    info!("Initiator: handshake complete — session context derived");
+    Ok(session_ctx)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -506,7 +439,7 @@ impl QuantumProxyListener {
 
     /// Accept one connection and complete the handshake. Returns the session
     /// and the underlying stream for subsequent data transfer.
-    pub async fn accept_handshake(&self) -> Result<(ProxySession, TcpStream), ProxyError> {
+    pub async fn accept_handshake(&self) -> Result<(SessionContext, TcpStream), ProxyError> {
         let (mut stream, _peer_addr) = self.listener.accept().await?;
         let session = run_responder(&mut stream, &self.identity).await?;
         Ok((session, stream))
@@ -574,7 +507,7 @@ impl QuantumProxyServer {
                             Ok(session) => {
                                 info!(
                                     %remote_addr,
-                                    secret_len = session.shared_secret.len(),
+                                    secret_len = 32,
                                     "Handshake complete; entering frame loop"
                                 );
                                 // Application frame ingress stub:
@@ -792,3 +725,5 @@ mod tests {
     }
 
 }
+pub mod stateless;
+pub use stateless::{aes_gcm_seal, aes_gcm_open};

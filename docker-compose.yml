@@ -1,0 +1,28 @@
+version: '3.8'
+services:
+  proxy:
+    build:
+      context: .
+      dockerfile: deploy_pack/Dockerfile
+    environment:
+      - RUST_LOG=info
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+      - "7001:7001"
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - proxy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

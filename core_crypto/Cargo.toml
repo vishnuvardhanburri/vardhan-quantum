@@ -9,6 +9,11 @@ fips204 = { version = "0.4", features = ["default-rng"] }
 blake3  = "1.5"
 rand    = "0.8"
 zeroize = { version = "1", features = ["zeroize_derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+aes-gcm = "0.11.1"
+base64ct = { version = "1.8.3", features = ["alloc"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

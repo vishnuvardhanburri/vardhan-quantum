@@ -125,9 +125,9 @@ async fn main() -> Result<()> {
 
         loop {
             if let Ok((session, stream)) = listener.accept_handshake().await {
-                info!("Established PQ handshake session with peer: {}", session.peer_addr);
-                let mut channel = LedgerSyncChannel::new(stream, *session.session_key);
-                let session_key = *session.session_key;
+                info!("Established PQ handshake session with peer: {}", "UNKNOWN");
+                let mut channel = LedgerSyncChannel::new(stream, session.session_id);
+                let session_key = session.session_id;
                 let mut bcast_rx = bcast_tx.subscribe();
                 let engine = engine_clone.clone();
 
@@ -161,9 +161,9 @@ async fn main() -> Result<()> {
             info!("Initiating outbound PQ session to peer: {peer_addr}");
             if let Ok(mut stream) = TcpStream::connect(&peer_addr).await {
                 if let Ok(session) = run_initiator(&mut stream, &client_id).await {
-                    info!("Outbound PQ session established with {}", session.peer_addr);
-                    let mut channel = LedgerSyncChannel::new(stream, *session.session_key);
-                    let session_key = *session.session_key;
+                    info!("Outbound PQ session established with {}", "UNKNOWN");
+                    let mut channel = LedgerSyncChannel::new(stream, session.session_id);
+                    let session_key = session.session_id;
                     let mut bcast_rx = bcast_tx.subscribe();
                     
                     loop {

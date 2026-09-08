@@ -1,1 +1,8 @@
 /target/
+dashboard/.next/
+dist/
+*.log
+cloudflared
+kek.bin
+pq_vault.json
+.DS_Store
