@@ -1,20 +1,15 @@
 use hkdf::Hkdf;
 use sha2::Sha256;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 use crate::ProxyError;
 
+#[derive(Clone)]
 pub struct SessionContext {
     pub session_id: [u8; 32],
+    pub shared_secret: Vec<u8>,
+    pub session_key: Zeroizing<[u8; 32]>,
     pub client_to_server_key: [u8; 32],
     pub server_to_client_key: [u8; 32],
-}
-
-impl Drop for SessionContext {
-    fn drop(&mut self) {
-        self.session_id.zeroize();
-        self.client_to_server_key.zeroize();
-        self.server_to_client_key.zeroize();
-    }
 }
 
 pub fn derive_session_context(
@@ -34,11 +29,23 @@ pub fn derive_session_context(
     let mut server_to_client_key = [0u8; 32];
     server_to_client_key.copy_from_slice(&okm[64..96]);
     
+    let session_key = Zeroizing::new(client_to_server_key);
     okm.zeroize();
     
     Ok(SessionContext {
         session_id,
+        shared_secret: shared_secret.to_vec(),
+        session_key,
         client_to_server_key,
         server_to_client_key,
     })
 }
+
+pub fn derive_session_keys(
+    shared_secret: &[u8],
+    transcript: &[u8],
+) -> Result<Zeroizing<[u8; 32]>, ProxyError> {
+    let ctx = derive_session_context(shared_secret, transcript)?;
+    Ok(ctx.session_key.clone())
+}
+

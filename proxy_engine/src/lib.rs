@@ -1,7 +1,7 @@
 pub mod session;
 pub mod transport;
-use crate::session::{derive_session_context, SessionContext};
-use crate::transport::AeadTransport;
+pub use crate::session::{derive_session_context, derive_session_keys, SessionContext};
+pub use crate::transport::AeadTransport;
 
 // # proxy_engine — Sprint 2 (High-Security Production Build)
 //
