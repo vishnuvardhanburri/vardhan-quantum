@@ -31,6 +31,10 @@ tracing-opentelemetry = "0.33"
 opentelemetry-proto = { version = "0.32", features = ["gen-tonic-messages", "trace"] }
 prost = "0.14"
 
+[features]
+default = []
+aws-kms-real = ["core_crypto/aws-kms-real"]
+
 [[bench]]
 name = "ingress_throughput"
 harness = false

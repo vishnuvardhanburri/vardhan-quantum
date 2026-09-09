@@ -55,3 +55,53 @@ jobs:
     - name: Run P3.4 HA Acceptance Gate
       run: bash tests/test_p3_ha_gate.sh
       timeout-minutes: 5
+
+  # ── P3.5.1: Live AWS KMS Validation (manual, requires AWS credentials) ─────
+  aws-kms-validation:
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && secrets.AWS_ACCESS_KEY_ID != '' }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-aws-kms
+
+    - name: Install jq
+      run: sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+
+    - name: Create CMK for testing
+      id: kms-key
+      run: |
+        KEY_ID=$(aws kms create-key --description "Vardhan P3.5 CI KMS Key" --key-usage ENCRYPT_DECRYPT --customer-master-key-spec RSA_2048 --query 'KeyMetadata.KeyId' --output text)
+        echo "key_id=$KEY_ID" >> $GITHUB_OUTPUT
+
+    - name: Build with aws-kms-real feature
+      run: cargo build --features aws-kms-real -p core_crypto
+
+    - name: Run live AWS KMS envelope round-trip test
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: us-east-1
+        P3_5_KMS_KEY_ID: ${{ steps.kms-key.outputs.key_id }}
+      run: |
+        cargo test --features aws-kms-real -p core_crypto --test '*' -- test_live_aws_kms_envelope_roundtrip --exact --nocapture
+        cargo test --features aws-kms-real -p core_crypto --test '*' -- test_live_aws_kms_access_denied --exact --nocapture
+
+    - name: Enable KMS automatic key rotation
+      run: |
+        aws kms enable-key-rotation --key-id ${{ steps.kms-key.outputs.key_id }}

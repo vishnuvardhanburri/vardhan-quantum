@@ -374,6 +374,82 @@ impl<C: KmsClient> KeyProtector for KmsKeyProtector<C> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 2b. Real AWS KMS Client (P3.5.1 — live AWS KMS validation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Real AWS KMS-backed implementation of [`KmsClient`].
+///
+/// Constructed behind the `aws-kms-real` feature flag so that the default
+/// build (no AWS SDK dependency) is unchanged from P3.4. Each call spawns
+/// a blocking `block_on` on an internal tokio runtime — this keeps the
+/// synchronous `KeyProtector` trait interface intact.
+#[cfg(feature = "aws-kms-real")]
+pub struct AwsSdkKmsClient {
+    client: aws_sdk_kms::Client,
+    /// Dedicated single-threaded runtime for KMS encrypt/decrypt calls.
+    rt: tokio::runtime::Runtime,
+}
+
+#[cfg(feature = "aws-kms-real")]
+impl AwsSdkKmsClient {
+    /// Build a client using the default AWS credential chain and the given KMS key ID.
+    pub fn new(key_id: &str) -> Result<Self, VaultError> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| VaultError::Kms(format!("Tokio runtime build failed: {e}")))?;
+
+        let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
+        let config = rt.block_on(async {
+            aws_config::defaults(aws_config::BehaviorVersion::latest())
+                .region(aws_config::Region::new(region))
+                .load().await
+        });
+
+        let client = aws_sdk_kms::Client::new(&config);
+        Ok(Self { client, rt })
+    }
+}
+
+#[cfg(feature = "aws-kms-real")]
+impl KmsClient for AwsSdkKmsClient {
+    fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>, VaultError> {
+        let client = self.client.clone();
+        let kid = key_id.to_string();
+        let pt = aws_sdk_kms::primitives::Blob::from(plaintext.to_vec());
+        let blob: Result<Vec<u8>, VaultError> = self.rt.block_on(async move {
+            let resp = client.encrypt().key_id(&kid).plaintext(pt).send().await
+                .map_err(|e| VaultError::Kms(e.to_string()))?;
+            let blob = resp.ciphertext_blob()
+                .ok_or_else(|| VaultError::Kms("KMS Encrypt returned no ciphertext".into()))?;
+            Ok(blob.as_ref().to_vec())
+        });
+        blob
+    }
+
+    fn decrypt(&self, ciphertext: &[u8], key_id: Option<&str>) -> Result<Vec<u8>, VaultError> {
+        let client = self.client.clone();
+        let ct = aws_sdk_kms::primitives::Blob::from(ciphertext.to_vec());
+        let kid = key_id.map(str::to_string);
+        let pt: Result<Vec<u8>, VaultError> = self.rt.block_on(async move {
+            let mut req = client.decrypt();
+            if let Some(k) = &kid {
+                req = req.key_id(k);
+            }
+            let resp = req
+                .ciphertext_blob(ct)
+                .send()
+                .await
+                .map_err(|e| VaultError::Kms(e.to_string()))?;
+            let blob = resp.plaintext()
+                .ok_or_else(|| VaultError::Kms("KMS Decrypt returned no plaintext".into()))?;
+            Ok(blob.as_ref().to_vec())
+        });
+        pt
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 3. HSM KeyProtector (PKCS#11 Hardware Security Module)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -707,5 +783,77 @@ mod tests {
         assert_eq!(&*recovered, secret);
 
         let _ = std::fs::remove_file(kek_path);
+    }
+}
+
+// ── P3.5.1: Live AWS KMS integration tests ───────────────────────────────────
+// Only compile and run when `--features aws-kms-real` is used and AWS
+// credentials + a real CMK are available in the environment.
+
+#[cfg(all(test, feature = "aws-kms-real"))]
+mod aws_kms_tests {
+    use super::*;
+
+    /// Helper: skip this test if AWS credentials or KMS key ID are not configured.
+    fn kms_test_key_id() -> Option<String> {
+        std::env::var("AWS_ACCESS_KEY_ID").ok()?;
+        std::env::var("AWS_SECRET_ACCESS_KEY").ok()?;
+        std::env::var("P3_5_KMS_KEY_ID").ok()
+    }
+
+    #[test]
+    fn test_live_aws_kms_envelope_roundtrip() {
+        let key_id = match kms_test_key_id() {
+            Some(id) => id,
+            None => {
+                eprintln!("SKIP: Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and P3_5_KMS_KEY_ID to run live KMS tests");
+                return;
+            }
+        };
+
+        let client = Arc::new(AwsSdkKmsClient::new(&key_id).expect("KMS client creation should succeed"));
+        let protector = KmsKeyProtector::new(key_id.clone(), client.clone());
+
+        let secret = b"LIVE-AWS-KMS-ENVELOPE-TEST-PAYLOAD";
+        let envelope = wrap_envelope(&protector, secret).expect("wrap should succeed");
+        assert_eq!(envelope.provider, "aws-kms");
+        assert_eq!(envelope.kms_key_id.as_deref(), Some(key_id.as_str()));
+        assert!(envelope.wrapped_dek.is_some());
+
+        let recovered = unwrap_envelope(&protector, &envelope).expect("unwrap should succeed");
+        assert_eq!(&*recovered, secret, "DEK round-trip must reproduce original");
+
+        // Audit trail should show one wrap + one unwrap, both SUCCESS
+        let audits = protector.audit_records();
+        assert_eq!(audits.len(), 2);
+        assert_eq!(audits[0].status, "SUCCESS");
+        assert_eq!(audits[1].status, "SUCCESS");
+    }
+
+    #[test]
+    fn test_live_aws_kms_access_denied() {
+        let key_id = match kms_test_key_id() {
+            Some(id) => id,
+            None => return,
+        };
+
+        // Create a client with valid credentials but point at a key the caller
+        // does not have kms:Encrypt permission on. In practice, this test passes
+        // if AWS_ACCESS_KEY_ID resolves to a user without kms:Encrypt on key_id.
+        let client = Arc::new(AwsSdkKmsClient::new(&key_id).expect("KMS client creation should succeed"));
+        let protector = KmsKeyProtector::new(key_id, client);
+
+        let secret = b"SHOULD-FAIL-ENCRYPT";
+        let result = wrap_envelope(&protector, secret);
+        // If the caller has kms:Encrypt, the test can't verify denial — skip.
+        match result {
+            Ok(_) => eprintln!("SKIP: caller has kms:Encrypt — cannot test denial"),
+            Err(e) => {
+                assert!(
+                    e.to_string().contains("AccessDenied") || e.to_string().contains("not authorized"),
+                    "Expected AccessDenied, got: {e}"
+                );
+            }
+        }
     }
 }

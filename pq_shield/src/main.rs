@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::path::Path;
 use core_crypto::QuantumNodeIdentity;
 use core_crypto::vault::{LocalDevKeyProtector, KmsKeyProtector, MockKmsClient, HsmKeyProtector};
+#[cfg(feature = "aws-kms-real")]
+use core_crypto::vault::AwsSdkKmsClient;
 use ha_cluster::{
     ClusterMembership, NodeId,
     drain::{ActiveSessionCounter, DrainController},
@@ -64,6 +66,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mock_client.set_authorized(false);
             }
             let protector = KmsKeyProtector::new(key_id, Arc::new(mock_client));
+            QuantumNodeIdentity::load_or_generate(vault_path, &protector)?
+        }
+        #[cfg(feature = "aws-kms-real")]
+        "aws-kms-real" => {
+            let key_id = std::env::var("KMS_KEY_ID")
+                .expect("FATAL: KMS_KEY_ID must be set when VARDHAN_KEY_PROTECTOR=aws-kms-real");
+            let kms_client = AwsSdkKmsClient::new(&key_id)
+                .expect("FATAL: Failed to initialize AWS KMS client");
+            let protector = KmsKeyProtector::new(key_id, Arc::new(kms_client));
             QuantumNodeIdentity::load_or_generate(vault_path, &protector)?
         }
         "mock-hsm" | "pkcs11" => {
