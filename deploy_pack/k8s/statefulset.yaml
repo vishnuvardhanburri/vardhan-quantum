@@ -122,4 +122,4 @@ spec:
               command:
               - /bin/sh
               - -c
-            - "curl -X POST -H 'Authorization: Bearer ${VARDHAN_ADMIN_TOKEN}' http://localhost:8081/api/v1/cluster/drain || true"
+              - "curl -X POST -H 'Authorization: Bearer ${VARDHAN_ADMIN_TOKEN}' http://localhost:8081/api/v1/cluster/drain || true"
