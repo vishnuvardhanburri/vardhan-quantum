@@ -85,6 +85,7 @@ spec:
               name: pq-shield-admin
               key: token
         - name: VARDHAN_ADMIN_CORS_ORIGIN
+          # P3.6: Replace with your actual admin console origin (e.g., https://admin.yourbank.com)
           value: "https://admin.vardhan.example.com"
         - name: VARDHAN_UPSTREAM
           value: "mock-upstream:9090"
@@ -97,6 +98,15 @@ spec:
           value: "/data/ledger/ledger.jsonl"
         - name: VARDHAN_DRAIN_TIMEOUT_SECS
           value: "30"
+        # P3.7: Capacity governance env vars
+        - name: VARDHAN_MAX_CONCURRENCY
+          value: "10000"
+        - name: VARDHAN_MAX_CONCURRENCY_PER_IP
+          value: "1000"
+        - name: VARDHAN_HANDSHAKE_TIMEOUT_SECS
+          value: "5"
+        - name: VARDHAN_IDLE_TIMEOUT_SECS
+          value: "30"
         volumeMounts:
         - name: data-volume
           mountPath: /data/vault
@@ -104,6 +114,14 @@ spec:
         - name: ledger-volume
           mountPath: /data/ledger
           subPathDir: ledger
+        # P3.7: Data-driven resource requests based on P3.5 benchmarks
+        resources:
+          limits:
+            cpu: "4"
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 256Mi
         readinessProbe:
           httpGet:
             path: /api/v1/cluster/peers

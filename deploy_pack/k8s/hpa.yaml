@@ -1,0 +1,48 @@
+# P3.7: HorizontalPodAutoscaler for pq-shield.
+# CPU + memory based scaling with stabilized scale-down to prevent thrashing
+# during transient load drops. Based on P3.5 benchmarks showing ~20k RPS per
+# node at 500m CPU request; scales up during failover when remaining pods
+# must absorb traffic from failed region.
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pq-shield-hpa
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    p3.7-governance: "true"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: pq-shield
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 75
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 30
+      selectPolicy: Min

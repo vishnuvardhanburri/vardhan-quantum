@@ -4,6 +4,8 @@ image:
   repository: vardhan-quantum/pq_shield
   pullPolicy: IfNotPresent
   tag: "latest"
+  # P3.6: Image digest pinning (populated by CI after cosign signing)
+  digest: ""
 
 tenant:
   id: "TENANT_ENTERPRISE_POC"
@@ -19,13 +21,17 @@ upstream:
   host: "legacy-banking-service.internal.svc.cluster.local"
   port: 8080
 
+# P3.7: Data-driven resource requests based on P3.5 local benchmarks
+#   (20,633 RPS per node, ~18.5MB RSS, 10k max concurrent sessions)
+# Memory: 10k sessions × ~32KB context = 320MB + 18MB base = ~340MB
+# CPU: 20k RPS × 9μs latency = ~0.2 cores; PQ handshake adds burst overhead
 resources:
   limits:
-    cpu: 2000m
-    memory: 2Gi
+    cpu: 4000m
+    memory: 1Gi
   requests:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 250m
+    memory: 256Mi
 
 securityContext:
   allowPrivilegeEscalation: false
@@ -43,6 +49,9 @@ autoscaling:
   minReplicas: 3
   maxReplicas: 20
   targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 75
+  scaleDownStabilizationSeconds: 300
+  scaleUpStabilizationSeconds: 30
 
 # P3.6: Security hardening
 admin:
@@ -53,3 +62,17 @@ admin:
   #   --from-literal=token=$(openssl rand -hex 32)
   tokenSecretName: "pq-shield-admin"
   tokenSecretKey: "token"
+
+# P3.7: Connection/session capacity model
+# Based on P3.5 benchmarks: 20k RPS per node, ~19MB RSS at 10 concurrent connections
+# Memory per connection: ~32KB (ML-KEM keys + ML-DSA sig + AEAD state + ledger entry)
+# 10k sessions × 32KB = 320MB + 18MB base ≈ 340MB → 256Mi request is sufficient
+capacity:
+  maxConcurrency: 10000
+  maxConcurrencyPerIp: 1000
+  handshakeTimeoutSecs: 5
+  idleTimeoutSecs: 30
+
+# P3.7: Environment overrides
+env:
+  VARDHAN_ENV: "production"

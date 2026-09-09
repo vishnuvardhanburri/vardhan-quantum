@@ -31,7 +31,14 @@ echo "=================================================================="
 echo "[1/6] Validating prerequisites..."
 command -v aws >/dev/null 2>&1 || { echo "ERROR: aws cli not found"; exit 1; }
 command -v kubectl >/dev/null 2>&1 || { echo "ERROR: kubectl not found"; exit 1; }
-command -v kubectl >/dev/null 2>&1 || { echo "ERROR: helm not found"; exit 1; }
+command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found"; exit 1; }
+
+# P3.7: Verify HPA metrics-server is available
+kubectl get apiservice v1beta1.metrics.k8s.io >/dev/null 2>&1 || {
+    echo "ERROR: metrics-server not installed. HPA requires metrics-server."
+    echo "  Install: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+    exit 1
+}
 
 # Verify we can assume the right AWS region
 export AWS_DEFAULT_REGION="${REGION}"
@@ -117,6 +124,13 @@ kubectl rollout status "statefulset/${STSF_NAME}" -n "$NAMESPACE" --timeout=300s
     exit 1
 }
 echo "  StatefulSet ${STSF_NAME} is Ready."
+
+# P3.7: Verify HPA is functional
+HPA_NAME="${STSF_NAME}-hpa"
+kubectl get hpa "${HPA_NAME}" -n "$NAMESPACE" >/dev/null 2>&1 && {
+    echo "  HPA ${HPA_NAME} is configured."
+    kubectl get hpa "${HPA_NAME}" -n "$NAMESPACE" --no-headers | tail -1 | xargs -I{} echo "  HPA status: {}"
+} || echo "  WARNING: HPA ${HPA_NAME} not found — check regional-deployment.yaml includes HPA"
 
 # ── Cross-region routing (optional) ───────────────────────────────────────────
 echo "[6/6] Verifying cross-region connectivity..."

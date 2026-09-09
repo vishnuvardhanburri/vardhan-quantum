@@ -21,7 +21,7 @@ spec:
         {{- toYaml .Values.securityContext | nindent 8 }}
       containers:
         - name: pq-shield
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}{{ if .Values.image.digest }}@sha256:{{ .Values.image.digest }}{{ end }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: TENANT_ID
@@ -39,6 +39,22 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.admin.tokenSecretName }}
                   key: {{ .Values.admin.tokenSecretKey }}
+            {{- if .Values.capacity.maxConcurrency }}
+            - name: VARDHAN_MAX_CONCURRENCY
+              value: {{ .Values.capacity.maxConcurrency | quote }}
+            {{- end }}
+            {{- if .Values.capacity.maxConcurrencyPerIp }}
+            - name: VARDHAN_MAX_CONCURRENCY_PER_IP
+              value: {{ .Values.capacity.maxConcurrencyPerIp | quote }}
+            {{- end }}
+            {{- if .Values.capacity.handshakeTimeoutSecs }}
+            - name: VARDHAN_HANDSHAKE_TIMEOUT_SECS
+              value: {{ .Values.capacity.handshakeTimeoutSecs | quote }}
+            {{- end }}
+            {{- if .Values.capacity.idleTimeoutSecs }}
+            - name: VARDHAN_IDLE_TIMEOUT_SECS
+              value: {{ .Values.capacity.idleTimeoutSecs | quote }}
+            {{- end }}
           ports:
             - name: http-ingress
               containerPort: 8080

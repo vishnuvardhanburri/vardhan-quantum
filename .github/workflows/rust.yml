@@ -94,16 +94,17 @@ jobs:
         curl -L https://github.com/stefanprodan/kube-score/releases/download/v5.3.3/kube-score_5.3.3_linux_amd64.tar.gz -o /tmp/kube-score.tar.gz
         cd /tmp && tar xzf kube-score.tar.gz && sudo cp kube-score /usr/local/bin/
 
-    - name: Score P3.4 + P3.5 k8s manifests
+    - name: Score P3.4 + P3.5 + P3.6 + P3.7 k8s manifests
       run: |
         kube-score score \
           deploy_pack/k8s/statefulset.yaml \
           deploy_pack/k8s/service.yaml \
           deploy_pack/k8s/pdb.yaml \
-          deploy_pack/k8s/regional-deployment.yaml \
+          deploy_pack/k8s/hpa.yaml \
           deploy_pack/k8s/secret.yaml \
           deploy_pack/k8s/networkpolicy.yaml \
           deploy_pack/k8s/namespace.yaml \
+          deploy_pack/k8s/regional-deployment.yaml \
           --ignore-test container-security-context-user-group-id \
         || true  # Non-blocking: reports warnings
 

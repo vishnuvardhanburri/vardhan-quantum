@@ -173,6 +173,7 @@ spec:
               name: pq-shield-admin
               key: token
         - name: VARDHAN_ADMIN_CORS_ORIGIN
+          # P3.6: Replace with your actual admin console origin (e.g., https://admin.yourbank.com)
           value: "https://admin.vardhan.example.com"
         - name: VARDHAN_UPSTREAM
           value: "legacy-banking-service.internal.svc.cluster.local:8080"
@@ -184,13 +185,22 @@ spec:
           value: "/data/ledger/ledger.jsonl"
         - name: VARDHAN_DRAIN_TIMEOUT_SECS
           value: "30"
+        # P3.7: Capacity governance env vars
+        - name: VARDHAN_MAX_CONCURRENCY
+          value: "10000"
+        - name: VARDHAN_MAX_CONCURRENCY_PER_IP
+          value: "1000"
+        - name: VARDHAN_HANDSHAKE_TIMEOUT_SECS
+          value: "5"
+        - name: VARDHAN_IDLE_TIMEOUT_SECS
+          value: "30"
         resources:
           limits:
-            cpu: 2000m
-            memory: 2Gi
+            cpu: "4"
+            memory: 1Gi
           requests:
-            cpu: 500m
-            memory: 512Mi
+            cpu: 250m
+            memory: 256Mi
         readinessProbe:
           httpGet:
             path: /api/v1/cluster/peers
@@ -229,6 +239,51 @@ spec:
     matchLabels:
       app: pq-shield
       topology.kubernetes.io/region: us-east-1
+---
+# P3.7: HPA for us-east-1 region
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pq-shield-ue1-hpa
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    topology.kubernetes.io/region: us-east-1
+    p3.7-governance: "true"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: pq-shield-ue1
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 75
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 30
+      selectPolicy: Min
 
 # ════════════════════════════════════════════════════════════════════════════
 # eu-west-1 Region
@@ -390,6 +445,7 @@ spec:
               name: pq-shield-admin-euw1
               key: token
         - name: VARDHAN_ADMIN_CORS_ORIGIN
+          # P3.6: Replace with your actual admin console origin (e.g., https://admin.yourbank.com)
           value: "https://admin.vardhan.example.com"
         - name: VARDHAN_UPSTREAM
           value: "legacy-banking-service-euw1.internal.svc.cluster.local:8080"
@@ -401,13 +457,22 @@ spec:
           value: "/data/ledger/ledger.jsonl"
         - name: VARDHAN_DRAIN_TIMEOUT_SECS
           value: "30"
+        # P3.7: Capacity governance env vars
+        - name: VARDHAN_MAX_CONCURRENCY
+          value: "10000"
+        - name: VARDHAN_MAX_CONCURRENCY_PER_IP
+          value: "1000"
+        - name: VARDHAN_HANDSHAKE_TIMEOUT_SECS
+          value: "5"
+        - name: VARDHAN_IDLE_TIMEOUT_SECS
+          value: "30"
         resources:
           limits:
-            cpu: 2000m
-            memory: 2Gi
+            cpu: "4"
+            memory: 1Gi
           requests:
-            cpu: 500m
-            memory: 512Mi
+            cpu: 250m
+            memory: 256Mi
         readinessProbe:
           httpGet:
             path: /api/v1/cluster/peers
@@ -446,3 +511,48 @@ spec:
     matchLabels:
       app: pq-shield
       topology.kubernetes.io/region: eu-west-1
+---
+# P3.7: HPA for eu-west-1 region
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pq-shield-euw1-hpa
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    topology.kubernetes.io/region: eu-west-1
+    p3.7-governance: "true"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: pq-shield-euw1
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 75
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 30
+      selectPolicy: Min

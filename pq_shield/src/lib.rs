@@ -28,12 +28,44 @@ const MAX_CONCURRENT_PER_IP: u32 = 1_000;
 const HANDSHAKE_TIMEOUT_SECS: u64 = 5;
 const IDLE_TIMEOUT_SECS: u64 = 30;
 
+/// P3.7: Configurable concurrency limits (env-overridable, defaults preserve P3.4 behavior)
+fn get_max_global_concurrency() -> usize {
+    std::env::var("VARDHAN_MAX_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_GLOBAL_CONCURRENCY)
+}
+fn get_max_concurrency_per_ip() -> u32 {
+    std::env::var("VARDHAN_MAX_CONCURRENCY_PER_IP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_CONCURRENT_PER_IP)
+}
+fn get_handshake_timeout() -> u64 {
+    std::env::var("VARDHAN_HANDSHAKE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(HANDSHAKE_TIMEOUT_SECS)
+}
+fn get_idle_timeout() -> u64 {
+    std::env::var("VARDHAN_IDLE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(IDLE_TIMEOUT_SECS)
+}
+
 pub struct IngressShield {
     pub listen_addr: SocketAddr,
     pub upstream_addr: SocketAddr,
     pub identity: Arc<QuantumNodeIdentity>,
     pub global_limit: Arc<Semaphore>,
     pub ip_limits: Arc<DashMap<IpAddr, u32>>,
+    /// P3.7: Per-IP concurrency limit (env-overridable, default 1_000)
+    pub max_concurrent_per_ip: u32,
+    /// P3.7: Handshake timeout in seconds (env-overridable, default 5)
+    pub handshake_timeout_secs: u64,
+    /// P3.7: Idle session timeout in seconds (env-overridable, default 30)
+    pub idle_timeout_secs: u64,
     pub telemetry: Arc<TelemetryEngine>,
     pub prometheus: Arc<PrometheusMetrics>,
     pub ledger_path: Option<PathBuf>,
@@ -70,12 +102,19 @@ impl IngressShield {
         let prometheus = Arc::new(PrometheusMetrics::new().expect("FATAL: Failed to initialize Prometheus registry"));
         let telemetry = Arc::new(TelemetryEngine::new(ledger, Some(identity.clone()), prometheus.clone()));
 
+        let global_concurrency = get_max_global_concurrency();
+        let per_ip_limit = get_max_concurrency_per_ip();
+        let handshake_timeout = get_handshake_timeout();
+        let idle_timeout = get_idle_timeout();
         let shield = Self {
             listen_addr,
             upstream_addr,
             identity,
-            global_limit: Arc::new(Semaphore::new(MAX_GLOBAL_CONCURRENCY)),
+            global_limit: Arc::new(Semaphore::new(global_concurrency)),
             ip_limits: Arc::new(DashMap::new()),
+            max_concurrent_per_ip: per_ip_limit,
+            handshake_timeout_secs: handshake_timeout,
+            idle_timeout_secs: idle_timeout,
             telemetry,
             prometheus,
             ledger_path: ledger_path_stored.clone(),
@@ -169,7 +208,7 @@ impl IngressShield {
 
             {
                 let mut count = self.ip_limits.entry(ip).or_insert(0);
-                if *count >= MAX_CONCURRENT_PER_IP {
+                if *count >= self.max_concurrent_per_ip {
                     warn!("Per-IP concurrency limit reached for {}. Rejecting.", ip);
                     continue;
                 }
@@ -181,6 +220,8 @@ impl IngressShield {
             let ip_limits = Arc::clone(&self.ip_limits);
             let tx = self.telemetry.tx.clone();
             let session_counter = self.session_counter.clone();
+            let handshake_timeout = self.handshake_timeout_secs;
+            let idle_timeout = self.idle_timeout_secs;
 
             tokio::spawn(async move {
                 // P3.4: Track active session for drain coordination.
@@ -218,7 +259,7 @@ impl IngressShield {
                     let _guard = handshake_span.enter();
                     let handshake_start = Instant::now();
                     let handshake_future = run_responder(&mut client_stream, &identity);
-                    match tokio::time::timeout(Duration::from_secs(HANDSHAKE_TIMEOUT_SECS), handshake_future).await {
+                    match tokio::time::timeout(Duration::from_secs(handshake_timeout), handshake_future).await {
                         Ok(Ok(s)) => {
                             let sid = hex::encode(&s.session_id[..8]);
                             handshake_span.record("session.id", &sid);
@@ -259,7 +300,7 @@ impl IngressShield {
 
                 loop {
                     tokio::select! {
-                        frame_result = tokio::time::timeout(Duration::from_secs(IDLE_TIMEOUT_SECS), transport.read_frame()) => {
+                        frame_result = tokio::time::timeout(Duration::from_secs(idle_timeout), transport.read_frame()) => {
                             match frame_result {
                                 Ok(Ok(Some(plaintext))) => {
                                     let req_start = Instant::now();
@@ -289,7 +330,7 @@ impl IngressShield {
                             }
                         }
 
-                        n_result = tokio::time::timeout(Duration::from_secs(IDLE_TIMEOUT_SECS), upstream_stream.read(&mut upstream_buf)) => {
+                        n_result = tokio::time::timeout(Duration::from_secs(idle_timeout), upstream_stream.read(&mut upstream_buf)) => {
                             match n_result {
                                 Ok(Ok(0)) => break,
                                 Ok(Ok(n)) => {

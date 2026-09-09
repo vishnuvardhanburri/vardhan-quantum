@@ -163,6 +163,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Listening on: {}", listen_addr);
     println!("    Forwarding to: {}", upstream_addr);
     println!("    Heartbeat UDP: {}", heartbeat_port);
+    if std::env::var("VARDHAN_MAX_CONCURRENCY").is_ok()
+        || std::env::var("VARDHAN_MAX_CONCURRENCY_PER_IP").is_ok()
+        || std::env::var("VARDHAN_HANDSHAKE_TIMEOUT_SECS").is_ok()
+        || std::env::var("VARDHAN_IDLE_TIMEOUT_SECS").is_ok()
+    {
+        println!("    P3.7: Custom capacity config detected (VARDHAN_MAX_CONCURRENCY / _PER_IP / _HANDSHAKE_TIMEOUT / _IDLE_TIMEOUT)");
+    }
 
     let drain_ctrl = DrainController::new(
         self_node_id.clone(),

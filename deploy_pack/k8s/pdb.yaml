@@ -2,8 +2,14 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: pq-shield-pdb
+  labels:
+    app: pq-shield
+    p3.7-governance: "true"
 spec:
-  minAvailable: 1
+  # P3.7: With 3 replicas, require majority (2) to survive.
+  # Prevents split-brain during voluntary disruptions (node drains, upgrades).
+  # Formula: minAvailable = ceil(replicas / 2)
+  minAvailable: 2
   selector:
     matchLabels:
       app: pq-shield
