@@ -1,5 +1,5 @@
 use axum::{
-    routing::get,
+    routing::{get, post},
     Router,
     response::sse::{Event, Sse},
     response::IntoResponse,
@@ -25,6 +25,7 @@ use std::collections::VecDeque;
 use core_crypto::QuantumNodeIdentity;
 use audit_ledger::{LedgerEntry, schema};
 use serde::Serialize;
+use ha_cluster::{ClusterMembership, NodeId, NodeState};
 
 #[derive(Clone)]
 pub struct AdminState {
@@ -39,6 +40,10 @@ pub struct AdminState {
     /// Path to the live ledger file, if configured.
     pub ledger_path: Option<PathBuf>,
     pub prometheus: Arc<crate::prometheus_metrics::PrometheusMetrics>,
+    /// P3.4: Cluster membership for /cluster/peers endpoint.
+    pub cluster: Option<Arc<ClusterMembership>>,
+    /// P3.4: This node's stable cluster identity, for targeted drain.
+    pub self_node_id: Option<NodeId>,
 }
 
 async fn auth_middleware(State(state): State<AdminState>, req: Request, next: Next) -> Result<axum::response::Response, StatusCode> {
@@ -60,14 +65,19 @@ pub async fn run_admin_server(state: AdminState) {
     let origins_str = std::env::var("VARDHAN_ADMIN_CORS_ORIGIN")
         .expect("FATAL: VARDHAN_ADMIN_CORS_ORIGIN must be explicitly set (e.g., 'null' for local files)");
 
-    let origins: Vec<axum::http::HeaderValue> = origins_str
-        .split(',')
-        .filter_map(|s| s.trim().parse().ok())
-        .collect();
+    let cors_origin = if origins_str == "*" {
+        AllowOrigin::any()
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = origins_str
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        AllowOrigin::list(origins)
+    };
 
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(origins))
-        .allow_methods([axum::http::Method::GET, axum::http::Method::OPTIONS])
+        .allow_origin(cors_origin)
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::OPTIONS])
         .allow_headers([
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
@@ -78,16 +88,22 @@ pub async fn run_admin_server(state: AdminState) {
         .route("/metrics", get(prometheus_metrics))
         .route("/api/v1/metrics", get(get_metrics))
         .route("/api/v1/events", get(sse_handler))
-        // P2: new ledger endpoints
+        // P2: ledger endpoints
         .route("/api/v1/ledger/status", get(ledger_status))
         .route("/api/v1/ledger/export", get(ledger_export))
+        // P3.4: cluster endpoints
+        .route("/api/v1/cluster/peers", get(cluster_peers))
+        .route("/api/v1/cluster/drain", post(cluster_drain))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(cors)
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8081").await.unwrap();
-    tracing::info!("Admin / Telemetry API running on http://127.0.0.1:8081");
+    let admin_port = std::env::var("VARDHAN_ADMIN_PORT")
+        .unwrap_or_else(|_| "8081".to_string());
+    let bind_addr = format!("0.0.0.0:{}", admin_port);
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
+    tracing::info!("Admin / Telemetry API running on http://{}", bind_addr);
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -342,4 +358,77 @@ async fn sse_handler(
     Sse::new(stream)
         .keep_alive(axum::response::sse::KeepAlive::new())
         .into_response()
+}
+
+// ── P3.4 Cluster endpoints ────────────────────────────────────────────────────
+
+/// GET /api/v1/cluster/peers — Returns all known cluster nodes with their state.
+async fn cluster_peers(State(state): State<AdminState>) -> impl IntoResponse {
+    match &state.cluster {
+        Some(cluster) => {
+            let peers = cluster.peer_snapshot().await;
+            (StatusCode::OK, Json(serde_json::json!({
+                "node_count": peers.len(),
+                "nodes": peers,
+            })))
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "HA cluster not configured on this node"
+            })),
+        ),
+    }
+}
+
+/// POST /api/v1/cluster/drain — Marks *this* node as Draining (admin-token protected).
+/// The actual drain wait is handled by DrainController in main.rs on SIGTERM.
+/// This endpoint is a soft-drain signal for orchestrators that prefer HTTP over SIGTERM.
+async fn cluster_drain(State(state): State<AdminState>) -> impl IntoResponse {
+    match (&state.cluster, &state.self_node_id) {
+        (Some(cluster), Some(self_id)) => {
+            let nodes = cluster.all_nodes().await;
+            // Find THIS node in the membership table by our stable node_id.
+            let self_entry = nodes.iter().find(|n| &n.node_id == self_id);
+            match self_entry {
+                Some(node) if matches!(node.state, NodeState::Draining) => {
+                    (StatusCode::CONFLICT, Json(serde_json::json!({
+                        "error": "Node is already draining"
+                    })))
+                }
+                Some(_) => {
+                    let _ = cluster.mark_draining(self_id).await;
+                    tracing::warn!(node_id = %self_id, "Admin-initiated drain via /cluster/drain");
+                    (StatusCode::OK, Json(serde_json::json!({
+                        "status": "draining",
+                        "node_id": self_id.as_str(),
+                        "message": "Self node marked Draining. Send SIGTERM to complete graceful shutdown."
+                    })))
+                }
+                None => {
+                    // Self not yet in the membership table (e.g., before first heartbeat).
+                    // Mark it draining anyway so the accept loop sees the state.
+                    let _ = cluster.mark_draining(self_id).await;
+                    tracing::warn!(node_id = %self_id, "Admin-initiated drain (self not yet in membership table)");
+                    (StatusCode::OK, Json(serde_json::json!({
+                        "status": "draining",
+                        "node_id": self_id.as_str(),
+                        "message": "Self node not yet in membership table — marked Draining anyway."
+                    })))
+                }
+            }
+        }
+        (Some(_), None) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "HA cluster configured but node identity (VARDHAN_NODE_ID) is unknown"
+            })),
+        ),
+        (None, _) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "HA cluster not configured on this node"
+            })),
+        ),
+    }
 }

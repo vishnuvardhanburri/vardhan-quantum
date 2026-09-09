@@ -1173,6 +1173,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha_cluster"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2150,6 +2162,7 @@ dependencies = [
  "core_crypto",
  "dashmap",
  "fastrand",
+ "ha_cluster",
  "hdrhistogram",
  "hex",
  "opentelemetry",
@@ -2309,6 +2322,7 @@ name = "quantum_network"
 version = "0.1.0"
 dependencies = [
  "core_crypto",
+ "ha_cluster",
  "ledger_sync",
  "proxy_engine",
  "serde",

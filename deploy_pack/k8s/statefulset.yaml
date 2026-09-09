@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pq-shield
+  labels:
+    app: pq-shield
+spec:
+  serviceName: "pq-shield-headless"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pq-shield
+  # P3.4: Persistent volumes for quantum identity (vault/KEK) and audit ledger.
+  # Without these, pod restarts lose the node identity and break ledger verification.
+  volumeClaimTemplates:
+  - metadata:
+      name: data-volume
+      annotations:
+        # Pre-allocate identity in prod; for testing, fast-provisioned storage
+        volume.beta.kubernetes.io/storage-class: "fast"
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: ledger-volume
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "fast"
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 5Gi
+  template:
+    metadata:
+      labels:
+        app: pq-shield
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: pq-shield
+      containers:
+      - name: pq-shield
+        image: vardhan-quantum-proxy:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: proxy
+        - containerPort: 8081
+          name: admin
+        - containerPort: 18080
+          name: heartbeat
+          protocol: UDP
+        env:
+        - name: VARDHAN_ENV
+          value: "production"
+        - name: VARDHAN_KEY_PROTECTOR
+          value: "mock-hsm" # For local k8s testing
+        - name: VARDHAN_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: VARDHAN_CLUSTER_PEERS
+          value: "pq-shield-0.pq-shield-headless:18080,pq-shield-1.pq-shield-headless:18080,pq-shield-2.pq-shield-headless:18080"
+        - name: VARDHAN_ADMIN_TOKEN
+          value: "cluster-admin-token"
+        - name: VARDHAN_ADMIN_CORS_ORIGIN
+          value: "*"
+        - name: VARDHAN_UPSTREAM
+          value: "mock-upstream:9090"
+        # P3.4: Persist quantum identity and ledger across restarts
+        - name: VARDHAN_VAULT_PATH
+          value: "/data/vault/pq_vault.json"
+        - name: VARDHAN_KEK_PATH
+          value: "/data/vault/kek.bin"
+        - name: VARDHAN_LEDGER_PATH
+          value: "/data/ledger/ledger.jsonl"
+        - name: VARDHAN_DRAIN_TIMEOUT_SECS
+          value: "30"
+        volumeMounts:
+        - name: data-volume
+          mountPath: /data/vault
+          subPathDir: vault
+        - name: ledger-volume
+          mountPath: /data/ledger
+          subPathDir: ledger
+        readinessProbe:
+          httpGet:
+            path: /api/v1/cluster/peers
+            port: admin
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /api/v1/metrics
+            port: admin
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - "curl -X POST -H 'Authorization: Bearer cluster-admin-token' http://localhost:8081/api/v1/cluster/drain || true"

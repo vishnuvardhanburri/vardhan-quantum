@@ -29,3 +29,29 @@ jobs:
 
     - name: Run Tests
       run: cargo test --workspace --verbose
+
+  # ── P3.4: HA / Multi-Node Integration Test ──────────────────────────────────
+  ha-integration-test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install jq
+      run: sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Build Release Binaries
+      run: cargo build --workspace
+
+    - name: Run P3.4 HA Acceptance Gate
+      run: bash tests/test_p3_ha_gate.sh
+      timeout-minutes: 5

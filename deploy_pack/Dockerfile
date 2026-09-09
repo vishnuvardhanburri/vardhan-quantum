@@ -28,6 +28,7 @@ COPY load_tester ./load_tester
 COPY poc_auditor ./poc_auditor
 COPY orchestration_ai ./orchestration_ai
 COPY audit_ledger ./audit_ledger
+COPY ha_cluster ./ha_cluster
 COPY pq_verify ./pq_verify
 COPY verifier ./verifier
 COPY mock_upstream ./mock_upstream

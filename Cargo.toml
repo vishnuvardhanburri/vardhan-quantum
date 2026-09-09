@@ -18,5 +18,6 @@ members = [
     "orchestration_ai",
     "audit_ledger",
     "pq_verify",
+    "ha_cluster",
 ]
 

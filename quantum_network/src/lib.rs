@@ -1,4 +1,5 @@
 use core_crypto::QuantumNodeIdentity;
+use ha_cluster::{ClusterNode, NodeId};
 use ledger_sync::LedgerBlock;
 use proxy_engine::{aes_gcm_open, aes_gcm_seal};
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,10 @@ use tracing::{info, warn};
 pub enum GossipMessage {
     PeerExchange(Vec<SocketAddr>),
     BlockBroadcast(LedgerBlock),
+    /// HA: A peer broadcasts its current health state.
+    NodeHeartbeat(ClusterNode),
+    /// HA: A peer notifies the cluster it is draining.
+    NodeDraining(NodeId),
 }
 
 #[derive(Clone, Default)]
@@ -38,6 +43,9 @@ pub struct GossipEngine {
     registry: PeerRegistry,
     seen_blocks: Arc<RwLock<HashSet<[u8; 32]>>>,
     block_tx: mpsc::Sender<LedgerBlock>,
+    /// Optional HA cluster membership table. When set, NodeHeartbeat and
+    /// NodeDraining gossip messages update the membership state.
+    cluster: Option<Arc<ha_cluster::ClusterMembership>>,
 }
 
 impl GossipEngine {
@@ -51,7 +59,14 @@ impl GossipEngine {
             registry,
             seen_blocks: Arc::new(RwLock::new(HashSet::new())),
             block_tx,
+            cluster: None,
         }
+    }
+
+    /// Attach a cluster membership table. NodeHeartbeat gossip will update it.
+    pub fn with_cluster(mut self, cluster: Arc<ha_cluster::ClusterMembership>) -> Self {
+        self.cluster = Some(cluster);
+        self
     }
 
     pub async fn process_incoming_gossip(
@@ -82,6 +97,18 @@ impl GossipEngine {
                     let _ = self.block_tx.send(block).await;
                 }
             }
+            GossipMessage::NodeHeartbeat(node) => {
+                if let Some(ref cluster) = self.cluster {
+                    info!(node_id = %node.node_id, state = %node.state, "Gossip: NodeHeartbeat received");
+                    cluster.apply_heartbeat(node).await;
+                }
+            }
+            GossipMessage::NodeDraining(node_id) => {
+                if let Some(ref cluster) = self.cluster {
+                    warn!(node_id = %node_id, "Gossip: NodeDraining received");
+                    let _ = cluster.mark_draining(&node_id).await;
+                }
+            }
         }
         Ok(())
     }
@@ -93,6 +120,27 @@ impl GossipEngine {
     ) -> Result<Vec<u8>, String> {
         let serialized = serde_json::to_vec(msg).map_err(|e| e.to_string())?;
         aes_gcm_seal(session_key, &serialized).map_err(|e| e.to_string())
+    }
+
+    /// Broadcast a cluster state message to all registered peers.
+    ///
+    /// `session_key` is the shared gossip key for this cluster (pre-established
+    /// out-of-band via the normal PQ handshake or configured statically).
+    pub async fn broadcast_state(
+        &self,
+        session_key: &[u8; 32],
+        msg: &GossipMessage,
+    ) -> Result<usize, String> {
+        let frame = self.create_gossip_frame(session_key, msg).await?;
+        let peers = self.registry.get_peers().await;
+        let sent = peers.len();
+        // In a real deployment this would use a TCP/QUIC connection pool.
+        // For now we log the broadcast intent — actual transport is via the
+        // heartbeat UDP loop in ha_cluster::heartbeat.
+        for peer in &peers {
+            info!(peer = %peer, bytes = frame.len(), "Gossip broadcast → peer");
+        }
+        Ok(sent)
     }
 }
 
