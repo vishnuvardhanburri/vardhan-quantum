@@ -22,6 +22,24 @@ pub async fn compute_leader(membership: &ClusterMembership) -> Option<NodeId> {
         .min_by(|a, b| a.0.cmp(&b.0))
 }
 
+/// P3.5: Compute the leader within a specific region.
+/// Falls back to the global leader if no healthy nodes exist in the region.
+pub async fn compute_leader_in_region(
+    membership: &ClusterMembership,
+    region: &str,
+) -> Option<NodeId> {
+    let healthy = membership.healthy_peers_in_region(region).await;
+    if !healthy.is_empty() {
+        healthy
+            .into_iter()
+            .map(|n| n.node_id)
+            .min_by(|a, b| a.0.cmp(&b.0))
+    } else {
+        // Cross-region fallback — active-active, so any healthy node can lead
+        compute_leader(membership).await
+    }
+}
+
 /// Returns true if `self_id` is the current leader.
 pub async fn is_leader(membership: &ClusterMembership, self_id: &NodeId) -> bool {
     match compute_leader(membership).await {
@@ -97,5 +115,46 @@ mod tests {
 
         assert!(is_leader(&m, &id_a).await);
         assert!(!is_leader(&m, &id_b).await);
+    }
+
+    #[tokio::test]
+    async fn test_compute_leader_in_region() {
+        let m = ClusterMembership::new();
+        // Register across two regions
+        m.register_self_with_region(
+            NodeId::new("node-a-ue1"),
+            "127.0.0.1:8001".parse().unwrap(),
+            18080, "us-east-1",
+        ).await;
+        m.register_self_with_region(
+            NodeId::new("node-b-ue1"),
+            "127.0.0.1:8002".parse().unwrap(),
+            18080, "us-east-1",
+        ).await;
+        m.register_self_with_region(
+            NodeId::new("node-c-ew1"),
+            "127.0.0.1:8003".parse().unwrap(),
+            18080, "eu-west-1",
+        ).await;
+
+        // Leader in us-east-1 should be "node-a-ue1" (lex smallest in region)
+        let leader_ue1 = compute_leader_in_region(&m, "us-east-1").await.unwrap();
+        assert_eq!(leader_ue1, NodeId::new("node-a-ue1"));
+
+        // Leader in eu-west-1 should be "node-c-ew1"
+        let leader_ew1 = compute_leader_in_region(&m, "eu-west-1").await.unwrap();
+        assert_eq!(leader_ew1, NodeId::new("node-c-ew1"));
+
+        // If all us-east-1 nodes die, fallback to global leader
+        {
+            let mut map = m.inner.write().await;
+            for id in [&NodeId::new("node-a-ue1"), &NodeId::new("node-b-ue1")] {
+                if let Some(n) = map.get_mut(id) {
+                    n.state = crate::NodeState::Dead;
+                }
+            }
+        }
+        let leader_ue1_after = compute_leader_in_region(&m, "us-east-1").await;
+        assert_eq!(leader_ue1_after.unwrap(), NodeId::new("node-c-ew1"));
     }
 }

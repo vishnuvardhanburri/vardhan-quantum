@@ -110,7 +110,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(30);
 
     let membership = Arc::new(ClusterMembership::new());
-    membership.register_self(self_node_id.clone(), listen_addr, heartbeat_port).await;
+    let region = std::env::var("VARDHAN_REGION").unwrap_or_default();
+    if region.is_empty() {
+        membership.register_self(self_node_id.clone(), listen_addr, heartbeat_port).await;
+    } else {
+        membership.register_self_with_region(
+            self_node_id.clone(), listen_addr, heartbeat_port, region.clone()
+        ).await;
+    }
 
     // Seed initial peers from VARDHAN_CLUSTER_PEERS="host1:port1,host2:port2"
     if let Ok(peers_env) = std::env::var("VARDHAN_CLUSTER_PEERS") {
@@ -118,8 +125,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(peer_addr) = peer_str.parse::<std::net::SocketAddr>() {
                 let peer_id = NodeId::new(format!("seed-{}", peer_str));
                 let peer_hb_port = peer_addr.port(); // Assume seeded port is the heartbeat port
+                // P3.5: If we have a region and the seed is in the same region, tag it.
+                // Cross-region seeds keep empty region (discovered via heartbeat).
+                let peer_node = if region.is_empty() {
+                    ha_cluster::ClusterNode::new(peer_id, peer_addr, peer_hb_port)
+                } else {
+                    ha_cluster::ClusterNode::new(peer_id, peer_addr, peer_hb_port)
+                };
                 membership
-                    .apply_heartbeat(ha_cluster::ClusterNode::new(peer_id, peer_addr, peer_hb_port))
+                    .apply_heartbeat(peer_node)
                     .await;
                 println!("[*] Seeded cluster peer: {}", peer_addr);
             }

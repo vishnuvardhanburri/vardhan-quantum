@@ -23,20 +23,25 @@ pub struct HeartbeatFrame {
     pub hb_port: u16,
     pub state: NodeState,
     pub epoch_ms: u64,
+    /// P3.5: Region tag propagated from ClusterNode. Defaults to ""
+    /// for backward compatibility with P3.4 heartbeat frames.
+    #[serde(default)]
+    pub region: String,
 }
 
 impl HeartbeatFrame {
-    fn from_node(node: &ClusterNode) -> Self {
+    pub(crate) fn from_node(node: &ClusterNode) -> Self {
         HeartbeatFrame {
             node_id: node.node_id.0.clone(),
             addr: node.addr.to_string(),
             hb_port: node.hb_port,
             state: node.state,
             epoch_ms: epoch_ms(),
+            region: node.region.clone(),
         }
     }
 
-    fn into_cluster_node(self) -> Option<ClusterNode> {
+    pub(crate) fn into_cluster_node(self) -> Option<ClusterNode> {
         let addr: SocketAddr = self.addr.parse().ok()?;
         Some(ClusterNode {
             node_id: NodeId::new(self.node_id),
@@ -44,6 +49,7 @@ impl HeartbeatFrame {
             hb_port: self.hb_port,
             state: self.state,
             last_seen_ms: self.epoch_ms,
+            region: self.region,
         })
     }
 }
@@ -163,7 +169,15 @@ pub async fn start_heartbeat(
                         if let Some(self_node) = self_node {
                             let frame = HeartbeatFrame::from_node(&self_node);
                             if let Ok(bytes) = serde_json::to_vec(&frame) {
-                                let peers = membership.healthy_peers().await;
+                                // P3.5: Prefer same-region peers; fall back to
+                                // cross-region if no healthy peers in-region.
+                                let self_region = self_node.region.clone();
+                                let peers = if self_region.is_empty() {
+                                    membership.healthy_peers().await
+                                } else {
+                                    let same = membership.healthy_peers_in_region(&self_region).await;
+                                    if !same.is_empty() { same } else { membership.healthy_peers().await }
+                                };
                                 for peer in peers {
                                     if peer.node_id == self_node_id { continue; }
                                     let hb_addr = SocketAddr::new(peer.addr.ip(), peer.hb_port);
@@ -206,6 +220,7 @@ mod tests {
             hb_port: 18080,
             state: NodeState::Healthy,
             last_seen_ms: 12345678,
+            region: String::new(),
         };
         let frame = HeartbeatFrame::from_node(&node);
         let json = serde_json::to_vec(&frame).unwrap();
@@ -237,6 +252,7 @@ mod tests {
             hb_port: 18080,
             state: NodeState::Healthy,
             epoch_ms: epoch_ms(),
+            region: "eu-central-1".to_string(),
         };
         let bytes = serde_json::to_vec(&peer_frame).unwrap();
         sender

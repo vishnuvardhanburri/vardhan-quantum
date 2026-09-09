@@ -83,6 +83,9 @@ pub struct ClusterNode {
     pub state: NodeState,
     /// Unix epoch milliseconds of last observed heartbeat.
     pub last_seen_ms: u64,
+    /// P3.5: Region tag (e.g. "us-east-1"). Empty = region-unaware (P3.4 compat).
+    #[serde(default)]
+    pub region: String,
 }
 
 impl ClusterNode {
@@ -93,6 +96,15 @@ impl ClusterNode {
             hb_port,
             state: NodeState::Healthy,
             last_seen_ms: epoch_ms(),
+            region: String::new(),
+        }
+    }
+
+    /// P3.5: Construct a node with an explicit region tag.
+    pub fn with_region(node_id: NodeId, addr: SocketAddr, hb_port: u16, region: impl Into<String>) -> Self {
+        ClusterNode {
+            region: region.into(),
+            ..Self::new(node_id, addr, hb_port)
         }
     }
 }
@@ -130,6 +142,27 @@ impl ClusterMembership {
         entry.state = NodeState::Healthy;
         entry.last_seen_ms = epoch_ms();
         info!(node_id = %node_id, addr = %addr, hb_port, "Registered self in cluster membership");
+    }
+
+    /// P3.5: Register self with an explicit region tag.
+    pub async fn register_self_with_region(
+        &self,
+        node_id: NodeId,
+        addr: SocketAddr,
+        hb_port: u16,
+        region: impl Into<String>,
+    ) {
+        let region = region.into();
+        let mut map = self.inner.write().await;
+        let entry = map
+            .entry(node_id.clone())
+            .or_insert_with(|| ClusterNode::with_region(node_id.clone(), addr, hb_port, region.clone()));
+        entry.addr = addr;
+        entry.hb_port = hb_port;
+        entry.region = region.clone();
+        entry.state = NodeState::Healthy;
+        entry.last_seen_ms = epoch_ms();
+        info!(node_id = %node_id, addr = %addr, hb_port, region = %region, "Registered self in cluster membership (region-aware)");
     }
 
     /// Record a heartbeat received from a peer.
@@ -218,6 +251,36 @@ impl ClusterMembership {
             .collect()
     }
 
+    /// P3.5: Return Healthy/Degraded nodes that belong to the given region.
+    /// If `region` is empty, returns peers with any (or no) region tag.
+    pub async fn healthy_peers_in_region(&self, region: &str) -> Vec<ClusterNode> {
+        if region.is_empty() {
+            return self.healthy_peers().await;
+        }
+        self.inner
+            .read()
+            .await
+            .values()
+            .filter(|n| n.region == region
+                && (n.state == NodeState::Healthy || n.state == NodeState::Degraded))
+            .cloned()
+            .collect()
+    }
+
+    /// P3.5: Return all nodes (any state) in the given region.
+    pub async fn nodes_in_region(&self, region: &str) -> Vec<ClusterNode> {
+        if region.is_empty() {
+            return self.all_nodes().await;
+        }
+        self.inner
+            .read()
+            .await
+            .values()
+            .filter(|n| n.region == region)
+            .cloned()
+            .collect()
+    }
+
     /// Return all known nodes (any state).
     pub async fn all_nodes(&self) -> Vec<ClusterNode> {
         self.inner.read().await.values().cloned().collect()
@@ -233,6 +296,7 @@ impl ClusterMembership {
                     "addr": n.addr.to_string(),
                     "state": n.state.to_string(),
                     "last_seen_ms": n.last_seen_ms,
+                    "region": n.region.as_str(),
                 })
             })
             .collect()
@@ -253,6 +317,7 @@ pub fn epoch_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::heartbeat::HeartbeatFrame;
 
     fn node_id(s: &str) -> NodeId {
         NodeId::new(s)
@@ -358,11 +423,88 @@ mod tests {
             hb_port: 18080,
             state: NodeState::Degraded,
             last_seen_ms: epoch_ms(),
+            region: String::new(),
         };
         membership.apply_heartbeat(heartbeat).await;
 
         let nodes = membership.all_nodes().await;
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].state, NodeState::Degraded);
+    }
+
+    // ── P3.5 region-aware tests ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_region_tagging_and_filtering() {
+        let membership = ClusterMembership::new();
+        membership
+            .register_self_with_region(node_id("node-ue1-a"), addr("127.0.0.1:8001"), 18080, "us-east-1")
+            .await;
+        membership
+            .register_self_with_region(node_id("node-ue1-b"), addr("127.0.0.1:8002"), 18080, "us-east-1")
+            .await;
+        membership
+            .register_self_with_region(node_id("node-ew1-a"), addr("127.0.0.1:8003"), 18080, "eu-west-1")
+            .await;
+
+        // All three nodes registered
+        let all = membership.all_nodes().await;
+        assert_eq!(all.len(), 3);
+
+        // us-east-1 has 2 healthy peers
+        let ue1 = membership.healthy_peers_in_region("us-east-1").await;
+        assert_eq!(ue1.len(), 2);
+
+        // eu-west-1 has 1 healthy peer
+        let ew1 = membership.healthy_peers_in_region("eu-west-1").await;
+        assert_eq!(ew1.len(), 1);
+        assert_eq!(ew1[0].node_id, node_id("node-ew1-a"));
+
+        // nodes_in_region includes dead nodes
+        {
+            let mut map = membership.inner.write().await;
+            if let Some(n) = map.get_mut(&node_id("node-ue1-b")) {
+                n.state = NodeState::Dead;
+            }
+        }
+        let ue1_nodes = membership.nodes_in_region("us-east-1").await;
+        assert_eq!(ue1_nodes.len(), 2); // still 2 nodes, one Dead
+        let ue1_healthy = membership.healthy_peers_in_region("us-east-1").await;
+        assert_eq!(ue1_healthy.len(), 1); // only the healthy one
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_propagates_region() {
+        let node = ClusterNode {
+            node_id: NodeId::new("node-region-peer"),
+            addr: "127.0.0.1:9090".parse().unwrap(),
+            hb_port: 18080,
+            state: NodeState::Healthy,
+            last_seen_ms: epoch_ms(),
+            region: "ap-southeast-2".to_string(),
+        };
+        let frame = HeartbeatFrame::from_node(&node);
+        assert_eq!(frame.region, "ap-southeast-2");
+
+        // Round-trip: region should survive serialization
+        let bytes = serde_json::to_vec(&frame).unwrap();
+        let parsed: HeartbeatFrame = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed.region, "ap-southeast-2");
+
+        let cluster_node = parsed.into_cluster_node().unwrap();
+        assert_eq!(cluster_node.region, "ap-southeast-2");
+    }
+
+    #[tokio::test]
+    async fn test_peer_snapshot_includes_region() {
+        let membership = ClusterMembership::new();
+        membership
+            .register_self_with_region(node_id("node-a"), addr("127.0.0.1:8080"), 18080, "us-west-2")
+            .await;
+
+        let snap = membership.peer_snapshot().await;
+        assert_eq!(snap.len(), 1);
+        let region_val = snap[0].get("region").and_then(|v| v.as_str());
+        assert_eq!(region_val, Some("us-west-2"));
     }
 }

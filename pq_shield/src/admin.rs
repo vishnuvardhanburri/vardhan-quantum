@@ -94,6 +94,8 @@ pub async fn run_admin_server(state: AdminState) {
         // P3.4: cluster endpoints
         .route("/api/v1/cluster/peers", get(cluster_peers))
         .route("/api/v1/cluster/drain", post(cluster_drain))
+        // P3.5: region-aware cluster endpoints
+        .route("/api/v1/cluster/peers/region/{region}", get(cluster_peers_in_region))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(cors)
@@ -381,7 +383,38 @@ async fn cluster_peers(State(state): State<AdminState>) -> impl IntoResponse {
     }
 }
 
-/// POST /api/v1/cluster/drain — Marks *this* node as Draining (admin-token protected).
+/// P3.5: GET /api/v1/cluster/peers/region/:region — Returns nodes in a specific region.
+async fn cluster_peers_in_region(
+    State(state): State<AdminState>,
+    axum::extract::Path(region): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match &state.cluster {
+        Some(cluster) => {
+            let peers = cluster.nodes_in_region(&region).await;
+            let nodes: Vec<serde_json::Value> = peers
+                .iter()
+                .map(|n| serde_json::json!({
+                    "node_id": n.node_id.as_str(),
+                    "addr": n.addr.to_string(),
+                    "state": n.state.to_string(),
+                    "last_seen_ms": n.last_seen_ms,
+                    "region": n.region.as_str(),
+                }))
+                .collect();
+            (StatusCode::OK, Json(serde_json::json!({
+                "region": region,
+                "node_count": nodes.len(),
+                "nodes": nodes,
+            })))
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "HA cluster not configured on this node"
+            })),
+        ),
+    }
+}
 /// The actual drain wait is handled by DrainController in main.rs on SIGTERM.
 /// This endpoint is a soft-drain signal for orchestrators that prefer HTTP over SIGTERM.
 async fn cluster_drain(State(state): State<AdminState>) -> impl IntoResponse {

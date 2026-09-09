@@ -65,6 +65,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: VARDHAN_REGION
+          value: "us-east-1"
         - name: VARDHAN_CLUSTER_PEERS
           value: "pq-shield-0.pq-shield-headless:18080,pq-shield-1.pq-shield-headless:18080,pq-shield-2.pq-shield-headless:18080"
         - name: VARDHAN_ADMIN_TOKEN
