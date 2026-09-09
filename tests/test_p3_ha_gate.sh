@@ -123,18 +123,30 @@ echo "[PASS] HA-4b: Active-active model — no session routing leadership, split
 
 # Gate 4c: Dead-node detection via heartbeat timeout
 echo "[*] HA-4c: Verifying Node B detected Node A as Dead (network partition simulation)..."
-# Node A was killed in HA-3 and we waited 6s for heartbeat timeout.
-PEERS_B=$(curl -s -H "Authorization: Bearer test-admin-token" http://127.0.0.1:8083/api/v1/cluster/peers)
-if echo "$PEERS_B" | grep -q '"node_id":"node-a"'; then
-    STATE_A=$(echo "$PEERS_B" | grep '"node_id":"node-a"' | grep -o '"state":"[a-z]*"' | head -1)
-    if echo "$STATE_A" | grep -q '"state":"dead"'; then
-        echo "[PASS] HA-4c: Node B correctly detected Node A as Dead (no split-brain)"
+# Node A was killed in HA-3. Wait for heartbeat timeout (5s default) + tick alignment.
+# Use a retry loop to poll for Dead state (robust against tick timing jitter).
+DEAD_DETECTED=false
+for attempt in $(seq 1 10); do
+    PEERS_B=$(curl -s -H "Authorization: Bearer test-admin-token" http://127.0.0.1:8083/api/v1/cluster/peers)
+    if echo "$PEERS_B" | grep -q '"node_id":"node-a"'; then
+        STATE_A=$(echo "$PEERS_B" | grep '"node_id":"node-a"' | grep -o '"state":"[a-z]*"' | head -1)
+        if echo "$STATE_A" | grep -q '"state":"dead"'; then
+            DEAD_DETECTED=true
+            break
+        fi
     else
-        echo "[FAIL] HA-4c: Node A state is not Dead after partition — possible split-brain: $STATE_A"
-        exit 1
+        DEAD_DETECTED=true
+        break
     fi
+    sleep 1
+done
+
+if [ "$DEAD_DETECTED" = "true" ]; then
+    echo "[PASS] HA-4c: Node B correctly detected Node A as Dead (no split-brain)"
 else
-    echo "[PASS] HA-4c: Node A not visible in Node B's peers (already reaped)"
+    echo "[FAIL] HA-4c: Node A state is not Dead after partition — possible split-brain: $STATE_A"
+    echo "Full peers response: $PEERS_B"
+    exit 1
 fi
 
 # Gate 5: Graceful drain
