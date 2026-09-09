@@ -169,18 +169,25 @@ pub async fn start_heartbeat(
                         if let Some(self_node) = self_node {
                             let frame = HeartbeatFrame::from_node(&self_node);
                             if let Ok(bytes) = serde_json::to_vec(&frame) {
-                                // P3.5: Prefer same-region peers; fall back to
-                                // cross-region if no healthy peers in-region.
-                                let self_region = self_node.region.clone();
-                                let peers = if self_region.is_empty() {
-                                    membership.healthy_peers().await
-                                } else {
-                                    let same = membership.healthy_peers_in_region(&self_region).await;
-                                    if !same.is_empty() { same } else { membership.healthy_peers().await }
-                                };
+                                // Heartbeats must reach ALL healthy peers to keep
+                                // the membership table fresh. Region preference
+                                // applies to traffic routing, not to the heartbeat
+                                // mesh itself — otherwise cross-region peers would
+                                // be starved and reaped as Dead.
+                                let peers = membership.healthy_peers().await;
                                 for peer in peers {
                                     if peer.node_id == self_node_id { continue; }
-                                    let hb_addr = SocketAddr::new(peer.addr.ip(), peer.hb_port);
+                                    // If the peer's reported addr uses the
+                                    // unspecified IP (0.0.0.0), we can't send
+                                    // UDP to it directly. Fall back to localhost.
+                                    let ip = if peer.addr.ip()
+                                        == std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)
+                                    {
+                                        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+                                    } else {
+                                        peer.addr.ip()
+                                    };
+                                    let hb_addr = SocketAddr::new(ip, peer.hb_port);
                                     let _ = socket.send_to(&bytes, hb_addr).await;
                                     debug!(target = %hb_addr, "Heartbeat sent");
                                 }

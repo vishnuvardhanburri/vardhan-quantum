@@ -180,10 +180,13 @@ impl ClusterMembership {
             entry.addr = node.addr;
             entry.hb_port = node.hb_port;
             entry.last_seen_ms = node.last_seen_ms;
-            // Respect Draining/Dead state even if peer reports Healthy
-            // (peer may have lagged). We do not override Dead → Healthy via heartbeat;
-            // that only happens via explicit re-registration.
-            if entry.state != NodeState::Dead {
+            // Allow Dead → Healthy transition when the heartbeat carries a
+            // newer timestamp — this means the peer has genuinely restarted
+            // and is sending fresh heartbeats (not a stale/lagged packet).
+            // We still do NOT override an explicit Draining state, which is
+            // set locally via graceful shutdown and should only be cleared by
+            // explicit re-registration (mark_healthy).
+            if entry.state != NodeState::Draining {
                 entry.state = node.state;
             }
         }
