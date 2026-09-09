@@ -1,0 +1,428 @@
+# P3.5.4: Multi-Region Production Deployment
+#
+# Deploys pq-shield StatefulSet + Service across two AWS regions:
+#   us-east-1: 2 pods (pq-shield-0, pq-shield-1)
+#   eu-west-1: 2 pods (pq-shield-2, pq-shield-3)
+#
+# Each region has its own:
+#   - StatefulSet (region-tagged via VARDHAN_REGION env)
+#   - Headless Service (for intra-region DNS)
+#   - LoadBalancer Service (for ingress)
+#   - PodDisruptionBudget (minAvailable: 1 per region)
+#
+# Cross-region cluster membership is configured via VARDHAN_CLUSTER_PEERS
+# using fully-qualified DNS names for each region's headless service.
+
+# ════════════════════════════════════════════════════════════════════════════
+# us-east-1 Region
+# ════════════════════════════════════════════════════════════════════════════
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pq-shield-ue1-headless
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    topology.kubernetes.io/region: us-east-1
+spec:
+  clusterIP: None
+  ports:
+  - port: 18080
+    name: heartbeat-ue1
+    protocol: UDP
+  - port: 18081
+    name: heartbeat-ue1-1
+    protocol: UDP
+  - port: 18082
+    name: heartbeat-ue1-2
+    protocol: UDP
+  - port: 18083
+    name: heartbeat-ue1-3
+    protocol: UDP
+  selector:
+    app: pq-shield
+    topology.kubernetes.io/region: us-east-1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pq-shield-ue1-lb
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    topology.kubernetes.io/region: us-east-1
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: proxy
+  - port: 8081
+    targetPort: 8081
+    name: admin
+  selector:
+    app: pq-shield
+    topology.kubernetes.io/region: us-east-1
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pq-shield-ue1
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    topology.kubernetes.io/region: us-east-1
+spec:
+  serviceName: "pq-shield-ue1-headless"
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pq-shield
+      topology.kubernetes.io/region: us-east-1
+  volumeClaimTemplates:
+  - metadata:
+      name: data-volume
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: ledger-volume
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 5Gi
+  template:
+    metadata:
+      labels:
+        app: pq-shield
+        topology.kubernetes.io/region: us-east-1
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: pq-shield
+              topology.kubernetes.io/region: us-east-1
+      containers:
+      - name: pq-shield
+        image: vardhan-quantum/pq_shield:prod-latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: proxy
+        - containerPort: 8081
+          name: admin
+        - containerPort: 18080
+          name: heartbeat
+          protocol: UDP
+        - containerPort: 18081
+          name: heartbeat-1
+          protocol: UDP
+        - containerPort: 18082
+          name: heartbeat-2
+          protocol: UDP
+        - containerPort: 18083
+          name: heartbeat-3
+          protocol: UDP
+        env:
+        - name: VARDHAN_ENV
+          value: "production"
+        - name: VARDHAN_KEY_PROTECTOR
+          value: "aws-kms-real"
+        - name: VARDHAN_KMS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: pq-shield-kms
+              keys: [ {key: kms-key-id, path: kms-key-id} ]
+        - name: VARDHAN_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: VARDHAN_REGION
+          value: "us-east-1"
+        - name: VARDHAN_PORT
+          value: "8080"
+        - name: VARDHAN_ADMIN_PORT
+          value: "8081"
+        - name: VARDHAN_HEARTBEAT_PORT
+          value: "18080"
+        # Cross-region peer discovery via headless service DNS
+        - name: VARDHAN_CLUSTER_PEERS
+          value: "pq-shield-ue1-headless.pq-shield.svc.cluster.local:18081,pq-shield-ue1-headless.pq-shield.svc.cluster.local:18082,pq-shield-euw1-headless.pq-shield.svc.cluster.local:18080,pq-shield-euw1-headless.pq-shield.svc.cluster.local:18081"
+        - name: VARDHAN_ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pq-shield-admin
+              key: token
+        - name: VARDHAN_ADMIN_CORS_ORIGIN
+          value: "*"
+        - name: VARDHAN_UPSTREAM
+          value: "legacy-banking-service.internal.svc.cluster.local:8080"
+        - name: VARDHAN_VAULT_PATH
+          value: "/data/vault/pq_vault.json"
+        - name: VARDHAN_KEK_PATH
+          value: "/data/vault/kek.bin"
+        - name: VARDHAN_LEDGER_PATH
+          value: "/data/ledger/ledger.jsonl"
+        - name: VARDHAN_DRAIN_TIMEOUT_SECS
+          value: "30"
+        resources:
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /api/v1/cluster/peers
+            port: admin
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /api/v1/metrics
+            port: admin
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - "curl -X POST -H 'Authorization: Bearer ${VARDHAN_ADMIN_TOKEN}' http://localhost:8081/api/v1/cluster/drain || true"
+        volumeMounts:
+        - name: data-volume
+          mountPath: /data/vault
+          subPathDir: vault
+        - name: ledger-volume
+          mountPath: /data/ledger
+          subPathDir: ledger
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pq-shield-ue1-pdb
+  namespace: pq-shield
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pq-shield
+      topology.kubernetes.io/region: us-east-1
+
+# ════════════════════════════════════════════════════════════════════════════
+# eu-west-1 Region
+# ════════════════════════════════════════════════════════════════════════════
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pq-shield-euw1-headless
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    topology.kubernetes.io/region: eu-west-1
+spec:
+  clusterIP: None
+  ports:
+  - port: 18082
+    name: heartbeat-euw1-0
+    protocol: UDP
+  - port: 18083
+    name: heartbeat-euw1-1
+    protocol: UDP
+  - port: 18080
+    name: heartbeat-euw1-2
+    protocol: UDP
+  - port: 18081
+    name: heartbeat-euw1-3
+    protocol: UDP
+  selector:
+    app: pq-shield
+    topology.kubernetes.io/region: eu-west-1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pq-shield-euw1-lb
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    topology.kubernetes.io/region: eu-west-1
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: proxy
+  - port: 8081
+    targetPort: 8081
+    name: admin
+  selector:
+    app: pq-shield
+    topology.kubernetes.io/region: eu-west-1
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pq-shield-euw1
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    topology.kubernetes.io/region: eu-west-1
+spec:
+  serviceName: "pq-shield-euw1-headless"
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pq-shield
+      topology.kubernetes.io/region: eu-west-1
+  volumeClaimTemplates:
+  - metadata:
+      name: data-volume
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: ledger-volume
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 5Gi
+  template:
+    metadata:
+      labels:
+        app: pq-shield
+        topology.kubernetes.io/region: eu-west-1
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: pq-shield
+              topology.kubernetes.io/region: eu-west-1
+      containers:
+      - name: pq-shield
+        image: vardhan-quantum/pq_shield:prod-latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: proxy
+        - containerPort: 8081
+          name: admin
+        - containerPort: 18082
+          name: heartbeat
+          protocol: UDP
+        - containerPort: 18083
+          name: heartbeat-1
+          protocol: UDP
+        - containerPort: 18080
+          name: heartbeat-2
+          protocol: UDP
+        - containerPort: 18081
+          name: heartbeat-3
+          protocol: UDP
+        env:
+        - name: VARDHAN_ENV
+          value: "production"
+        - name: VARDHAN_KEY_PROTECTOR
+          value: "aws-kms-real"
+        - name: VARDHAN_KMS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: pq-shield-kms-euw1
+              key: kms-key-id
+        - name: VARDHAN_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: VARDHAN_REGION
+          value: "eu-west-1"
+        - name: VARDHAN_PORT
+          value: "8080"
+        - name: VARDHAN_ADMIN_PORT
+          value: "8081"
+        - name: VARDHAN_HEARTBEAT_PORT
+          value: "18082"
+        # Cross-region peer discovery via headless service DNS
+        - name: VARDHAN_CLUSTER_PEERS
+          value: "pq-shield-euw1-headless.pq-shield.svc.cluster.local:18083,pq-shield-euw1-headless.pq-shield.svc.cluster.local:18080,pq-shield-ue1-headless.pq-shield.svc.cluster.local:18080,pq-shield-ue1-headless.pq-shield.svc.cluster.local:18081"
+        - name: VARDHAN_ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pq-shield-admin-euw1
+              key: token
+        - name: VARDHAN_ADMIN_CORS_ORIGIN
+          value: "*"
+        - name: VARDHAN_UPSTREAM
+          value: "legacy-banking-service-euw1.internal.svc.cluster.local:8080"
+        - name: VARDHAN_VAULT_PATH
+          value: "/data/vault/pq_vault.json"
+        - name: VARDHAN_KEK_PATH
+          value: "/data/vault/kek.bin"
+        - name: VARDHAN_LEDGER_PATH
+          value: "/data/ledger/ledger.jsonl"
+        - name: VARDHAN_DRAIN_TIMEOUT_SECS
+          value: "30"
+        resources:
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /api/v1/cluster/peers
+            port: admin
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /api/v1/metrics
+            port: admin
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - "curl -X POST -H 'Authorization: Bearer ${VARDHAN_ADMIN_TOKEN}' http://localhost:8081/api/v1/cluster/drain || true"
+        volumeMounts:
+        - name: data-volume
+          mountPath: /data/vault
+          subPathDir: vault
+        - name: ledger-volume
+          mountPath: /data/ledger
+          subPathDir: ledger
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pq-shield-euw1-pdb
+  namespace: pq-shield
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pq-shield
+      topology.kubernetes.io/region: eu-west-1

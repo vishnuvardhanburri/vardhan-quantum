@@ -56,6 +56,32 @@ jobs:
       run: bash tests/test_p3_ha_gate.sh
       timeout-minutes: 5
 
+  # ── P3.5.3: Cross-Region HA Integration Test ────────────────────────────────
+  cross-region-integration-test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-xr
+
+    - name: Install jq
+      run: sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Build Release Binaries
+      run: cargo build --workspace
+
+    - name: Run P3.5.3 Cross-Region HA Gate
+      run: bash tests/test_p3_5_3_cross_region.sh
+      timeout-minutes: 5
+
   # ── P3.5.1: Live AWS KMS Validation (manual, requires AWS credentials) ─────
   aws-kms-validation:
     runs-on: ubuntu-latest
