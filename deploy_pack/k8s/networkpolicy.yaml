@@ -1,0 +1,100 @@
+# P3.6: Network policies for pq-shield cluster.
+# Implements zero-trust network segmentation:
+#   - Ingress: proxy port (8080) open to all (external LB); admin/metrics (8081/9090)
+#     restricted to monitoring pods; heartbeat (UDP 18080-18083) cluster-internal only.
+#   - Egress: deny all except upstream service + DNS for service discovery.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pq-shield-ingress
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    p3.6-security: "true"
+spec:
+  podSelector:
+    matchLabels:
+      app: pq-shield
+  policyTypes:
+    - Ingress
+  ingress:
+    # Proxy traffic from external load balancer (port 8080)
+    - from:
+        - namespaceSelector: {}
+          # Allow from any namespace — external traffic arrives via LoadBalancer
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Admin + metrics API: restricted to monitoring namespace/pods
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+        - podSelector:
+            matchLabels:
+              role: monitoring
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 9090
+    # Heartbeat mesh: intra-cluster only
+    - from:
+        - podSelector:
+            matchLabels:
+              app: pq-shield
+      ports:
+        - protocol: UDP
+          port: 18080
+        - protocol: UDP
+          port: 18081
+        - protocol: UDP
+          port: 18082
+        - protocol: UDP
+          port: 18083
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pq-shield-egress
+  namespace: pq-shield
+  labels:
+    app: pq-shield
+    p3.6-security: "true"
+spec:
+  podSelector:
+    matchLabels:
+      app: pq-shield
+  policyTypes:
+    - Egress
+  egress:
+    # Upstream banking service
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 8080
+    # DNS for cluster service discovery
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+        - podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # KMS API (for aws-kms-real protector in production)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0  # AWS KMS endpoints are region-specific; use gateway in prod
+      ports:
+        - protocol: TCP
+          port: 443

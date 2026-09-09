@@ -28,9 +28,12 @@ spec:
         - name: pq-shield-ebpf-agent
           image: vardhan-quantum/pq_shield:latest
           securityContext:
-            privileged: true # Required for eBPF program injection via bpf() syscall
+            privileged: false # P3.6: replaced privileged:true with granular caps
             capabilities:
               add: ["CAP_BPF", "CAP_NET_ADMIN", "CAP_PERFMON"]
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - name: bpf-fs
               mountPath: /sys/fs/bpf

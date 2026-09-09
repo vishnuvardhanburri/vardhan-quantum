@@ -32,6 +32,13 @@ spec:
               value: {{ .Values.upstream.host | quote }}
             - name: UPSTREAM_PORT
               value: {{ .Values.upstream.port | quote }}
+            - name: VARDHAN_ADMIN_CORS_ORIGIN
+              value: {{ .Values.admin.corsOrigin | quote }}
+            - name: VARDHAN_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.tokenSecretName }}
+                  key: {{ .Values.admin.tokenSecretKey }}
           ports:
             - name: http-ingress
               containerPort: 8080

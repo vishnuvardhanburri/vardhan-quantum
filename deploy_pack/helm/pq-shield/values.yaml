@@ -32,6 +32,8 @@ securityContext:
   readOnlyRootFilesystem: true
   runAsNonRoot: true
   runAsUser: 10001
+  seccompProfile:
+    type: RuntimeDefault
   capabilities:
     drop:
       - ALL
@@ -41,3 +43,13 @@ autoscaling:
   minReplicas: 3
   maxReplicas: 20
   targetCPUUtilizationPercentage: 70
+
+# P3.6: Security hardening
+admin:
+  # CORS origin for the admin API. Must NOT be "*" in production.
+  corsOrigin: "https://admin.vardhan.example.com"
+  # Reference to a Kubernetes Secret containing the admin token.
+  # Create via: kubectl create secret generic pq-shield-admin \
+  #   --from-literal=token=$(openssl rand -hex 32)
+  tokenSecretName: "pq-shield-admin"
+  tokenSecretKey: "token"

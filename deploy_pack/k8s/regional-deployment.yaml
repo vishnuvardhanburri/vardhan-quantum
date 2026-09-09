@@ -115,6 +115,16 @@ spec:
       - name: pq-shield
         image: vardhan-quantum/pq_shield:prod-latest
         imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 8080
           name: proxy
@@ -163,7 +173,7 @@ spec:
               name: pq-shield-admin
               key: token
         - name: VARDHAN_ADMIN_CORS_ORIGIN
-          value: "*"
+          value: "https://admin.vardhan.example.com"
         - name: VARDHAN_UPSTREAM
           value: "legacy-banking-service.internal.svc.cluster.local:8080"
         - name: VARDHAN_VAULT_PATH
@@ -322,6 +332,16 @@ spec:
       - name: pq-shield
         image: vardhan-quantum/pq_shield:prod-latest
         imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 8080
           name: proxy
@@ -370,7 +390,7 @@ spec:
               name: pq-shield-admin-euw1
               key: token
         - name: VARDHAN_ADMIN_CORS_ORIGIN
-          value: "*"
+          value: "https://admin.vardhan.example.com"
         - name: VARDHAN_UPSTREAM
           value: "legacy-banking-service-euw1.internal.svc.cluster.local:8080"
         - name: VARDHAN_VAULT_PATH

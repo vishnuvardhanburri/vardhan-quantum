@@ -48,6 +48,16 @@ spec:
       - name: pq-shield
         image: vardhan-quantum-proxy:latest
         imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 8080
           name: proxy
@@ -70,9 +80,12 @@ spec:
         - name: VARDHAN_CLUSTER_PEERS
           value: "pq-shield-0.pq-shield-headless:18080,pq-shield-1.pq-shield-headless:18080,pq-shield-2.pq-shield-headless:18080"
         - name: VARDHAN_ADMIN_TOKEN
-          value: "cluster-admin-token"
+          valueFrom:
+            secretKeyRef:
+              name: pq-shield-admin
+              key: token
         - name: VARDHAN_ADMIN_CORS_ORIGIN
-          value: "*"
+          value: "https://admin.vardhan.example.com"
         - name: VARDHAN_UPSTREAM
           value: "mock-upstream:9090"
         # P3.4: Persist quantum identity and ledger across restarts
@@ -109,4 +122,4 @@ spec:
               command:
               - /bin/sh
               - -c
-              - "curl -X POST -H 'Authorization: Bearer cluster-admin-token' http://localhost:8081/api/v1/cluster/drain || true"
+            - "curl -X POST -H 'Authorization: Bearer ${VARDHAN_ADMIN_TOKEN}' http://localhost:8081/api/v1/cluster/drain || true"
