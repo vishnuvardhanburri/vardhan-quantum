@@ -1,31 +1,30 @@
+use crate::telemetry::{MetricsSnapshot, QuantumEvent};
+use audit_ledger::{schema, LedgerEntry};
 use axum::{
-    routing::{get, post},
-    Router,
+    extract::Request,
+    extract::State,
+    http::header,
+    http::StatusCode,
+    middleware::{self, Next},
     response::sse::{Event, Sse},
     response::IntoResponse,
-    Json,
-    extract::State,
-    http::StatusCode,
-    http::header,
-    middleware::{self, Next},
-    extract::Request,
+    routing::{get, post},
+    Json, Router,
 };
-use std::sync::Arc;
+use core_crypto::QuantumNodeIdentity;
+use ha_cluster::{ClusterMembership, NodeId, NodeState};
+use serde::Serialize;
+use std::collections::VecDeque;
+use std::convert::Infallible;
 use std::path::PathBuf;
+use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tokio::sync::broadcast;
+use tokio::sync::RwLock;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
-use std::convert::Infallible;
-use tower_http::cors::{CorsLayer, AllowOrigin};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
-use crate::telemetry::{MetricsSnapshot, QuantumEvent};
-use tokio::sync::RwLock;
-use subtle::ConstantTimeEq;
-use std::collections::VecDeque;
-use core_crypto::QuantumNodeIdentity;
-use audit_ledger::{LedgerEntry, schema};
-use serde::Serialize;
-use ha_cluster::{ClusterMembership, NodeId, NodeState};
 
 #[derive(Clone)]
 pub struct AdminState {
@@ -46,7 +45,11 @@ pub struct AdminState {
     pub self_node_id: Option<NodeId>,
 }
 
-async fn auth_middleware(State(state): State<AdminState>, req: Request, next: Next) -> Result<axum::response::Response, StatusCode> {
+async fn auth_middleware(
+    State(state): State<AdminState>,
+    req: Request,
+    next: Next,
+) -> Result<axum::response::Response, StatusCode> {
     if req.method() == axum::http::Method::OPTIONS {
         return Ok(next.run(req).await);
     }
@@ -54,7 +57,11 @@ async fn auth_middleware(State(state): State<AdminState>, req: Request, next: Ne
     let expected_bearer = format!("Bearer {}", state.admin_token);
 
     if let Some(auth_header) = req.headers().get(header::AUTHORIZATION) {
-        if auth_header.as_bytes().ct_eq(expected_bearer.as_bytes()).into() {
+        if auth_header
+            .as_bytes()
+            .ct_eq(expected_bearer.as_bytes())
+            .into()
+        {
             return Ok(next.run(req).await);
         }
     }
@@ -62,8 +69,9 @@ async fn auth_middleware(State(state): State<AdminState>, req: Request, next: Ne
 }
 
 pub async fn run_admin_server(state: AdminState) {
-    let origins_str = std::env::var("VARDHAN_ADMIN_CORS_ORIGIN")
-        .expect("FATAL: VARDHAN_ADMIN_CORS_ORIGIN must be explicitly set (e.g., 'null' for local files)");
+    let origins_str = std::env::var("VARDHAN_ADMIN_CORS_ORIGIN").expect(
+        "FATAL: VARDHAN_ADMIN_CORS_ORIGIN must be explicitly set (e.g., 'null' for local files)",
+    );
 
     let cors_origin = if origins_str == "*" {
         AllowOrigin::any()
@@ -77,11 +85,15 @@ pub async fn run_admin_server(state: AdminState) {
 
     let cors = CorsLayer::new()
         .allow_origin(cors_origin)
-        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::OPTIONS])
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
         .allow_headers([
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
-            axum::http::header::HeaderName::from_static("last-event-id")
+            axum::http::header::HeaderName::from_static("last-event-id"),
         ]);
 
     let app = Router::new()
@@ -95,14 +107,19 @@ pub async fn run_admin_server(state: AdminState) {
         .route("/api/v1/cluster/peers", get(cluster_peers))
         .route("/api/v1/cluster/drain", post(cluster_drain))
         // P3.5: region-aware cluster endpoints
-        .route("/api/v1/cluster/peers/region/{region}", get(cluster_peers_in_region))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .route(
+            "/api/v1/cluster/peers/region/{region}",
+            get(cluster_peers_in_region),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(cors)
         .with_state(state);
 
-    let admin_port = std::env::var("VARDHAN_ADMIN_PORT")
-        .unwrap_or_else(|_| "8081".to_string());
+    let admin_port = std::env::var("VARDHAN_ADMIN_PORT").unwrap_or_else(|_| "8081".to_string());
     let bind_addr = format!("0.0.0.0:{}", admin_port);
     let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
     tracing::info!("Admin / Telemetry API running on http://{}", bind_addr);
@@ -113,7 +130,10 @@ async fn prometheus_metrics(State(state): State<AdminState>) -> impl IntoRespons
     let body = state.prometheus.encode();
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
         body,
     )
 }
@@ -175,12 +195,13 @@ async fn ledger_export(State(state): State<AdminState>) -> axum::response::Respo
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             "Durable ledger not configured. Set VARDHAN_LEDGER_PATH and restart.",
-        ).into_response();
+        )
+            .into_response();
     };
 
     // Determine export directory: VARDHAN_EXPORT_PATH / {timestamp_ms}
-    let export_base = std::env::var("VARDHAN_EXPORT_PATH")
-        .unwrap_or_else(|_| "/tmp/vardhan_exports".to_string());
+    let export_base =
+        std::env::var("VARDHAN_EXPORT_PATH").unwrap_or_else(|_| "/tmp/vardhan_exports".to_string());
     let timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -188,26 +209,42 @@ async fn ledger_export(State(state): State<AdminState>) -> axum::response::Respo
     let export_dir = PathBuf::from(&export_base).join(format!("{timestamp_ms}"));
 
     if let Err(e) = std::fs::create_dir_all(&export_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot create export dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Cannot create export dir: {e}"),
+        )
+            .into_response();
     }
 
     // 1. Copy ledger file
     let dest_ledger = export_dir.join("ledger.jsonl");
     if let Err(e) = std::fs::copy(ledger_path, &dest_ledger) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot copy ledger: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Cannot copy ledger: {e}"),
+        )
+            .into_response();
     }
 
     // 2. Read all entries to get count and tip_hash
     let content = match std::fs::read_to_string(&dest_ledger) {
         Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot read ledger copy: {e}")).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot read ledger copy: {e}"),
+            )
+                .into_response()
+        }
     };
 
     let mut entry_count = 0u64;
     let mut tip_hash = "0".repeat(64);
 
     for line in content.lines() {
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
         if let Ok(entry) = serde_json::from_str::<LedgerEntry>(line) {
             entry_count += 1;
             tip_hash = hex::encode(entry.canonical_hash());
@@ -219,13 +256,21 @@ async fn ledger_export(State(state): State<AdminState>) -> axum::response::Respo
     let pub_key_hex = hex::encode(&pub_key_bytes);
     let pub_key_path = export_dir.join("public_key.hex");
     if let Err(e) = std::fs::write(&pub_key_path, &pub_key_hex) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot write public key: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Cannot write public key: {e}"),
+        )
+            .into_response();
     }
 
     // 4. Write schema.json
     let schema_path = export_dir.join("schema.json");
     if let Err(e) = schema::write_schema(&schema_path) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot write schema: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Cannot write schema: {e}"),
+        )
+            .into_response();
     }
 
     // 4.5 Write INSTRUCTIONS.md
@@ -241,9 +286,9 @@ The verifier will check chain integrity (BLAKE3), sequence integrity, and all ML
     let _ = std::fs::write(&instructions_path, instructions);
 
     // 5. Build signed manifest
-    let signer_pub_fingerprint = hex::encode(
-        core_crypto::QuantumNodeIdentity::hash_ledger_block(&pub_key_bytes)
-    );
+    let signer_pub_fingerprint = hex::encode(core_crypto::QuantumNodeIdentity::hash_ledger_block(
+        &pub_key_bytes,
+    ));
     let tip_hash_bytes = hex::decode(&tip_hash).unwrap_or_default();
 
     // Canonical manifest bytes for signing
@@ -251,11 +296,18 @@ The verifier will check chain integrity (BLAKE3), sequence integrity, and all ML
     manifest_canonical.extend_from_slice(&(timestamp_ms as u64).to_le_bytes());
     manifest_canonical.extend_from_slice(&entry_count.to_le_bytes());
     manifest_canonical.extend_from_slice(&tip_hash_bytes);
-    let manifest_canonical_hash = core_crypto::QuantumNodeIdentity::hash_ledger_block(&manifest_canonical);
+    let manifest_canonical_hash =
+        core_crypto::QuantumNodeIdentity::hash_ledger_block(&manifest_canonical);
 
     let manifest_signature = match state.identity.sign_payload(&manifest_canonical_hash) {
         Ok(sig) => hex::encode(sig),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot sign manifest: {e}")).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot sign manifest: {e}"),
+            )
+                .into_response()
+        }
     };
 
     let manifest = ExportManifest {
@@ -272,10 +324,20 @@ The verifier will check chain integrity (BLAKE3), sequence integrity, and all ML
     match serde_json::to_string_pretty(&manifest) {
         Ok(s) => {
             if let Err(e) = std::fs::write(&manifest_path, s) {
-                return (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot write manifest: {e}")).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Cannot write manifest: {e}"),
+                )
+                    .into_response();
             }
         }
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot serialize manifest: {e}")).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot serialize manifest: {e}"),
+            )
+                .into_response()
+        }
     }
 
     tracing::info!(
@@ -324,12 +386,15 @@ async fn sse_handler(
         drop(history);
 
         if !found {
-            let wrapped = state.history_wrapped.load(std::sync::atomic::Ordering::Relaxed);
+            let wrapped = state
+                .history_wrapped
+                .load(std::sync::atomic::Ordering::Relaxed);
             if wrapped {
                 return (
                     StatusCode::GONE,
                     "Last-Event-ID has expired from the replay buffer. Full resync required.",
-                ).into_response();
+                )
+                    .into_response();
             }
         }
 
@@ -369,10 +434,13 @@ async fn cluster_peers(State(state): State<AdminState>) -> impl IntoResponse {
     match &state.cluster {
         Some(cluster) => {
             let peers = cluster.peer_snapshot().await;
-            (StatusCode::OK, Json(serde_json::json!({
-                "node_count": peers.len(),
-                "nodes": peers,
-            })))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "node_count": peers.len(),
+                    "nodes": peers,
+                })),
+            )
         }
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -393,19 +461,24 @@ async fn cluster_peers_in_region(
             let peers = cluster.nodes_in_region(&region).await;
             let nodes: Vec<serde_json::Value> = peers
                 .iter()
-                .map(|n| serde_json::json!({
-                    "node_id": n.node_id.as_str(),
-                    "addr": n.addr.to_string(),
-                    "state": n.state.to_string(),
-                    "last_seen_ms": n.last_seen_ms,
-                    "region": n.region.as_str(),
-                }))
+                .map(|n| {
+                    serde_json::json!({
+                        "node_id": n.node_id.as_str(),
+                        "addr": n.addr.to_string(),
+                        "state": n.state.to_string(),
+                        "last_seen_ms": n.last_seen_ms,
+                        "region": n.region.as_str(),
+                    })
+                })
                 .collect();
-            (StatusCode::OK, Json(serde_json::json!({
-                "region": region,
-                "node_count": nodes.len(),
-                "nodes": nodes,
-            })))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "region": region,
+                    "node_count": nodes.len(),
+                    "nodes": nodes,
+                })),
+            )
         }
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -424,30 +497,37 @@ async fn cluster_drain(State(state): State<AdminState>) -> impl IntoResponse {
             // Find THIS node in the membership table by our stable node_id.
             let self_entry = nodes.iter().find(|n| &n.node_id == self_id);
             match self_entry {
-                Some(node) if matches!(node.state, NodeState::Draining) => {
-                    (StatusCode::CONFLICT, Json(serde_json::json!({
+                Some(node) if matches!(node.state, NodeState::Draining) => (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
                         "error": "Node is already draining"
-                    })))
-                }
+                    })),
+                ),
                 Some(_) => {
                     let _ = cluster.mark_draining(self_id).await;
                     tracing::warn!(node_id = %self_id, "Admin-initiated drain via /cluster/drain");
-                    (StatusCode::OK, Json(serde_json::json!({
-                        "status": "draining",
-                        "node_id": self_id.as_str(),
-                        "message": "Self node marked Draining. Send SIGTERM to complete graceful shutdown."
-                    })))
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "status": "draining",
+                            "node_id": self_id.as_str(),
+                            "message": "Self node marked Draining. Send SIGTERM to complete graceful shutdown."
+                        })),
+                    )
                 }
                 None => {
                     // Self not yet in the membership table (e.g., before first heartbeat).
                     // Mark it draining anyway so the accept loop sees the state.
                     let _ = cluster.mark_draining(self_id).await;
                     tracing::warn!(node_id = %self_id, "Admin-initiated drain (self not yet in membership table)");
-                    (StatusCode::OK, Json(serde_json::json!({
-                        "status": "draining",
-                        "node_id": self_id.as_str(),
-                        "message": "Self node not yet in membership table — marked Draining anyway."
-                    })))
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "status": "draining",
+                            "node_id": self_id.as_str(),
+                            "message": "Self node not yet in membership table — marked Draining anyway."
+                        })),
+                    )
                 }
             }
         }

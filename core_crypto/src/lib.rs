@@ -7,16 +7,16 @@ pub mod avx512;
 
 pub mod vault;
 
-use ml_kem::kem::{Decapsulate, Encapsulate};
-use ml_kem::{Ciphertext, EncodedSizeUser, KemCore, MlKem1024, SharedKey};
+use crate::vault::{EncryptedEnvelope, KeyProtector, VaultError};
 use fips204::ml_dsa_87;
 use fips204::traits::{SerDes, Signer, Verifier};
+use ml_kem::kem::{Decapsulate, Encapsulate};
+use ml_kem::{Ciphertext, EncodedSizeUser, KemCore, MlKem1024, SharedKey};
 use rand::rngs::OsRng;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
-use crate::vault::{KeyProtector, EncryptedEnvelope, VaultError};
 
 /// ML-KEM-1024 encapsulation key byte length (1568 bytes).
 pub const ENCAP_KEY_LEN: usize = 1568;
@@ -42,7 +42,7 @@ pub const DSA_SIG_LEN: usize = ml_dsa_87::SIG_LEN; // 4627
 pub struct QuantumNodeIdentity {
     kem_encap_key: <MlKem1024 as KemCore>::EncapsulationKey,
     pub dsa_public_key: ml_dsa_87::PublicKey,
-    
+
     // Hardened secret keys: stored as zeroized byte arrays
     kem_decap_key_bytes: zeroize::Zeroizing<Vec<u8>>,
     dsa_private_key_bytes: zeroize::Zeroizing<[u8; ml_dsa_87::SK_LEN]>,
@@ -81,16 +81,25 @@ impl QuantumNodeIdentity {
             let env_json = std::fs::read_to_string(vault_path)?;
             let env: EncryptedEnvelope = serde_json::from_str(&env_json)?;
             let plaintext = vault::unwrap_envelope(protector, &env)?;
-            
+
             let stored: StoredIdentity = serde_json::from_slice(&plaintext)?;
-            
+
             // Reconstruct ML-KEM
-            let ek_arr: [u8; ENCAP_KEY_LEN] = stored.kem_encap_key_bytes.as_slice().try_into().map_err(|_| "Invalid encap key length")?;
-            let ek_encoded = ml_kem::Encoded::<<MlKem1024 as KemCore>::EncapsulationKey>::from(ek_arr);
+            let ek_arr: [u8; ENCAP_KEY_LEN] = stored
+                .kem_encap_key_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "Invalid encap key length")?;
+            let ek_encoded =
+                ml_kem::Encoded::<<MlKem1024 as KemCore>::EncapsulationKey>::from(ek_arr);
             let ek = <MlKem1024 as KemCore>::EncapsulationKey::from_bytes(&ek_encoded);
-            
+
             // Reconstruct ML-DSA
-            let pk_arr: [u8; ml_dsa_87::PK_LEN] = stored.dsa_public_key_bytes.as_slice().try_into().map_err(|_| "Invalid DSA pk length")?;
+            let pk_arr: [u8; ml_dsa_87::PK_LEN] = stored
+                .dsa_public_key_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "Invalid DSA pk length")?;
             let pk = ml_dsa_87::PublicKey::try_from_bytes(pk_arr).map_err(|e| e.to_string())?;
 
             let mut dsa_sk = [0u8; ml_dsa_87::SK_LEN];
@@ -105,7 +114,7 @@ impl QuantumNodeIdentity {
         }
 
         let new_id = Self::generate_node_identity()?;
-        
+
         let mut stored = StoredIdentity {
             kem_encap_key_bytes: new_id.kem_encap_key.as_bytes().to_vec(),
             kem_decap_key_bytes: new_id.kem_decap_key_bytes.to_vec(),
@@ -115,7 +124,7 @@ impl QuantumNodeIdentity {
 
         let pt = serde_json::to_vec(&stored)?;
         stored.zeroize();
-        
+
         let env = vault::wrap_envelope(protector, &pt)?;
         let env_json = serde_json::to_string_pretty(&env)?;
         std::fs::write(vault_path, env_json)?;
@@ -126,7 +135,7 @@ impl QuantumNodeIdentity {
             perms.set_mode(0o600);
             std::fs::set_permissions(vault_path, perms)?;
         }
-        
+
         Ok(new_id)
     }
 
@@ -170,7 +179,6 @@ pub struct StoredIdentity {
 }
 
 impl QuantumNodeIdentity {
-
     // ──────────────────────────────────────────────────────────────────
     // Byte-level serialization / deserialization
     // ──────────────────────────────────────────────────────────────────
@@ -207,8 +215,11 @@ impl QuantumNodeIdentity {
         &self,
         ciphertext: &Ciphertext<MlKem1024>,
     ) -> SharedKey<MlKem1024> {
-        let dk_arr: ml_kem::Encoded::<<MlKem1024 as KemCore>::DecapsulationKey> = 
-            self.kem_decap_key_bytes.as_slice().try_into().expect("Invalid dk length");
+        let dk_arr: ml_kem::Encoded<<MlKem1024 as KemCore>::DecapsulationKey> = self
+            .kem_decap_key_bytes
+            .as_slice()
+            .try_into()
+            .expect("Invalid dk length");
         let decap_key = <MlKem1024 as KemCore>::DecapsulationKey::from_bytes(&dk_arr);
         decap_key
             .decapsulate(ciphertext)
@@ -265,16 +276,16 @@ impl QuantumNodeIdentity {
             .try_into()
             .map_err(|_| "Bad ciphertext slice length")?;
         let ct: Ciphertext<MlKem1024> = ct_fixed.into();
-        
-        let dk_arr: ml_kem::Encoded::<<MlKem1024 as KemCore>::DecapsulationKey> = 
-            self.kem_decap_key_bytes.as_slice().try_into().expect("Invalid dk length");
+
+        let dk_arr: ml_kem::Encoded<<MlKem1024 as KemCore>::DecapsulationKey> = self
+            .kem_decap_key_bytes
+            .as_slice()
+            .try_into()
+            .expect("Invalid dk length");
         let decap_key = <MlKem1024 as KemCore>::DecapsulationKey::from_bytes(&dk_arr);
-        let ss = decap_key
-            .decapsulate(&ct)
-            .expect("Decapsulation failed");
+        let ss = decap_key.decapsulate(&ct).expect("Decapsulation failed");
         Ok(ss.to_vec())
     }
-
 
     // ──────────────────────────────────────────────────────────────────
     // ML-DSA-87 — signing and verification
@@ -299,11 +310,7 @@ impl QuantumNodeIdentity {
     /// - `signature`: the raw signature bytes (must be exactly 4627 bytes).
     ///
     /// Returns `true` if the signature is valid.
-    pub fn verify_signature(
-        peer_dsa_pub_bytes: &[u8],
-        payload: &[u8],
-        signature: &[u8],
-    ) -> bool {
+    pub fn verify_signature(peer_dsa_pub_bytes: &[u8], payload: &[u8], signature: &[u8]) -> bool {
         // Reconstruct the public key
         let pk_arr: [u8; ml_dsa_87::PK_LEN] = match peer_dsa_pub_bytes.try_into() {
             Ok(arr) => arr,

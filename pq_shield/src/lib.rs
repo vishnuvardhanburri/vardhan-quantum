@@ -1,27 +1,27 @@
-pub mod compliance;
-pub mod telemetry;
 pub mod admin;
-pub mod prometheus_metrics;
+pub mod compliance;
 pub mod otel;
+pub mod prometheus_metrics;
+pub mod telemetry;
 
-use std::net::{SocketAddr, IpAddr};
+use dashmap::DashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tracing::{info, warn};
-use std::sync::Arc;
 use tokio::sync::Semaphore;
-use dashmap::DashMap;
+use tracing::{info, warn};
 
-use core_crypto::QuantumNodeIdentity;
-use proxy_engine::run_responder;
-use proxy_engine::transport::AeadTransport;
-use crate::telemetry::{TelemetryEngine, InternalMsg};
 use crate::admin::{run_admin_server, AdminState};
 use crate::prometheus_metrics::PrometheusMetrics;
+use crate::telemetry::{InternalMsg, TelemetryEngine};
 use audit_ledger::LedgerWriter;
-use ha_cluster::{ClusterMembership, NodeState, NodeId, drain::ActiveSessionCounter};
+use core_crypto::QuantumNodeIdentity;
+use ha_cluster::{drain::ActiveSessionCounter, ClusterMembership, NodeId, NodeState};
+use proxy_engine::run_responder;
+use proxy_engine::transport::AeadTransport;
 
 const MAX_GLOBAL_CONCURRENCY: usize = 10_000;
 const MAX_CONCURRENT_PER_IP: u32 = 1_000;
@@ -79,7 +79,11 @@ pub struct IngressShield {
 }
 
 impl IngressShield {
-    fn init_internals(listen_addr: SocketAddr, upstream_addr: SocketAddr, identity: Arc<QuantumNodeIdentity>) -> (Self, Option<PathBuf>) {
+    fn init_internals(
+        listen_addr: SocketAddr,
+        upstream_addr: SocketAddr,
+        identity: Arc<QuantumNodeIdentity>,
+    ) -> (Self, Option<PathBuf>) {
         // P2: Initialize durable ledger if VARDHAN_LEDGER_PATH is set.
         let ledger_path = std::env::var("VARDHAN_LEDGER_PATH").ok().map(PathBuf::from);
 
@@ -99,8 +103,14 @@ impl IngressShield {
             (None, None)
         };
 
-        let prometheus = Arc::new(PrometheusMetrics::new().expect("FATAL: Failed to initialize Prometheus registry"));
-        let telemetry = Arc::new(TelemetryEngine::new(ledger, Some(identity.clone()), prometheus.clone()));
+        let prometheus = Arc::new(
+            PrometheusMetrics::new().expect("FATAL: Failed to initialize Prometheus registry"),
+        );
+        let telemetry = Arc::new(TelemetryEngine::new(
+            ledger,
+            Some(identity.clone()),
+            prometheus.clone(),
+        ));
 
         let global_concurrency = get_max_global_concurrency();
         let per_ip_limit = get_max_concurrency_per_ip();
@@ -125,7 +135,11 @@ impl IngressShield {
         (shield, ledger_path_stored)
     }
 
-    pub fn new(listen_addr: SocketAddr, upstream_addr: SocketAddr, identity: Arc<QuantumNodeIdentity>) -> Self {
+    pub fn new(
+        listen_addr: SocketAddr,
+        upstream_addr: SocketAddr,
+        identity: Arc<QuantumNodeIdentity>,
+    ) -> Self {
         let (shield, _) = Self::init_internals(listen_addr, upstream_addr, identity);
         shield
     }
@@ -146,9 +160,7 @@ impl IngressShield {
         shield
     }
 
-    pub async fn run_interceptor_loop(
-        &self,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run_interceptor_loop(&self) -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind(self.listen_addr).await?;
         info!(addr = %self.listen_addr, upstream = %self.upstream_addr, "pq_shield Quantum Reverse Proxy Active");
 
@@ -181,18 +193,25 @@ impl IngressShield {
             if let Some(ref cluster) = self.cluster {
                 let self_state = if let Some(ref self_id) = self.self_node_id {
                     // Prefer stable node_id lookup
-                    cluster.all_nodes().await
+                    cluster
+                        .all_nodes()
+                        .await
                         .iter()
                         .find(|n| &n.node_id == self_id)
                         .map(|n| n.state)
                 } else {
                     // Fallback: match by listen address
-                    cluster.all_nodes().await
+                    cluster
+                        .all_nodes()
+                        .await
                         .iter()
                         .find(|n| n.addr == self.listen_addr)
                         .map(|n| n.state)
                 };
-                if matches!(self_state, Some(NodeState::Draining) | Some(NodeState::Dead)) {
+                if matches!(
+                    self_state,
+                    Some(NodeState::Draining) | Some(NodeState::Dead)
+                ) {
                     warn!(peer = %peer_addr, "Node is Draining — rejecting new connection");
                     continue;
                 }
@@ -225,14 +244,22 @@ impl IngressShield {
 
             tokio::spawn(async move {
                 // P3.4: Track active session for drain coordination.
-                if let Some(ref sc) = session_counter { sc.increment(); }
-                struct SessionGuard { sc: Option<ActiveSessionCounter> }
+                if let Some(ref sc) = session_counter {
+                    sc.increment();
+                }
+                struct SessionGuard {
+                    sc: Option<ActiveSessionCounter>,
+                }
                 impl Drop for SessionGuard {
                     fn drop(&mut self) {
-                        if let Some(ref sc) = self.sc { sc.decrement(); }
+                        if let Some(ref sc) = self.sc {
+                            sc.decrement();
+                        }
                     }
                 }
-                let _session_guard = SessionGuard { sc: session_counter };
+                let _session_guard = SessionGuard {
+                    sc: session_counter,
+                };
 
                 struct IpGuard {
                     ip: IpAddr,
@@ -241,7 +268,9 @@ impl IngressShield {
                 impl Drop for IpGuard {
                     fn drop(&mut self) {
                         if let Some(mut count) = self.map.get_mut(&self.ip) {
-                            if *count > 0 { *count -= 1; }
+                            if *count > 0 {
+                                *count -= 1;
+                            }
                         }
                     }
                 }
@@ -259,33 +288,48 @@ impl IngressShield {
                     let _guard = handshake_span.enter();
                     let handshake_start = Instant::now();
                     let handshake_future = run_responder(&mut client_stream, &identity);
-                    match tokio::time::timeout(Duration::from_secs(handshake_timeout), handshake_future).await {
+                    match tokio::time::timeout(
+                        Duration::from_secs(handshake_timeout),
+                        handshake_future,
+                    )
+                    .await
+                    {
                         Ok(Ok(s)) => {
                             let sid = hex::encode(&s.session_id[..8]);
                             handshake_span.record("session.id", &sid);
                             let handshake_us = handshake_start.elapsed().as_micros() as u64;
-                            let _ = tx.try_send(InternalMsg::HandshakeCompleted(sid.clone(), handshake_us));
+                            let _ = tx.try_send(InternalMsg::HandshakeCompleted(
+                                sid.clone(),
+                                handshake_us,
+                            ));
                             (s, sid)
-                        },
+                        }
                         Ok(Err(_e)) => {
                             let _ = tx.try_send(InternalMsg::FrameRejected);
                             return;
                         }
-                        Err(_) => { return; }
+                        Err(_) => {
+                            return;
+                        }
                     }
                 };
 
                 let upstream_future = TcpStream::connect(upstream_addr);
-                let mut upstream_stream = match tokio::time::timeout(Duration::from_secs(5), upstream_future).await {
-                    Ok(Ok(s)) => {
-                        let _ = tx.try_send(InternalMsg::UpstreamConnected(hex::encode(&session.session_id[..8])));
-                        s
-                    },
-                    _ => {
-                        let _ = tx.try_send(InternalMsg::UpstreamFailed(hex::encode(&session.session_id[..8])));
-                        return;
-                    }
-                };
+                let mut upstream_stream =
+                    match tokio::time::timeout(Duration::from_secs(5), upstream_future).await {
+                        Ok(Ok(s)) => {
+                            let _ = tx.try_send(InternalMsg::UpstreamConnected(hex::encode(
+                                &session.session_id[..8],
+                            )));
+                            s
+                        }
+                        _ => {
+                            let _ = tx.try_send(InternalMsg::UpstreamFailed(hex::encode(
+                                &session.session_id[..8],
+                            )));
+                            return;
+                        }
+                    };
                 let _ = upstream_stream.set_nodelay(true);
 
                 let mut transport = AeadTransport::new(
@@ -293,7 +337,8 @@ impl IngressShield {
                     session.server_to_client_key,
                     session.client_to_server_key,
                     session.session_id,
-                    true
+                    session.session_salt,
+                    false,
                 );
 
                 let mut upstream_buf = [0u8; 65536];

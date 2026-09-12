@@ -44,7 +44,10 @@ async fn test_two_honest_nodes_derive_same_secret() {
 
     let resp_task = tokio::spawn(async move {
         let (session, _stream) = listener.accept_handshake().await.unwrap();
-        (session.shared_secret, session.session_key.as_slice().to_vec())
+        (
+            session.shared_secret,
+            session.session_key.as_slice().to_vec(),
+        )
     });
 
     let init_id = QuantumNodeIdentity::generate_node_identity().unwrap();
@@ -89,7 +92,10 @@ async fn test_independent_handshakes_produce_distinct_secrets() {
 
     let s1 = do_handshake().await;
     let s2 = do_handshake().await;
-    assert_ne!(s1, s2, "Independent handshakes must produce distinct secrets");
+    assert_ne!(
+        s1, s2,
+        "Independent handshakes must produce distinct secrets"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,8 +119,13 @@ async fn test_invalid_hello_signature_rejected() {
     let dsa_pub = signer.dsa_public_key_bytes();
 
     let mut frame = Vec::new();
+    // Version advertisement prefix
+    frame.push(proxy_engine::SUPPORTED_VERSIONS.len() as u8);
+    for &v in proxy_engine::SUPPORTED_VERSIONS {
+        frame.extend_from_slice(&v.to_be_bytes());
+    }
     frame.extend_from_slice(&signer_ek); // EK
-    frame.extend_from_slice(&sig);       // sig over attacker_ek ≠ signer_ek
+    frame.extend_from_slice(&sig); // sig over attacker_ek ≠ signer_ek
     frame.extend_from_slice(&dsa_pub);
 
     let mut conn = TcpStream::connect(addr).await.unwrap();
@@ -124,7 +135,10 @@ async fn test_invalid_hello_signature_rejected() {
     let err = resp_task.await.unwrap();
     assert!(err.is_some(), "Responder must return an error");
     assert!(
-        matches!(err.unwrap(), ProxyError::InvalidSignature | ProxyError::Io(_)),
+        matches!(
+            err.unwrap(),
+            ProxyError::InvalidSignature | ProxyError::Io(_)
+        ),
         "Must be InvalidSignature or I/O"
     );
 }
@@ -146,6 +160,11 @@ async fn test_invalid_kem_ct_signature_rejected() {
     let dsa_pub = attacker.dsa_public_key_bytes();
 
     let mut hello = Vec::new();
+    // Version advertisement prefix
+    hello.push(proxy_engine::SUPPORTED_VERSIONS.len() as u8);
+    for &v in proxy_engine::SUPPORTED_VERSIONS {
+        hello.extend_from_slice(&v.to_be_bytes());
+    }
     hello.extend_from_slice(&ek);
     hello.extend_from_slice(&sig);
     hello.extend_from_slice(&dsa_pub);
@@ -164,8 +183,7 @@ async fn test_invalid_kem_ct_signature_rejected() {
     conn.read_exact(&mut kt_buf).await.unwrap();
 
     // 4. Send a tampered KEM_CT_A: valid ct, valid sig, but flip a ciphertext byte
-    let (ct_bytes, _ss) =
-        QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(&ek).unwrap();
+    let (ct_bytes, _ss) = QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(&ek).unwrap();
     let sig = attacker.sign_payload(&ct_bytes).unwrap();
     let mut kem_frame = ct_bytes.clone();
     kem_frame.extend_from_slice(&sig);
@@ -175,9 +193,15 @@ async fn test_invalid_kem_ct_signature_rejected() {
     drop(conn);
 
     let err = resp_task.await.unwrap();
-    assert!(err.is_some(), "Responder must return an error for tampered KEM_CT");
     assert!(
-        matches!(err.unwrap(), ProxyError::InvalidSignature | ProxyError::Io(_)),
+        err.is_some(),
+        "Responder must return an error for tampered KEM_CT"
+    );
+    assert!(
+        matches!(
+            err.unwrap(),
+            ProxyError::InvalidSignature | ProxyError::Io(_)
+        ),
         "Must be InvalidSignature or I/O"
     );
 }

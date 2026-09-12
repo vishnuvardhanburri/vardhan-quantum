@@ -57,27 +57,47 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use core_crypto::QuantumNodeIdentity;
 use hkdf::Hkdf;
 use sha2::Sha256;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
+
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{debug, error, info, instrument, warn};
 use zeroize::Zeroizing;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Wire constants (ML-KEM-1024 + ML-DSA-87)
+// Protocol Versioning
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ENCAP_KEY_LEN: usize = core_crypto::ENCAP_KEY_LEN;   // 1568
+/// The set of protocol versions supported by this node.
+pub const SUPPORTED_VERSIONS: &[u16] = &[1, 2];
+pub const CURRENT_VERSION: u16 = 2;
+
+/// Negotiates the highest mutually supported version.
+/// Fails if the intersection is empty.
+fn negotiate_version(local: &[u16], remote: &[u16]) -> Result<u16, ProxyError> {
+    let intersection: Vec<_> = local.iter().filter(|v| remote.contains(v)).collect();
+    if intersection.is_empty() {
+        return Err(ProxyError::HandshakeFailed(
+            "No mutually supported protocol versions".into(),
+        ));
+    }
+    Ok(**intersection.iter().max().unwrap())
+}
+
+const ENCAP_KEY_LEN: usize = core_crypto::ENCAP_KEY_LEN; // 1568
 const CIPHERTEXT_LEN: usize = core_crypto::CIPHERTEXT_LEN; // 1568
-const SIGNATURE_LEN: usize = core_crypto::DSA_SIG_LEN;     // 4627
-const DSA_PUB_LEN: usize = core_crypto::DSA_PUB_KEY_LEN;   // 2592
+const SIGNATURE_LEN: usize = core_crypto::DSA_SIG_LEN; // 4627
+const DSA_PUB_LEN: usize = core_crypto::DSA_PUB_KEY_LEN; // 2592
 
 /// Maximum payload for **handshake** frames — 4 MiB guard.
 const MAX_HANDSHAKE_FRAME: usize = 4 * 1024 * 1024;
 
-/// HELLO frame: encap_key || sig || dsa_pub
-const HELLO_FRAME_LEN: usize = ENCAP_KEY_LEN + SIGNATURE_LEN + DSA_PUB_LEN; // 8787
+/// HELLO frame: version_count (1B) || versions (N*2B) || encap_key || sig || dsa_pub
+const HELLO_FRAME_LEN: usize =
+    1 + SUPPORTED_VERSIONS.len() * 2 + ENCAP_KEY_LEN + SIGNATURE_LEN + DSA_PUB_LEN; // 8792
 
 /// KEM_CT frame: ciphertext || sig
 const KEM_CT_FRAME_LEN: usize = CIPHERTEXT_LEN + SIGNATURE_LEN; // 6195
@@ -112,6 +132,9 @@ pub enum ProxyError {
 
     #[error("Cryptographic operation failed")]
     CryptoError,
+
+    #[error("Nonce exhausted — session must be terminated")]
+    NonceExhaustion,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,7 +203,6 @@ impl Encoder<Vec<u8>> for QuantumFrameCodec {
 // HKDF session key derivation
 // ─────────────────────────────────────────────────────────────────────────────
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Low-level framing helpers (handshake only)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,7 +243,12 @@ fn build_hello(identity: &QuantumNodeIdentity) -> Result<Vec<u8>, ProxyError> {
     debug_assert_eq!(sig.len(), SIGNATURE_LEN);
     debug_assert_eq!(dsa_pub.len(), DSA_PUB_LEN);
 
-    let mut frame = Vec::with_capacity(HELLO_FRAME_LEN);
+    let mut frame = Vec::new();
+    // Version advertisement: count (1B) || versions (count * 2B)
+    frame.push(SUPPORTED_VERSIONS.len() as u8);
+    for &v in SUPPORTED_VERSIONS {
+        frame.extend_from_slice(&v.to_be_bytes());
+    }
     frame.extend_from_slice(&ek);
     frame.extend_from_slice(&sig);
     frame.extend_from_slice(&dsa_pub);
@@ -246,22 +273,42 @@ fn build_kem_ct(identity: &QuantumNodeIdentity, ct: &[u8]) -> Result<Vec<u8>, Pr
 // Frame parsers / verifiers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Parse a HELLO/HELLO_ACK frame. Returns `(peer_ek_bytes, peer_dsa_pub_bytes)`.
-fn parse_hello(frame: &Bytes) -> Result<(Vec<u8>, Vec<u8>), ProxyError> {
-    if frame.len() != HELLO_FRAME_LEN {
+/// Parse a HELLO/HELLO_ACK frame. Returns `(negotiated_version, peer_ek_bytes, peer_dsa_pub_bytes, peer_supported_versions)`.
+fn parse_hello(frame: &Bytes) -> Result<(u16, Vec<u8>, Vec<u8>, Vec<u16>), ProxyError> {
+    if frame.len() < 1 + ENCAP_KEY_LEN + SIGNATURE_LEN + DSA_PUB_LEN {
         return Err(ProxyError::MalformedFrame {
-            expected: HELLO_FRAME_LEN,
+            expected: 1 + ENCAP_KEY_LEN + SIGNATURE_LEN + DSA_PUB_LEN,
             got: frame.len(),
         });
     }
-    let ek = frame[..ENCAP_KEY_LEN].to_vec();
-    let sig = &frame[ENCAP_KEY_LEN..ENCAP_KEY_LEN + SIGNATURE_LEN];
-    let dsa_pub = frame[ENCAP_KEY_LEN + SIGNATURE_LEN..].to_vec();
+
+    let version_count = frame[0] as usize;
+    let versions_size = version_count * 2;
+    if frame.len() < 1 + versions_size + ENCAP_KEY_LEN + SIGNATURE_LEN + DSA_PUB_LEN {
+        return Err(ProxyError::MalformedFrame {
+            expected: 1 + versions_size + ENCAP_KEY_LEN + SIGNATURE_LEN + DSA_PUB_LEN,
+            got: frame.len(),
+        });
+    }
+
+    let mut peer_supported = Vec::with_capacity(version_count);
+    for i in 0..version_count {
+        let start = 1 + i * 2;
+        let v = u16::from_be_bytes([frame[start], frame[start + 1]]);
+        peer_supported.push(v);
+    }
+
+    let ek_start = 1 + versions_size;
+    let ek = frame[ek_start..ek_start + ENCAP_KEY_LEN].to_vec();
+    let sig = &frame[ek_start + ENCAP_KEY_LEN..ek_start + ENCAP_KEY_LEN + SIGNATURE_LEN];
+    let dsa_pub = frame[ek_start + ENCAP_KEY_LEN + SIGNATURE_LEN..].to_vec();
 
     if !QuantumNodeIdentity::verify_signature(&dsa_pub, &ek, sig) {
         return Err(ProxyError::InvalidSignature);
     }
-    Ok((ek, dsa_pub))
+
+    let negotiated = negotiate_version(SUPPORTED_VERSIONS, &peer_supported)?;
+    Ok((negotiated, ek, dsa_pub, peer_supported))
 }
 
 /// Parse and verify a KEM_CT frame. Returns raw ciphertext bytes.
@@ -297,15 +344,22 @@ fn xor_secrets(a: &[u8], b: &[u8]) -> Vec<u8> {
 
 /// Compute a BLAKE3 transcript hash over both hello frames for use as the
 /// HKDF salt, binding the session key to the specific exchange transcript.
-fn transcript_hash(hello_a: &[u8], hello_b: &[u8], kem_a: &[u8], kem_b: &[u8]) -> [u8; 32] {
+fn transcript_hash(
+    version: u16,
+    hello_a: &[u8],
+    hello_b: &[u8],
+    kem_a: &[u8],
+    kem_b: &[u8],
+) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"V1.0");
+    hasher.update(&version.to_be_bytes());
     hasher.update(hello_a);
     hasher.update(hello_b);
     hasher.update(kem_b);
     hasher.update(kem_a);
     *hasher.finalize().as_bytes()
 }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public handshake functions
 // ─────────────────────────────────────────────────────────────────────────────
@@ -324,9 +378,16 @@ pub async fn run_responder(
 
     // 1. Receive HELLO
     let f1 = read_frame(stream).await?;
-    let (peer_ek, peer_dsa_pub) = parse_hello(&f1)
-        .map_err(|e| { warn!("Responder: HELLO parse/verify failed"); e })?;
-    debug!("Responder: HELLO verified ({} B encap key)", peer_ek.len());
+    let (negotiated_version, peer_ek, peer_dsa_pub, _peer_versions) =
+        parse_hello(&f1).map_err(|e| {
+            warn!("Responder: HELLO parse/verify failed");
+            e
+        })?;
+    debug!(
+        "Responder: HELLO verified (negotiated v{}, {} B encap key)",
+        negotiated_version,
+        peer_ek.len()
+    );
 
     // 2. Send HELLO_ACK
     let our_hello = build_hello(identity)?;
@@ -342,8 +403,10 @@ pub async fn run_responder(
 
     // 4. Receive KEM_CT_A
     let f4 = read_frame(stream).await?;
-    let ct_a = parse_kem_ct(&f4, &peer_dsa_pub)
-        .map_err(|e| { warn!("Responder: KEM_CT_A verify failed"); e })?;
+    let ct_a = parse_kem_ct(&f4, &peer_dsa_pub).map_err(|e| {
+        warn!("Responder: KEM_CT_A verify failed");
+        e
+    })?;
 
     // 5. Decapsulate
     let ss_a = identity
@@ -352,7 +415,7 @@ pub async fn run_responder(
 
     // 6. Combine secrets + derive session key
     let raw_secret = xor_secrets(&ss_b, &ss_a);
-    let salt = transcript_hash(&f1, &our_hello, &f4, &f3);
+    let salt = transcript_hash(negotiated_version, &f1, &our_hello, &f4, &f3);
     let session_ctx = derive_session_context(&raw_secret, &salt)?;
 
     info!("Responder: handshake complete — session context derived");
@@ -377,14 +440,22 @@ pub async fn run_initiator(
 
     // 2. Receive HELLO_ACK
     let f2 = read_frame(stream).await?;
-    let (peer_ek, peer_dsa_pub) = parse_hello(&f2)
-        .map_err(|e| { warn!("Initiator: HELLO_ACK parse/verify failed"); e })?;
-    debug!("Initiator: HELLO_ACK verified");
+    let (negotiated_version, peer_ek, peer_dsa_pub, _peer_versions) =
+        parse_hello(&f2).map_err(|e| {
+            warn!("Initiator: HELLO_ACK parse/verify failed");
+            e
+        })?;
+    debug!(
+        "Initiator: HELLO_ACK verified (negotiated v{})",
+        negotiated_version
+    );
 
     // 3. Receive KEM_CT_B
     let f3 = read_frame(stream).await?;
-    let ct_b = parse_kem_ct(&f3, &peer_dsa_pub)
-        .map_err(|e| { warn!("Initiator: KEM_CT_B verify failed"); e })?;
+    let ct_b = parse_kem_ct(&f3, &peer_dsa_pub).map_err(|e| {
+        warn!("Initiator: KEM_CT_B verify failed");
+        e
+    })?;
 
     // 4. Encapsulate toward responder; send KEM_CT_A
     let (ct_a, ss_a) = QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(&peer_ek)
@@ -400,7 +471,7 @@ pub async fn run_initiator(
 
     // 6. Combine + derive
     let raw_secret = xor_secrets(&ss_b, &ss_a);
-    let salt = transcript_hash(&our_hello, &f2, &f4, &f3);
+    let salt = transcript_hash(negotiated_version, &our_hello, &f2, &f4, &f3);
     let session_ctx = derive_session_context(&raw_secret, &salt)?;
 
     info!("Initiator: handshake complete — session context derived");
@@ -460,6 +531,10 @@ pub struct QuantumProxyServer {
     /// This node's cryptographic identity (public key is shareable).
     pub identity: QuantumNodeIdentity,
     bind_addr: String,
+    /// Limit concurrent handshakes to prevent memory exhaustion (Remote OOM).
+    handshake_semaphore: Arc<Semaphore>,
+    /// Global limit on accepted connections to prevent FD exhaustion.
+    global_conn_limit: Arc<Semaphore>,
 }
 
 impl QuantumProxyServer {
@@ -469,6 +544,8 @@ impl QuantumProxyServer {
         Ok(Self {
             identity,
             bind_addr: bind_addr.into(),
+            handshake_semaphore: Arc::new(Semaphore::new(100)),
+            global_conn_limit: Arc::new(Semaphore::new(1000)),
         })
     }
 
@@ -487,38 +564,54 @@ impl QuantumProxyServer {
             match listener.accept().await {
                 Ok((mut socket, remote_addr)) => {
                     info!(%remote_addr, "Accepted inbound connection");
-                    // Clone the identity bytes needed for the handshake in the
-                    // spawned task. We don't clone the full struct (no Clone
-                    // derive on raw ml-dsa key types), so we re-generate for
-                    // each connection — in production you'd use an Arc<Identity>.
+
+                    let semaphore = self.handshake_semaphore.clone();
+                    let conn_limit = self.global_conn_limit.clone();
+                    let identity = self.identity.clone();
+
                     tokio::spawn(async move {
-                        // generate_node_identity returns Box<dyn Error> which is !Send.
-                        // Convert to String before any .await so the future is Send.
-                        let task_identity = match QuantumNodeIdentity::generate_node_identity()
-                            .map_err(|e| e.to_string())
-                        {
-                            Err(e) => {
-                                error!(%remote_addr, "Failed to generate task identity: {e}");
+                        // 1. Global connection limit
+                        let _conn_permit = match conn_limit.try_acquire() {
+                            Ok(p) => p,
+                            Err(_) => {
+                                warn!(%remote_addr, "Connection limit reached; rejecting socket");
                                 return;
                             }
-                            Ok(id) => id,
                         };
-                        match run_responder(&mut socket, &task_identity).await {
-                            Ok(session) => {
+
+                        // 2. Concurrent handshake limit (Remote OOM protection)
+                        let _handshake_permit = match semaphore.try_acquire() {
+                            Ok(p) => p,
+                            Err(_) => {
+                                warn!(%remote_addr, "Handshake limit reached; rejecting socket");
+                                return;
+                            }
+                        };
+
+                        // 3. Handshake Timeout (Slowloris protection)
+                        let handshake_result = tokio::time::timeout(
+                            std::time::Duration::from_secs(5),
+                            run_responder(&mut socket, &identity),
+                        )
+                        .await;
+
+                        match handshake_result {
+                            Ok(Ok(session)) => {
                                 info!(
                                     %remote_addr,
                                     secret_len = 32,
                                     "Handshake complete; entering frame loop"
                                 );
                                 // Application frame ingress stub:
-                                let _framed = tokio_util::codec::Framed::new(
-                                    socket,
-                                    QuantumFrameCodec,
-                                );
+                                let _framed =
+                                    tokio_util::codec::Framed::new(socket, QuantumFrameCodec);
                                 // TODO Sprint 3: pipe frames into ledger_sync
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 warn!(%remote_addr, "Handshake failed: {e}");
+                            }
+                            Err(_) => {
+                                warn!(%remote_addr, "Handshake timed out");
                             }
                         }
                     });
@@ -588,7 +681,34 @@ mod tests {
         assert!(result.is_none());
     }
 
-    // ── HKDF key derivation ────────────────────────────────────────────────
+    // ── Version Negotiation Tests ────────────────────────────────────────────────
+    #[tokio::test]
+    async fn test_version_negotiation_identical() {
+        let local = vec![1, 2];
+        let remote = vec![1, 2];
+        assert_eq!(negotiate_version(&local, &remote).unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_version_negotiation_overlapping() {
+        let local = vec![1, 2];
+        let remote = vec![1];
+        assert_eq!(negotiate_version(&local, &remote).unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_version_negotiation_empty_intersection() {
+        let local = vec![2];
+        let remote = vec![1];
+        assert!(negotiate_version(&local, &remote).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_version_negotiation_max_selection() {
+        let local = vec![1, 2, 3];
+        let remote = vec![1, 3];
+        assert_eq!(negotiate_version(&local, &remote).unwrap(), 3);
+    }
 
     /// HKDF output must be non-zero and deterministic.
     #[test]
@@ -600,7 +720,11 @@ mod tests {
         let k2 = derive_session_keys(&secret, salt).unwrap();
 
         assert_eq!(k1.as_slice(), k2.as_slice(), "HKDF must be deterministic");
-        assert_ne!(k1.as_slice(), &[0u8; 32], "Derived key must not be all-zero");
+        assert_ne!(
+            k1.as_slice(),
+            &[0u8; 32],
+            "Derived key must not be all-zero"
+        );
     }
 
     /// Different salts must produce different keys.
@@ -630,7 +754,10 @@ mod tests {
         let plaintext = b"VARDHAN_QUANTUM_PROXY_TEST_PAYLOAD_001";
 
         let sealed = aes_gcm_seal(&key, plaintext).unwrap();
-        assert!(sealed.len() > 12, "Sealed data must include nonce + ciphertext");
+        assert!(
+            sealed.len() > 12,
+            "Sealed data must include nonce + ciphertext"
+        );
 
         let opened = aes_gcm_open(&key, &sealed).unwrap();
         assert_eq!(&opened, plaintext);
@@ -666,7 +793,7 @@ mod tests {
         let identity = QuantumNodeIdentity::generate_node_identity().unwrap();
         let frame = Bytes::from(build_hello(&identity).unwrap());
         assert_eq!(frame.len(), HELLO_FRAME_LEN);
-        let (ek, dsa_pub) = parse_hello(&frame).unwrap();
+        let (version, ek, dsa_pub, _versions) = parse_hello(&frame).unwrap();
         assert_eq!(ek.len(), ENCAP_KEY_LEN);
         assert_eq!(dsa_pub.len(), DSA_PUB_LEN);
     }
@@ -676,9 +803,15 @@ mod tests {
         let signer = QuantumNodeIdentity::generate_node_identity().unwrap();
         let attacker = QuantumNodeIdentity::generate_node_identity().unwrap();
         let mut frame_bytes = build_hello(&signer).unwrap();
-        frame_bytes[..ENCAP_KEY_LEN].copy_from_slice(&attacker.encap_key_bytes());
+        // Skip version prefix (1B count + N*2B versions) before tampering with ek
+        let ek_offset = 1 + SUPPORTED_VERSIONS.len() * 2;
+        frame_bytes[ek_offset..ek_offset + ENCAP_KEY_LEN]
+            .copy_from_slice(&attacker.encap_key_bytes());
         let frame = Bytes::from(frame_bytes);
-        assert!(matches!(parse_hello(&frame), Err(ProxyError::InvalidSignature)));
+        assert!(matches!(
+            parse_hello(&frame),
+            Err(ProxyError::InvalidSignature)
+        ));
     }
 
     #[test]
@@ -691,15 +824,17 @@ mod tests {
         let mut frame_bytes = build_kem_ct(&signer, &ct).unwrap();
         frame_bytes[0] ^= 0xFF;
         let frame = Bytes::from(frame_bytes);
-        assert!(matches!(parse_kem_ct(&frame, &dsa_pub), Err(ProxyError::InvalidSignature)));
+        assert!(matches!(
+            parse_kem_ct(&frame, &dsa_pub),
+            Err(ProxyError::InvalidSignature)
+        ));
     }
 
     #[test]
     fn test_kem_bytes_roundtrip() {
         let r = QuantumNodeIdentity::generate_node_identity().unwrap();
         let ek = r.encap_key_bytes();
-        let (ct, ss_enc) =
-            QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(&ek).unwrap();
+        let (ct, ss_enc) = QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(&ek).unwrap();
         let ss_dec = r.decapsulate_from_bytes(&ct).unwrap();
         assert_eq!(ss_enc, ss_dec);
     }
@@ -723,7 +858,6 @@ mod tests {
         let received = server_framed.next().await.unwrap().unwrap();
         assert_eq!(received, payload);
     }
-
 }
 pub mod stateless;
-pub use stateless::{aes_gcm_seal, aes_gcm_open};
+pub use stateless::{aes_gcm_open, aes_gcm_seal};

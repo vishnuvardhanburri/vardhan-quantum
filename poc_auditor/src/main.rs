@@ -19,7 +19,7 @@ fn main() {
     println!("[*] Initializing Metering Sandbox...");
     let identity = QuantumNodeIdentity::generate_node_identity().unwrap();
     let meter = UsageMeter::new("TENANT_LLOYDS_BANK_01".to_string());
-    
+
     // Simulate some traffic processing
     for _ in 0..154320 {
         meter.record_transaction(150); // 150 bytes per payload
@@ -30,7 +30,10 @@ fn main() {
 
     println!("[*] Generating Cryptographic Audit Receipt...");
     println!("[*] Tenant: {}", receipt.tenant_id);
-    println!("[*] BLAKE3 Merkle Hash: {}", hex::encode(&receipt.blake3_audit_hash));
+    println!(
+        "[*] BLAKE3 Merkle Hash: {}",
+        hex::encode(&receipt.blake3_audit_hash)
+    );
 
     match generator.generate_dora_report(&receipt, output_file) {
         Ok(report) => {

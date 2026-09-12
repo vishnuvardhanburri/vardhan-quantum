@@ -1,5 +1,8 @@
-use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
 use crate::ProxyError;
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Key, Nonce,
+};
 use rand::RngCore;
 
 pub fn aes_gcm_seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ProxyError> {

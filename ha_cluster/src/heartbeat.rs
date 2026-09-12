@@ -44,6 +44,7 @@ impl HeartbeatFrame {
     pub(crate) fn into_cluster_node(self) -> Option<ClusterNode> {
         let addr: SocketAddr = self.addr.parse().ok()?;
         Some(ClusterNode {
+            term: 0,
             node_id: NodeId::new(self.node_id),
             addr,
             hb_port: self.hb_port,
@@ -109,7 +110,9 @@ pub async fn start_heartbeat(
 ) -> Result<HeartbeatHandle, std::io::Error> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let bind_addr: SocketAddr = format!("0.0.0.0:{}", config.heartbeat_port).parse().unwrap();
+    let bind_addr: SocketAddr = format!("0.0.0.0:{}", config.heartbeat_port)
+        .parse()
+        .unwrap();
     let socket = Arc::new(UdpSocket::bind(bind_addr).await?);
     info!(
         addr = %bind_addr,
@@ -227,6 +230,7 @@ mod tests {
             hb_port: 18080,
             state: NodeState::Healthy,
             last_seen_ms: 12345678,
+            term: 0,
             region: String::new(),
         };
         let frame = HeartbeatFrame::from_node(&node);
@@ -244,7 +248,9 @@ mod tests {
         let self_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
 
         let membership = Arc::new(ClusterMembership::new());
-        membership.register_self(self_id.clone(), self_addr, port).await;
+        membership
+            .register_self(self_id.clone(), self_addr, port)
+            .await;
 
         let config = HeartbeatConfig::new(self_id.clone(), self_addr, port);
         let _handle = start_heartbeat(config, Arc::clone(&membership))
@@ -272,7 +278,14 @@ mod tests {
 
         let peers = membership.healthy_peers().await;
         // Should now include test-node-hb (self) and peer-node
-        let ids: Vec<_> = peers.iter().map(|n| n.node_id.as_str().to_string()).collect();
-        assert!(ids.contains(&"peer-node".to_string()), "peer-node should be discovered: {:?}", ids);
+        let ids: Vec<_> = peers
+            .iter()
+            .map(|n| n.node_id.as_str().to_string())
+            .collect();
+        assert!(
+            ids.contains(&"peer-node".to_string()),
+            "peer-node should be discovered: {:?}",
+            ids
+        );
     }
 }

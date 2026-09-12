@@ -94,7 +94,10 @@ impl DrainController {
                 if n == 0 {
                     break;
                 }
-                info!(active_sessions = n, "Draining — waiting for sessions to finish...");
+                info!(
+                    active_sessions = n,
+                    "Draining — waiting for sessions to finish..."
+                );
                 sleep(Duration::from_millis(500)).await;
             }
         })
@@ -137,7 +140,10 @@ mod tests {
         let drain = DrainController::new(id.clone(), Arc::clone(&membership), counter, 5);
 
         let completed = drain.drain().await;
-        assert!(completed, "Drain should complete immediately with 0 sessions");
+        assert!(
+            completed,
+            "Drain should complete immediately with 0 sessions"
+        );
 
         let nodes = membership.all_nodes().await;
         assert_eq!(

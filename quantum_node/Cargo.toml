@@ -8,6 +8,7 @@ core_crypto = { path = "../core_crypto" }
 proxy_engine = { path = "../proxy_engine" }
 ledger_sync = { path = "../ledger_sync" }
 ledger_persistence = { path = "../ledger_persistence" }
+ha_cluster = { path = "../ha_cluster" }
 quantum_network = { path = "../quantum_network" }
 
 tokio = { version = "1.38", features = ["full"] }

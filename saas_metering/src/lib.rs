@@ -28,7 +28,8 @@ impl UsageMeter {
     }
 
     pub fn record_transaction(&self, payload_len: usize) {
-        self.bytes_shielded.fetch_add(payload_len as u64, Ordering::Relaxed);
+        self.bytes_shielded
+            .fetch_add(payload_len as u64, Ordering::Relaxed);
         self.requests_processed.fetch_add(1, Ordering::Relaxed);
     }
 

@@ -92,8 +92,12 @@ mod tests {
     async fn test_no_leader_when_no_healthy_nodes() {
         let m = ClusterMembership::new();
         // Register a dead node
-        m.register_self(NodeId::new("node-x"), "127.0.0.1:9999".parse().unwrap(), 18080)
-            .await;
+        m.register_self(
+            NodeId::new("node-x"),
+            "127.0.0.1:9999".parse().unwrap(),
+            18080,
+        )
+        .await;
         {
             let mut map = m.inner.write().await;
             if let Some(n) = map.get_mut(&NodeId::new("node-x")) {
@@ -110,8 +114,10 @@ mod tests {
         let m = ClusterMembership::new();
         let id_a = NodeId::new("node-a-leader");
         let id_b = NodeId::new("node-b-follower");
-        m.register_self(id_a.clone(), "127.0.0.1:8010".parse().unwrap(), 18080).await;
-        m.register_self(id_b.clone(), "127.0.0.1:8011".parse().unwrap(), 18080).await;
+        m.register_self(id_a.clone(), "127.0.0.1:8010".parse().unwrap(), 18080)
+            .await;
+        m.register_self(id_b.clone(), "127.0.0.1:8011".parse().unwrap(), 18080)
+            .await;
 
         assert!(is_leader(&m, &id_a).await);
         assert!(!is_leader(&m, &id_b).await);
@@ -124,18 +130,24 @@ mod tests {
         m.register_self_with_region(
             NodeId::new("node-a-ue1"),
             "127.0.0.1:8001".parse().unwrap(),
-            18080, "us-east-1",
-        ).await;
+            18080,
+            "us-east-1",
+        )
+        .await;
         m.register_self_with_region(
             NodeId::new("node-b-ue1"),
             "127.0.0.1:8002".parse().unwrap(),
-            18080, "us-east-1",
-        ).await;
+            18080,
+            "us-east-1",
+        )
+        .await;
         m.register_self_with_region(
             NodeId::new("node-c-ew1"),
             "127.0.0.1:8003".parse().unwrap(),
-            18080, "eu-west-1",
-        ).await;
+            18080,
+            "eu-west-1",
+        )
+        .await;
 
         // Leader in us-east-1 should be "node-a-ue1" (lex smallest in region)
         let leader_ue1 = compute_leader_in_region(&m, "us-east-1").await.unwrap();

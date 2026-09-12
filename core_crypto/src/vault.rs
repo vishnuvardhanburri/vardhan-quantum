@@ -1,14 +1,17 @@
-use std::path::PathBuf;
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
-use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
-use rand::RngCore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {
@@ -39,7 +42,10 @@ pub trait KeyProtector: Send + Sync {
     fn unwrap_dek(&self, wrapped_dek: &[u8]) -> Result<Zeroizing<[u8; 32]>, VaultError> {
         let pt = self.unwrap(wrapped_dek)?;
         if pt.len() != 32 {
-            return Err(VaultError::Crypto(format!("Unwrapped DEK must be 32 bytes, got {}", pt.len())));
+            return Err(VaultError::Crypto(format!(
+                "Unwrapped DEK must be 32 bytes, got {}",
+                pt.len()
+            )));
         }
         let mut key = [0u8; 32];
         key.copy_from_slice(&pt);
@@ -87,7 +93,9 @@ impl LocalDevKeyProtector {
         }
         let data = fs::read(&self.kek_path)?;
         if data.len() != 32 {
-            return Err(VaultError::Crypto("Invalid KEK length, expected 32 bytes".into()));
+            return Err(VaultError::Crypto(
+                "Invalid KEK length, expected 32 bytes".into(),
+            ));
         }
         let mut key = [0u8; 32];
         key.copy_from_slice(&data);
@@ -107,7 +115,8 @@ impl KeyProtector for LocalDevKeyProtector {
         rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let mut ciphertext = cipher.encrypt(nonce, plaintext)
+        let mut ciphertext = cipher
+            .encrypt(nonce, plaintext)
             .map_err(|e| VaultError::Crypto(format!("Envelope encryption failed: {:?}", e)))?;
 
         let mut final_payload = nonce_bytes.to_vec();
@@ -124,7 +133,8 @@ impl KeyProtector for LocalDevKeyProtector {
         let nonce = Nonce::from_slice(&ciphertext[..12]);
         let data = &ciphertext[12..];
 
-        let plaintext = cipher.decrypt(nonce, data)
+        let plaintext = cipher
+            .decrypt(nonce, data)
             .map_err(|e| VaultError::Crypto(format!("Envelope decryption failed: {:?}", e)))?;
         Ok(plaintext)
     }
@@ -171,7 +181,10 @@ impl MockKmsClient {
 
     pub fn with_key(self, key_id: &str) -> Self {
         let master = Self::derive_master(key_id, 1);
-        self.keys.lock().unwrap().insert(key_id.to_string(), vec![master]);
+        self.keys
+            .lock()
+            .unwrap()
+            .insert(key_id.to_string(), vec![master]);
         self
     }
 
@@ -185,9 +198,9 @@ impl MockKmsClient {
 
     pub fn rotate_key(&self, key_id: &str) -> String {
         let mut keys_guard = self.keys.lock().unwrap();
-        let versions = keys_guard.entry(key_id.to_string()).or_insert_with(|| {
-            vec![Self::derive_master(key_id, 1)]
-        });
+        let versions = keys_guard
+            .entry(key_id.to_string())
+            .or_insert_with(|| vec![Self::derive_master(key_id, 1)]);
         let next_v = versions.len() + 1;
         versions.push(Self::derive_master(key_id, next_v));
         format!("{}-v{}", key_id, versions.len())
@@ -203,16 +216,20 @@ impl Default for MockKmsClient {
 impl KmsClient for MockKmsClient {
     fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>, VaultError> {
         if !self.available.load(Ordering::SeqCst) {
-            return Err(VaultError::Kms("AWS KMS service unavailable (HTTP 503 EndpointUnreachable)".into()));
+            return Err(VaultError::Kms(
+                "AWS KMS service unavailable (HTTP 503 EndpointUnreachable)".into(),
+            ));
         }
         if !self.authorized.load(Ordering::SeqCst) {
-            return Err(VaultError::AccessDenied("kms:Encrypt AccessDenied by IAM policy".into()));
+            return Err(VaultError::AccessDenied(
+                "kms:Encrypt AccessDenied by IAM policy".into(),
+            ));
         }
 
         let mut keys_guard = self.keys.lock().unwrap();
-        let versions = keys_guard.entry(key_id.to_string()).or_insert_with(|| {
-            vec![Self::derive_master(key_id, 1)]
-        });
+        let versions = keys_guard
+            .entry(key_id.to_string())
+            .or_insert_with(|| vec![Self::derive_master(key_id, 1)]);
         let current_master = versions.last().unwrap();
 
         let cipher = Aes256Gcm::new(&(*current_master).into());
@@ -220,7 +237,8 @@ impl KmsClient for MockKmsClient {
         rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let mut ciphertext = cipher.encrypt(nonce, plaintext)
+        let mut ciphertext = cipher
+            .encrypt(nonce, plaintext)
             .map_err(|e| VaultError::Crypto(format!("KMS mock encryption failed: {:?}", e)))?;
 
         let mut wrapped = nonce_bytes.to_vec();
@@ -230,10 +248,14 @@ impl KmsClient for MockKmsClient {
 
     fn decrypt(&self, ciphertext: &[u8], key_id: Option<&str>) -> Result<Vec<u8>, VaultError> {
         if !self.available.load(Ordering::SeqCst) {
-            return Err(VaultError::Kms("AWS KMS service unavailable (HTTP 503 EndpointUnreachable)".into()));
+            return Err(VaultError::Kms(
+                "AWS KMS service unavailable (HTTP 503 EndpointUnreachable)".into(),
+            ));
         }
         if !self.authorized.load(Ordering::SeqCst) {
-            return Err(VaultError::AccessDenied("kms:Decrypt AccessDenied by IAM policy".into()));
+            return Err(VaultError::AccessDenied(
+                "kms:Decrypt AccessDenied by IAM policy".into(),
+            ));
         }
         if ciphertext.len() < 12 {
             return Err(VaultError::Crypto("Invalid KMS ciphertext blob".into()));
@@ -241,9 +263,9 @@ impl KmsClient for MockKmsClient {
 
         let key_str = key_id.unwrap_or("default");
         let mut keys_guard = self.keys.lock().unwrap();
-        let versions = keys_guard.entry(key_str.to_string()).or_insert_with(|| {
-            (1..=5).map(|v| Self::derive_master(key_str, v)).collect()
-        });
+        let versions = keys_guard
+            .entry(key_str.to_string())
+            .or_insert_with(|| (1..=5).map(|v| Self::derive_master(key_str, v)).collect());
 
         let nonce = Nonce::from_slice(&ciphertext[..12]);
         let data = &ciphertext[12..];
@@ -256,7 +278,9 @@ impl KmsClient for MockKmsClient {
             }
         }
 
-        Err(VaultError::Crypto("KMS mock decryption failed: no valid key version decrypted the ciphertext".into()))
+        Err(VaultError::Crypto(
+            "KMS mock decryption failed: no valid key version decrypted the ciphertext".into(),
+        ))
     }
 }
 
@@ -291,7 +315,10 @@ impl<C: KmsClient> KeyProtector for KmsKeyProtector<C> {
     }
 
     fn wrap_dek(&self, dek: &[u8; 32]) -> Result<Vec<u8>, VaultError> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         match self.client.encrypt(&self.key_id, dek) {
             Ok(wrapped) => {
                 self.audit_log.lock().unwrap().push(KmsAuditRecord {
@@ -319,7 +346,10 @@ impl<C: KmsClient> KeyProtector for KmsKeyProtector<C> {
     }
 
     fn unwrap_dek(&self, wrapped_dek: &[u8]) -> Result<Zeroizing<[u8; 32]>, VaultError> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         match self.client.decrypt(wrapped_dek, Some(&self.key_id)) {
             Ok(pt) => {
                 if pt.len() != 32 {
@@ -403,7 +433,8 @@ impl AwsSdkKmsClient {
         let config = rt.block_on(async {
             aws_config::defaults(aws_config::BehaviorVersion::latest())
                 .region(aws_config::Region::new(region))
-                .load().await
+                .load()
+                .await
         });
 
         let client = aws_sdk_kms::Client::new(&config);
@@ -418,9 +449,15 @@ impl KmsClient for AwsSdkKmsClient {
         let kid = key_id.to_string();
         let pt = aws_sdk_kms::primitives::Blob::from(plaintext.to_vec());
         let blob: Result<Vec<u8>, VaultError> = self.rt.block_on(async move {
-            let resp = client.encrypt().key_id(&kid).plaintext(pt).send().await
+            let resp = client
+                .encrypt()
+                .key_id(&kid)
+                .plaintext(pt)
+                .send()
+                .await
                 .map_err(|e| VaultError::Kms(e.to_string()))?;
-            let blob = resp.ciphertext_blob()
+            let blob = resp
+                .ciphertext_blob()
                 .ok_or_else(|| VaultError::Kms("KMS Encrypt returned no ciphertext".into()))?;
             Ok(blob.as_ref().to_vec())
         });
@@ -441,7 +478,8 @@ impl KmsClient for AwsSdkKmsClient {
                 .send()
                 .await
                 .map_err(|e| VaultError::Kms(e.to_string()))?;
-            let blob = resp.plaintext()
+            let blob = resp
+                .plaintext()
                 .ok_or_else(|| VaultError::Kms("KMS Decrypt returned no plaintext".into()))?;
             Ok(blob.as_ref().to_vec())
         });
@@ -462,7 +500,9 @@ pub struct HsmKeyProtector {
 
 impl HsmKeyProtector {
     pub fn new_mock(slot_id: u64, key_label: String) -> Self {
-        let master_key = *blake3::hash(format!("vardhan-mock-hsm-slot:{}:{}", slot_id, key_label).as_bytes()).as_bytes();
+        let master_key =
+            *blake3::hash(format!("vardhan-mock-hsm-slot:{}:{}", slot_id, key_label).as_bytes())
+                .as_bytes();
         Self {
             provider_name: "hsm-pkcs11",
             slot_id,
@@ -483,7 +523,8 @@ impl KeyProtector for HsmKeyProtector {
         rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let mut ciphertext = cipher.encrypt(nonce, dek.as_ref())
+        let mut ciphertext = cipher
+            .encrypt(nonce, dek.as_ref())
             .map_err(|e| VaultError::Crypto(format!("HSM C_WrapKey failed: {:?}", e)))?;
 
         let mut wrapped = nonce_bytes.to_vec();
@@ -499,11 +540,14 @@ impl KeyProtector for HsmKeyProtector {
         let nonce = Nonce::from_slice(&wrapped_dek[..12]);
         let data = &wrapped_dek[12..];
 
-        let pt = cipher.decrypt(nonce, data)
+        let pt = cipher
+            .decrypt(nonce, data)
             .map_err(|e| VaultError::Crypto(format!("HSM C_UnwrapKey failed: {:?}", e)))?;
 
         if pt.len() != 32 {
-            return Err(VaultError::Crypto("HSM unwrapped key is not 32 bytes".into()));
+            return Err(VaultError::Crypto(
+                "HSM unwrapped key is not 32 bytes".into(),
+            ));
         }
         let mut key = [0u8; 32];
         key.copy_from_slice(&pt);
@@ -515,7 +559,8 @@ impl KeyProtector for HsmKeyProtector {
         let mut nonce_bytes = [0u8; 12];
         rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
-        let mut ct = cipher.encrypt(nonce, plaintext)
+        let mut ct = cipher
+            .encrypt(nonce, plaintext)
             .map_err(|e| VaultError::Crypto(format!("HSM wrap failed: {:?}", e)))?;
         let mut out = nonce_bytes.to_vec();
         out.append(&mut ct);
@@ -528,12 +573,16 @@ impl KeyProtector for HsmKeyProtector {
         }
         let cipher = Aes256Gcm::new(&self.master_key.into());
         let nonce = Nonce::from_slice(&ciphertext[..12]);
-        cipher.decrypt(nonce, &ciphertext[12..])
+        cipher
+            .decrypt(nonce, &ciphertext[12..])
             .map_err(|e| VaultError::Crypto(format!("HSM unwrap failed: {:?}", e)))
     }
 
     fn key_metadata(&self) -> (Option<String>, Option<String>) {
-        (Some(format!("slot-{}:{}", self.slot_id, self.key_label)), Some("1.0".to_string()))
+        (
+            Some(format!("slot-{}:{}", self.slot_id, self.key_label)),
+            Some("1.0".to_string()),
+        )
     }
 }
 
@@ -552,7 +601,11 @@ pub struct EncryptedEnvelope {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kms_key_version: Option<String>,
     /// Wrapped DEK (KMS or HSM encrypted)
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "opt_base64_format")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "opt_base64_format"
+    )]
     pub wrapped_dek: Option<Vec<u8>>,
     /// Payload encrypted under DEK (nonce_12 || ciphertext)
     #[serde(with = "base64_format")]
@@ -574,7 +627,8 @@ pub fn wrap_envelope<P: KeyProtector>(
     rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let mut ciphertext = cipher.encrypt(nonce, plaintext)
+    let mut ciphertext = cipher
+        .encrypt(nonce, plaintext)
         .map_err(|e| VaultError::Crypto(format!("Envelope payload encryption failed: {:?}", e)))?;
 
     let mut wrapped_payload = nonce_bytes.to_vec();
@@ -586,7 +640,10 @@ pub fn wrap_envelope<P: KeyProtector>(
 
     Ok(EncryptedEnvelope {
         version: 2,
-        created_at_unix: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        created_at_unix: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
         provider: protector.provider_name().to_string(),
         kms_key_id,
         kms_key_version,
@@ -617,15 +674,16 @@ pub fn unwrap_envelope<P: KeyProtector>(
     let nonce = Nonce::from_slice(&envelope.wrapped_payload[..12]);
     let data = &envelope.wrapped_payload[12..];
 
-    let plaintext = cipher.decrypt(nonce, data)
+    let plaintext = cipher
+        .decrypt(nonce, data)
         .map_err(|e| VaultError::Crypto(format!("Envelope payload decryption failed: {:?}", e)))?;
 
     Ok(Zeroizing::new(plaintext))
 }
 
 mod base64_format {
-    use serde::{Deserialize, Deserializer, Serializer};
     use base64ct::{Base64, Encoding};
+    use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(data: &[u8], s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(&Base64::encode_string(data))
@@ -638,8 +696,8 @@ mod base64_format {
 }
 
 mod opt_base64_format {
-    use serde::{Deserialize, Deserializer, Serializer};
     use base64ct::{Base64, Encoding};
+    use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(data: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
         match data {
@@ -651,7 +709,9 @@ mod opt_base64_format {
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
         let opt: Option<String> = Option::deserialize(d)?;
         match opt {
-            Some(s) => Base64::decode_vec(&s).map(Some).map_err(serde::de::Error::custom),
+            Some(s) => Base64::decode_vec(&s)
+                .map(Some)
+                .map_err(serde::de::Error::custom),
             None => Ok(None),
         }
     }
@@ -676,7 +736,8 @@ mod tests {
         assert!(envelope.wrapped_dek.is_some());
 
         // Unwrap
-        let recovered = unwrap_envelope(&protector, &envelope).expect("Envelope unwrap should succeed");
+        let recovered =
+            unwrap_envelope(&protector, &envelope).expect("Envelope unwrap should succeed");
         assert_eq!(&*recovered, secret);
 
         // Audit records
@@ -811,7 +872,8 @@ mod aws_kms_tests {
             }
         };
 
-        let client = Arc::new(AwsSdkKmsClient::new(&key_id).expect("KMS client creation should succeed"));
+        let client =
+            Arc::new(AwsSdkKmsClient::new(&key_id).expect("KMS client creation should succeed"));
         let protector = KmsKeyProtector::new(key_id.clone(), client.clone());
 
         let secret = b"LIVE-AWS-KMS-ENVELOPE-TEST-PAYLOAD";
@@ -821,7 +883,10 @@ mod aws_kms_tests {
         assert!(envelope.wrapped_dek.is_some());
 
         let recovered = unwrap_envelope(&protector, &envelope).expect("unwrap should succeed");
-        assert_eq!(&*recovered, secret, "DEK round-trip must reproduce original");
+        assert_eq!(
+            &*recovered, secret,
+            "DEK round-trip must reproduce original"
+        );
 
         // Audit trail should show one wrap + one unwrap, both SUCCESS
         let audits = protector.audit_records();
@@ -840,7 +905,8 @@ mod aws_kms_tests {
         // Create a client with valid credentials but point at a key the caller
         // does not have kms:Encrypt permission on. In practice, this test passes
         // if AWS_ACCESS_KEY_ID resolves to a user without kms:Encrypt on key_id.
-        let client = Arc::new(AwsSdkKmsClient::new(&key_id).expect("KMS client creation should succeed"));
+        let client =
+            Arc::new(AwsSdkKmsClient::new(&key_id).expect("KMS client creation should succeed"));
         let protector = KmsKeyProtector::new(key_id, client);
 
         let secret = b"SHOULD-FAIL-ENCRYPT";
@@ -850,7 +916,8 @@ mod aws_kms_tests {
             Ok(_) => eprintln!("SKIP: caller has kms:Encrypt — cannot test denial"),
             Err(e) => {
                 assert!(
-                    e.to_string().contains("AccessDenied") || e.to_string().contains("not authorized"),
+                    e.to_string().contains("AccessDenied")
+                        || e.to_string().contains("not authorized"),
                     "Expected AccessDenied, got: {e}"
                 );
             }

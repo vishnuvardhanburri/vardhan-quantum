@@ -9,7 +9,15 @@
 pub mod drain;
 pub mod election;
 pub mod heartbeat;
+pub mod peer_manager;
+pub mod raft;
+pub mod raft_listener;
+#[cfg(test)]
+pub mod raft_test_utils;
 
+pub use peer_manager::RaftPeerManager;
+pub use raft::{RaftNode, RaftRole};
+pub use raft_listener::RaftNetworkListener;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -83,6 +91,8 @@ pub struct ClusterNode {
     pub state: NodeState,
     /// Unix epoch milliseconds of last observed heartbeat.
     pub last_seen_ms: u64,
+    /// Current term of this node.
+    pub term: u64,
     /// P3.5: Region tag (e.g. "us-east-1"). Empty = region-unaware (P3.4 compat).
     #[serde(default)]
     pub region: String,
@@ -96,19 +106,25 @@ impl ClusterNode {
             hb_port,
             state: NodeState::Healthy,
             last_seen_ms: epoch_ms(),
+            term: 0,
             region: String::new(),
         }
     }
 
     /// P3.5: Construct a node with an explicit region tag.
-    pub fn with_region(node_id: NodeId, addr: SocketAddr, hb_port: u16, region: impl Into<String>) -> Self {
+    pub fn with_region(
+        node_id: NodeId,
+        addr: SocketAddr,
+        hb_port: u16,
+        region: impl Into<String>,
+    ) -> Self {
         ClusterNode {
             region: region.into(),
+            term: 0,
             ..Self::new(node_id, addr, hb_port)
         }
     }
 }
-
 
 // ── Cluster membership ───────────────────────────────────────────────────────
 
@@ -154,9 +170,9 @@ impl ClusterMembership {
     ) {
         let region = region.into();
         let mut map = self.inner.write().await;
-        let entry = map
-            .entry(node_id.clone())
-            .or_insert_with(|| ClusterNode::with_region(node_id.clone(), addr, hb_port, region.clone()));
+        let entry = map.entry(node_id.clone()).or_insert_with(|| {
+            ClusterNode::with_region(node_id.clone(), addr, hb_port, region.clone())
+        });
         entry.addr = addr;
         entry.hb_port = hb_port;
         entry.region = region.clone();
@@ -264,8 +280,10 @@ impl ClusterMembership {
             .read()
             .await
             .values()
-            .filter(|n| n.region == region
-                && (n.state == NodeState::Healthy || n.state == NodeState::Degraded))
+            .filter(|n| {
+                n.region == region
+                    && (n.state == NodeState::Healthy || n.state == NodeState::Degraded)
+            })
             .cloned()
             .collect()
     }
@@ -380,7 +398,9 @@ mod tests {
     async fn test_mark_draining_and_healthy() {
         let membership = ClusterMembership::new();
         let id = node_id("node-c");
-        membership.register_self(id.clone(), addr("127.0.0.1:8082"), 18080).await;
+        membership
+            .register_self(id.clone(), addr("127.0.0.1:8082"), 18080)
+            .await;
 
         membership.mark_draining(&id).await.unwrap();
         let nodes = membership.all_nodes().await;
@@ -426,6 +446,7 @@ mod tests {
             hb_port: 18080,
             state: NodeState::Degraded,
             last_seen_ms: epoch_ms(),
+            term: 0,
             region: String::new(),
         };
         membership.apply_heartbeat(heartbeat).await;
@@ -441,13 +462,28 @@ mod tests {
     async fn test_region_tagging_and_filtering() {
         let membership = ClusterMembership::new();
         membership
-            .register_self_with_region(node_id("node-ue1-a"), addr("127.0.0.1:8001"), 18080, "us-east-1")
+            .register_self_with_region(
+                node_id("node-ue1-a"),
+                addr("127.0.0.1:8001"),
+                18080,
+                "us-east-1",
+            )
             .await;
         membership
-            .register_self_with_region(node_id("node-ue1-b"), addr("127.0.0.1:8002"), 18080, "us-east-1")
+            .register_self_with_region(
+                node_id("node-ue1-b"),
+                addr("127.0.0.1:8002"),
+                18080,
+                "us-east-1",
+            )
             .await;
         membership
-            .register_self_with_region(node_id("node-ew1-a"), addr("127.0.0.1:8003"), 18080, "eu-west-1")
+            .register_self_with_region(
+                node_id("node-ew1-a"),
+                addr("127.0.0.1:8003"),
+                18080,
+                "eu-west-1",
+            )
             .await;
 
         // All three nodes registered
@@ -484,6 +520,7 @@ mod tests {
             hb_port: 18080,
             state: NodeState::Healthy,
             last_seen_ms: epoch_ms(),
+            term: 0,
             region: "ap-southeast-2".to_string(),
         };
         let frame = HeartbeatFrame::from_node(&node);
@@ -502,7 +539,12 @@ mod tests {
     async fn test_peer_snapshot_includes_region() {
         let membership = ClusterMembership::new();
         membership
-            .register_self_with_region(node_id("node-a"), addr("127.0.0.1:8080"), 18080, "us-west-2")
+            .register_self_with_region(
+                node_id("node-a"),
+                addr("127.0.0.1:8080"),
+                18080,
+                "us-west-2",
+            )
             .await;
 
         let snap = membership.peer_snapshot().await;

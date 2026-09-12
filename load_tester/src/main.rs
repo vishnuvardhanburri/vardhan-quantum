@@ -1,10 +1,13 @@
-use std::time::{Instant, Duration};
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use core_crypto::QuantumNodeIdentity;
 use proxy_engine::run_initiator;
 use proxy_engine::transport::AeadTransport;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 fn parse_args() -> (String, usize, u64) {
     let args: Vec<String> = std::env::args().collect();
@@ -48,7 +51,9 @@ fn parse_args() -> (String, usize, u64) {
                     std::process::exit(1);
                 }
             }
-            _ => { i += 1; }
+            _ => {
+                i += 1;
+            }
         }
     }
     (target, concurrency, duration)
@@ -66,7 +71,7 @@ async fn main() {
     println!("[*] Target: {}", target_addr);
     println!("[*] Concurrency: {}", concurrency);
     println!("[*] Soak Duration: {:?}", test_duration);
-    
+
     let payload = b"GET / HTTP/1.1\r\nHost: benchmark\r\n\r\n";
     let identity = Arc::new(QuantumNodeIdentity::generate_node_identity().unwrap());
 
@@ -81,7 +86,7 @@ async fn main() {
         let succ = Arc::clone(&successful_requests);
         let fail = Arc::clone(&failed_requests);
         let target = target_addr.clone();
-        
+
         let handle = tokio::spawn(async move {
             if let Ok(mut stream) = TcpStream::connect(target).await {
                 // PQ Handshake (blocks here initially)
@@ -91,9 +96,10 @@ async fn main() {
                         session.client_to_server_key, // tx_key
                         session.server_to_client_key, // rx_key
                         session.session_id,
-                        false // is_server = false
+                        session.session_salt,
+                        true,
                     );
-                    
+
                     while start_time.elapsed() < test_duration {
                         if transport.write_frame(payload).await.is_ok() {
                             if let Ok(Some(_)) = transport.read_frame().await {

@@ -1,5 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use core_crypto::QuantumNodeIdentity;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn bench_pq_identity_generation(c: &mut Criterion) {
     c.bench_function("generate_node_identity_ml_kem_1024_dsa_87", |b| {
@@ -16,7 +16,9 @@ fn bench_kem_encapsulation(c: &mut Criterion) {
 
     c.bench_function("ml_kem_1024_encapsulate", |b| {
         b.iter(|| {
-            let res = QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(black_box(&ek_bytes)).unwrap();
+            let res =
+                QuantumNodeIdentity::encapsulate_shared_secret_from_bytes(black_box(&ek_bytes))
+                    .unwrap();
             black_box(res);
         });
     });
@@ -37,11 +39,20 @@ fn bench_dsa_signing_and_verification(c: &mut Criterion) {
     let sig = node.sign_payload(payload).unwrap();
     c.bench_function("ml_dsa_87_verify", |b| {
         b.iter(|| {
-            let valid = QuantumNodeIdentity::verify_signature(black_box(&pub_key), black_box(payload), black_box(&sig));
+            let valid = QuantumNodeIdentity::verify_signature(
+                black_box(&pub_key),
+                black_box(payload),
+                black_box(&sig),
+            );
             black_box(valid);
         });
     });
 }
 
-criterion_group!(benches, bench_pq_identity_generation, bench_kem_encapsulation, bench_dsa_signing_and_verification);
+criterion_group!(
+    benches,
+    bench_pq_identity_generation,
+    bench_kem_encapsulation,
+    bench_dsa_signing_and_verification
+);
 criterion_main!(benches);

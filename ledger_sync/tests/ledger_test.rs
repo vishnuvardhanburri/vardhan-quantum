@@ -79,27 +79,36 @@ async fn test_encrypted_ledger_sync_over_quantum_session() {
     let client_id = QuantumNodeIdentity::generate_node_identity().unwrap();
     let client_pub_key = client_id.dsa_public_key_bytes();
 
-    let block_to_send =
-        LedgerBlock::new(0, 5000, [0u8; 32], [9u8; 32], b"QUANTUM_STATE_SYNC", &client_id)
-            .unwrap();
+    let block_to_send = LedgerBlock::new(
+        0,
+        5000,
+        [0u8; 32],
+        [9u8; 32],
+        b"QUANTUM_STATE_SYNC",
+        &client_id,
+    )
+    .unwrap();
     let block_clone = block_to_send.clone();
 
     // Server: handshake then receive one block
     let server_handle = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let session = run_responder(&mut stream, &server_id).await.unwrap();
-        let mut channel = LedgerSyncChannel::new(stream, *session.session_key);
+        let mut channel = LedgerSyncChannel::new(stream, &session, true);
         channel.recv_block().await.unwrap().unwrap()
     });
 
     // Client: handshake then send one block
     let mut client_stream = TcpStream::connect(addr).await.unwrap();
     let client_session = run_initiator(&mut client_stream, &client_id).await.unwrap();
-    let mut client_channel = LedgerSyncChannel::new(client_stream, *client_session.session_key);
+    let mut client_channel = LedgerSyncChannel::new(client_stream, &client_session, false);
     client_channel.send_block(&block_to_send).await.unwrap();
 
     let received = server_handle.await.unwrap();
-    assert_eq!(received, block_clone, "Received block must equal sent block");
+    assert_eq!(
+        received, block_clone,
+        "Received block must equal sent block"
+    );
     assert!(
         received.verify(&client_pub_key).is_ok(),
         "Received block must pass signature verification"
@@ -131,7 +140,7 @@ async fn test_server_appends_received_blocks_to_ledger() {
     let server_handle = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let session = run_responder(&mut stream, &server_id).await.unwrap();
-        let mut channel = LedgerSyncChannel::new(stream, *session.session_key);
+        let mut channel = LedgerSyncChannel::new(stream, &session, true);
 
         // Receive 3 blocks and append each to ledger
         for _ in 0..3usize {
@@ -145,7 +154,7 @@ async fn test_server_appends_received_blocks_to_ledger() {
 
     let mut conn = TcpStream::connect(addr).await.unwrap();
     let session = run_initiator(&mut conn, &client_id).await.unwrap();
-    let mut channel = LedgerSyncChannel::new(conn, *session.session_key);
+    let mut channel = LedgerSyncChannel::new(conn, &session, false);
 
     for b in &blocks {
         channel.send_block(b).await.unwrap();
@@ -207,7 +216,7 @@ async fn test_bidirectional_ledger_sync() {
     let server_handle = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let session = run_responder(&mut stream, &server_id).await.unwrap();
-        let mut ch = LedgerSyncChannel::new(stream, *session.session_key);
+        let mut ch = LedgerSyncChannel::new(stream, &session, true);
         // Server sends its block
         ch.send_block(&server_block_clone).await.unwrap();
         // Server receives client's block
@@ -217,7 +226,7 @@ async fn test_bidirectional_ledger_sync() {
 
     let mut conn = TcpStream::connect(addr).await.unwrap();
     let session = run_initiator(&mut conn, &client_id).await.unwrap();
-    let mut ch = LedgerSyncChannel::new(conn, *session.session_key);
+    let mut ch = LedgerSyncChannel::new(conn, &session, false);
 
     // Client receives server block, then sends its own
     let recv_server_block = ch.recv_block().await.unwrap().unwrap();
@@ -251,7 +260,15 @@ async fn test_multi_block_pipeline() {
     let mut prev = [0u8; 32];
     for i in 0..N {
         let payload = format!("TX_{i}");
-        let b = LedgerBlock::new(i as u64, i as u64 * 100, prev, [3u8; 32], payload.as_bytes(), &client_id).unwrap();
+        let b = LedgerBlock::new(
+            i as u64,
+            i as u64 * 100,
+            prev,
+            [3u8; 32],
+            payload.as_bytes(),
+            &client_id,
+        )
+        .unwrap();
         prev = b.block_hash;
         blocks.push(b);
     }
@@ -260,18 +277,21 @@ async fn test_multi_block_pipeline() {
     let server_handle = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let session = run_responder(&mut stream, &server_id).await.unwrap();
-        let mut ch = LedgerSyncChannel::new(stream, *session.session_key);
+        let mut ch = LedgerSyncChannel::new(stream, &session, true);
         let server_ledger = MerkleLedger::new();
         for _ in 0..N {
             let b = ch.recv_block().await.unwrap().unwrap();
-            server_ledger.append_block(b, &client_pub_key).await.unwrap();
+            server_ledger
+                .append_block(b, &client_pub_key)
+                .await
+                .unwrap();
         }
         server_ledger
     });
 
     let mut conn = TcpStream::connect(addr).await.unwrap();
     let session = run_initiator(&mut conn, &client_id).await.unwrap();
-    let mut ch = LedgerSyncChannel::new(conn, *session.session_key);
+    let mut ch = LedgerSyncChannel::new(conn, &session, false);
     for b in &blocks {
         ch.send_block(b).await.unwrap();
     }
@@ -280,7 +300,10 @@ async fn test_multi_block_pipeline() {
 
     assert_eq!(server_ledger.len().await, N);
     let client_pub_final = client_id.dsa_public_key_bytes();
-    assert!(server_ledger.verify_chain_integrity(&client_pub_final).await.is_ok());
+    assert!(server_ledger
+        .verify_chain_integrity(&client_pub_final)
+        .await
+        .is_ok());
 
     // Verify each block individually
     for (i, expected) in blocks_clone.iter().enumerate() {

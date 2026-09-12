@@ -13,7 +13,7 @@ pub struct DoraComplianceLog {
     pub digital_signature_alg: String,  // "FIPS 204 (ML-DSA-87)"
     pub session_entropy_bits: f64,      // Target >= 7.9900
     pub bytes_shielded: usize,
-    pub crypto_agile_status: String,    // "ACTIVE_PQ_ENVELOPED"
+    pub crypto_agile_status: String, // "ACTIVE_PQ_ENVELOPED"
 }
 
 pub struct ComplianceExporter;

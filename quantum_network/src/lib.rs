@@ -17,6 +17,12 @@ pub enum GossipMessage {
     NodeHeartbeat(ClusterNode),
     /// HA: A peer notifies the cluster it is draining.
     NodeDraining(NodeId),
+    /// Ledger: Request to the current Authority to append a block.
+    AppendRequest {
+        session_id: [u8; 32],
+        payload: Vec<u8>,
+        timestamp_ms: u64,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -40,6 +46,7 @@ impl PeerRegistry {
 
 pub struct GossipEngine {
     identity: Arc<QuantumNodeIdentity>,
+    local_node_id: NodeId,
     registry: PeerRegistry,
     seen_blocks: Arc<RwLock<HashSet<[u8; 32]>>>,
     block_tx: mpsc::Sender<LedgerBlock>,
@@ -51,11 +58,13 @@ pub struct GossipEngine {
 impl GossipEngine {
     pub fn new(
         identity: Arc<QuantumNodeIdentity>,
+        local_node_id: NodeId,
         registry: PeerRegistry,
         block_tx: mpsc::Sender<LedgerBlock>,
     ) -> Self {
         Self {
             identity,
+            local_node_id,
             registry,
             seen_blocks: Arc::new(RwLock::new(HashSet::new())),
             block_tx,
@@ -76,8 +85,8 @@ impl GossipEngine {
     ) -> Result<(), String> {
         let payload = aes_gcm_open(session_key, encrypted_payload)
             .map_err(|e| format!("Decrypt error: {e}"))?;
-        let msg: GossipMessage = serde_json::from_slice(&payload)
-            .map_err(|e| format!("Serde error: {e}"))?;
+        let msg: GossipMessage =
+            serde_json::from_slice(&payload).map_err(|e| format!("Serde error: {e}"))?;
 
         match msg {
             GossipMessage::PeerExchange(addrs) => {
@@ -107,6 +116,38 @@ impl GossipEngine {
                 if let Some(ref cluster) = self.cluster {
                     warn!(node_id = %node_id, "Gossip: NodeDraining received");
                     let _ = cluster.mark_draining(&node_id).await;
+                }
+            }
+            GossipMessage::AppendRequest {
+                session_id,
+                payload,
+                timestamp_ms,
+            } => {
+                if let Some(ref cluster) = self.cluster {
+                    let nodes = cluster.healthy_peers().await;
+                    // Deterministic Authority: Min NodeId for the current maximum term
+                    let max_term = nodes.iter().map(|n| n.term).max().unwrap_or(0);
+                    let authority = nodes
+                        .iter()
+                        .filter(|n| n.term == max_term)
+                        .min_by_key(|n| &n.node_id);
+
+                    if let Some(leader) = authority {
+                        // If I am the leader, I sequence the block
+                        if leader.node_id == self.local_node_id {
+                            info!(
+                                session_id = ?session_id,
+                                "I am the authority; sequencing block"
+                            );
+                            // In a real implementation, we'd fetch the current ledger tip
+                            // and append the block. For now, we log the action.
+                        } else {
+                            info!(
+                                authority = %leader.node_id,
+                                "Forwarding AppendRequest to authority"
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -152,9 +193,10 @@ mod tests {
     #[tokio::test]
     async fn test_gossip_block_deduplication() {
         let identity = Arc::new(QuantumNodeIdentity::generate_node_identity().unwrap());
+        let local_id = NodeId::new("node-0");
         let registry = PeerRegistry::new();
         let (tx, mut rx) = mpsc::channel(10);
-        let engine = GossipEngine::new(identity.clone(), registry, tx);
+        let engine = GossipEngine::new(identity.clone(), local_id, registry, tx);
 
         let dummy_key = [7u8; 32];
         let block = LedgerBlock {
@@ -173,11 +215,17 @@ mod tests {
             .unwrap();
 
         // First process: should succeed and send to channel
-        engine.process_incoming_gossip(&dummy_key, &frame).await.unwrap();
+        engine
+            .process_incoming_gossip(&dummy_key, &frame)
+            .await
+            .unwrap();
         assert!(rx.recv().await.is_some());
 
         // Duplicate process: deduplicated by seen_blocks hash set
-        engine.process_incoming_gossip(&dummy_key, &frame).await.unwrap();
+        engine
+            .process_incoming_gossip(&dummy_key, &frame)
+            .await
+            .unwrap();
         assert!(rx.try_recv().is_err());
     }
 }

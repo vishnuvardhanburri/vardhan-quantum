@@ -27,12 +27,12 @@
 
 pub mod schema;
 
+use core_crypto::QuantumNodeIdentity;
+use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::sync::Mutex;
-use serde::{Deserialize, Serialize};
-use core_crypto::QuantumNodeIdentity;
 
 /// A single entry in the durable audit ledger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,10 +54,8 @@ impl LedgerEntry {
     /// Compute the canonical 32-byte hash of this entry.
     /// This is the value that becomes `prev_hash` of the next entry.
     pub fn canonical_hash(&self) -> [u8; 32] {
-        let event_json = serde_json::to_string(&self.event)
-            .expect("event must be serializable");
-        let prev_hash_bytes = hex::decode(&self.prev_hash)
-            .expect("prev_hash must be valid hex");
+        let event_json = serde_json::to_string(&self.event).expect("event must be serializable");
+        let prev_hash_bytes = hex::decode(&self.prev_hash).expect("prev_hash must be valid hex");
 
         canonical_hash(self.seq, self.timestamp_ms, &event_json, &prev_hash_bytes)
     }
@@ -99,9 +97,13 @@ impl LedgerWriter {
     ///
     /// If the file already exists, scans to find the last entry's seq and hash
     /// so the chain continues correctly across restarts.
-    pub fn open(path: &Path, identity: &QuantumNodeIdentity) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn open(
+        path: &Path,
+        identity: &QuantumNodeIdentity,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let pub_key_bytes = identity.dsa_public_key_bytes();
-        let signer_pub_fingerprint = hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key_bytes));
+        let signer_pub_fingerprint =
+            hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key_bytes));
 
         let (next_seq, prev_hash) = if path.exists() {
             scan_existing_ledger(path)?
@@ -109,10 +111,7 @@ impl LedgerWriter {
             (0, [0u8; 32])
         };
 
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
 
         Ok(Self {
             inner: Mutex::new(LedgerWriterInner {
@@ -192,9 +191,12 @@ use std::io::{BufRead, BufReader};
 /// If a torn write (incomplete JSON) is detected at the very end of the file, it safely truncates the file.
 /// Returns an error if the chain is broken (refuses to append to a corrupt ledger).
 fn scan_existing_ledger(path: &Path) -> Result<(u64, [u8; 32]), Box<dyn std::error::Error>> {
-    let file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
     let mut reader = BufReader::new(&file);
-    
+
     let mut prev_hash = [0u8; 32];
     let mut last_seq: Option<u64> = None;
     let mut valid_bytes = 0u64;
@@ -222,7 +224,7 @@ fn scan_existing_ledger(path: &Path) -> Result<(u64, [u8; 32]), Box<dyn std::err
                 // We truncate the file to the last known valid byte boundary.
                 eprintln!("WARN: Torn write detected at line {line_no} ({e}). Truncating ledger to {valid_bytes} bytes.");
                 file.set_len(valid_bytes)?;
-                break; 
+                break;
             }
         };
 
@@ -232,19 +234,32 @@ fn scan_existing_ledger(path: &Path) -> Result<(u64, [u8; 32]), Box<dyn std::err
             return Err(format!(
                 "Ledger chain broken at seq={}: expected prev_hash={expected_prev}, got={}",
                 entry.seq, entry.prev_hash
-            ).into());
+            )
+            .into());
         }
 
         // Verify monotonic sequence
         match last_seq {
             None if entry.seq != 0 => {
-                return Err(format!("Ledger does not start at seq=0, got seq={}", entry.seq).into());
+                return Err(
+                    format!("Ledger does not start at seq=0, got seq={}", entry.seq).into(),
+                );
             }
             Some(s) if entry.seq <= s => {
-                return Err(format!("Duplicated or reordered sequence: expected seq={}, got seq={}", s + 1, entry.seq).into());
+                return Err(format!(
+                    "Duplicated or reordered sequence: expected seq={}, got seq={}",
+                    s + 1,
+                    entry.seq
+                )
+                .into());
             }
             Some(s) if entry.seq != s + 1 => {
-                return Err(format!("Sequence gap (missing entry): expected seq={}, got seq={}", s + 1, entry.seq).into());
+                return Err(format!(
+                    "Sequence gap (missing entry): expected seq={}, got seq={}",
+                    s + 1,
+                    entry.seq
+                )
+                .into());
             }
             _ => {}
         }
@@ -255,8 +270,8 @@ fn scan_existing_ledger(path: &Path) -> Result<(u64, [u8; 32]), Box<dyn std::err
     }
 
     match last_seq {
-        None => Ok((0, [0u8; 32])),         // Empty file — start fresh
-        Some(s) => Ok((s + 1, prev_hash)),   // Resume after last entry
+        None => Ok((0, [0u8; 32])),        // Empty file — start fresh
+        Some(s) => Ok((s + 1, prev_hash)), // Resume after last entry
     }
 }
 
@@ -301,14 +316,22 @@ mod tests {
         let path = tmp_ledger_path();
         {
             let writer = LedgerWriter::open(&path, &identity).unwrap();
-            writer.append(serde_json::json!({"i": 0}), &identity).unwrap();
-            writer.append(serde_json::json!({"i": 1}), &identity).unwrap();
+            writer
+                .append(serde_json::json!({"i": 0}), &identity)
+                .unwrap();
+            writer
+                .append(serde_json::json!({"i": 1}), &identity)
+                .unwrap();
         }
-        
+
         // Simulate a torn write by appending partial JSON
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
-        file.write_all(b"{\"schema_version\": 1, \"seq\": 2").unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"{\"schema_version\": 1, \"seq\": 2")
+            .unwrap();
         file.flush().unwrap();
 
         // Scan should detect the torn write, truncate it, and resume at seq=2
@@ -325,7 +348,9 @@ mod tests {
         {
             let writer = LedgerWriter::open(&path, &identity).unwrap();
             for i in 0..5u64 {
-                writer.append(serde_json::json!({"i": i}), &identity).unwrap();
+                writer
+                    .append(serde_json::json!({"i": i}), &identity)
+                    .unwrap();
             }
         }
 
@@ -350,9 +375,15 @@ mod tests {
         let path = tmp_ledger_path();
         {
             let writer = LedgerWriter::open(&path, &identity).unwrap();
-            writer.append(serde_json::json!({"i": 0}), &identity).unwrap();
-            writer.append(serde_json::json!({"i": 1}), &identity).unwrap();
-            writer.append(serde_json::json!({"i": 2}), &identity).unwrap();
+            writer
+                .append(serde_json::json!({"i": 0}), &identity)
+                .unwrap();
+            writer
+                .append(serde_json::json!({"i": 1}), &identity)
+                .unwrap();
+            writer
+                .append(serde_json::json!({"i": 2}), &identity)
+                .unwrap();
         }
 
         // Delete seq=1 to test missing entry gap
@@ -360,17 +391,26 @@ mod tests {
         let lines: Vec<&str> = content.lines().collect();
         std::fs::write(&path, format!("{}\n{}\n", lines[0], lines[2])).unwrap();
         let result_missing = scan_existing_ledger(&path);
-        assert!(result_missing.unwrap_err().to_string().contains("chain broken"));
+        assert!(result_missing
+            .unwrap_err()
+            .to_string()
+            .contains("chain broken"));
 
         // Duplicate seq=1 to test duplicated seq
         std::fs::write(&path, format!("{}\n{}\n{}\n", lines[0], lines[1], lines[1])).unwrap();
         let result_duplicate = scan_existing_ledger(&path);
-        assert!(result_duplicate.unwrap_err().to_string().contains("chain broken"));
-        
+        assert!(result_duplicate
+            .unwrap_err()
+            .to_string()
+            .contains("chain broken"));
+
         // Reordered seq=1 and seq=2
         std::fs::write(&path, format!("{}\n{}\n{}\n", lines[0], lines[2], lines[1])).unwrap();
         let result_reordered = scan_existing_ledger(&path);
-        assert!(result_reordered.unwrap_err().to_string().contains("chain broken"));
+        assert!(result_reordered
+            .unwrap_err()
+            .to_string()
+            .contains("chain broken"));
 
         let _ = std::fs::remove_file(&path);
     }

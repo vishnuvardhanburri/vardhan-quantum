@@ -1,11 +1,11 @@
-use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:9090").await?;
     println!("Mock Upstream running on 127.0.0.1:9090");
-    
+
     let resp = b"HTTP/1.1 200 OK\r\nContent-Length: 14\r\n\r\nHello Upstream";
 
     loop {

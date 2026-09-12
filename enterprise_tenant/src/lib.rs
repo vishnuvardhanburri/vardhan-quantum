@@ -55,7 +55,9 @@ impl TenantManager {
 
     pub async fn get_tenant_session(&self, tenant_id: &str) -> Result<TenantSession, TenantError> {
         let lock = self.tenants.read().await;
-        let session = lock.get(tenant_id).ok_or_else(|| TenantError::TenantNotFound(tenant_id.to_string()))?;
+        let session = lock
+            .get(tenant_id)
+            .ok_or_else(|| TenantError::TenantNotFound(tenant_id.to_string()))?;
         Ok(TenantSession {
             config: session.config.clone(),
             identity: session.identity.clone(),

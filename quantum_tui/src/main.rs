@@ -38,8 +38,10 @@ pub struct CccDashboardState {
 impl Default for CccDashboardState {
     fn default() -> Self {
         Self {
-            raw_view: "POST /v1/clearing HTTP/1.1\r\nHost: bank.internal\r\nAmount: £1,500,000 GBP".to_string(),
-            quantum_view: "4f8a92b1c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0".to_string(),
+            raw_view: "POST /v1/clearing HTTP/1.1\r\nHost: bank.internal\r\nAmount: £1,500,000 GBP"
+                .to_string(),
+            quantum_view: "4f8a92b1c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0"
+                .to_string(),
             entropy_score: 7.9994,
             latency_history: vec![10, 12, 9, 11, 14, 10, 8, 12, 11, 9, 10, 11],
             quorum_percentage: 100,
@@ -89,7 +91,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             tokio::time::sleep(Duration::from_millis(400)).await;
             count += 1;
             let mock_frame = CccTelemetryFrame {
-                raw_bytes: format!("SETTLEMENT_PAYLOAD_ID_{:05}_AMOUNT_£1.5M_GBP", count).into_bytes(),
+                raw_bytes: format!("SETTLEMENT_PAYLOAD_ID_{:05}_AMOUNT_£1.5M_GBP", count)
+                    .into_bytes(),
                 encrypted_bytes: (0..48).map(|_| rand_byte()).collect(),
                 entropy_bits: 7.9980 + ((count % 15) as f64 * 0.0001),
                 latency_ms: 8 + (count % 7),
@@ -146,10 +149,10 @@ fn render_ccc_ui(f: &mut Frame, state: &CccDashboardState) {
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Banner Header
-            Constraint::Min(12),    // Split-Screen Ingress Monitor
-            Constraint::Length(5),  // Real-Time Metrics Gauges
-            Constraint::Length(6),  // Event Logs & Audit Stream
+            Constraint::Length(3), // Banner Header
+            Constraint::Min(12),   // Split-Screen Ingress Monitor
+            Constraint::Length(5), // Real-Time Metrics Gauges
+            Constraint::Length(6), // Event Logs & Audit Stream
         ])
         .split(f.size());
 
@@ -159,8 +162,16 @@ fn render_ccc_ui(f: &mut Frame, state: &CccDashboardState) {
         state.peer_count
     );
     let header = Paragraph::new(header_text)
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
     f.render_widget(header, main_layout[0]);
 
     // --- Split-Screen Payload Monitor ---
@@ -205,7 +216,11 @@ fn render_ccc_ui(f: &mut Frame, state: &CccDashboardState) {
 
     // Consensus Quorum Gauge
     let quorum_gauge = Gauge::default()
-        .block(Block::default().title(" ML-DSA Quorum Finality ").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title(" ML-DSA Quorum Finality ")
+                .borders(Borders::ALL),
+        )
         .gauge_style(Style::default().fg(Color::Green))
         .percent(state.quorum_percentage);
     f.render_widget(quorum_gauge, metrics_layout[0]);
@@ -216,13 +231,19 @@ fn render_ccc_ui(f: &mut Frame, state: &CccDashboardState) {
         state.entropy_score
     );
     let entropy_panel = Paragraph::new(entropy_str).block(
-        Block::default().title(" HNDL Shannon Entropy ").borders(Borders::ALL)
+        Block::default()
+            .title(" HNDL Shannon Entropy ")
+            .borders(Borders::ALL),
     );
     f.render_widget(entropy_panel, metrics_layout[1]);
 
     // Handshake Latency Sparkline
     let latency_sparkline = Sparkline::default()
-        .block(Block::default().title(" Latency Sparkline (ms) ").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title(" Latency Sparkline (ms) ")
+                .borders(Borders::ALL),
+        )
         .data(&state.latency_history)
         .style(Style::default().fg(Color::Yellow));
     f.render_widget(latency_sparkline, metrics_layout[2]);

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use core_crypto::QuantumNodeIdentity;
-use ledger_persistence::{DiskLedgerWal, KeyVault};
+use ledger_persistence::DiskLedgerWal;
 use ledger_sync::{LedgerBlock, LedgerSyncChannel, MerkleLedger};
 use proxy_engine::{run_initiator, QuantumProxyListener};
 use quantum_network::{GossipEngine, GossipMessage, PeerRegistry};
@@ -15,7 +15,11 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(name = "quantum_node", version = "0.1.0", about = "Vardhan Post-Quantum Proxy Node")]
+#[command(
+    name = "quantum_node",
+    version = "0.1.0",
+    about = "Vardhan Post-Quantum Proxy Node"
+)]
 struct Cli {
     /// Local TCP address to bind the proxy listener
     #[arg(short, long, default_value = "127.0.0.1:8443")]
@@ -41,7 +45,9 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let cli = Cli::parse();
@@ -50,23 +56,34 @@ async fn main() -> Result<()> {
     if !cli.data_dir.exists() {
         std::fs::create_dir_all(&cli.data_dir).context("Failed to create data directory")?;
     }
-    
+
     let wal_path = cli.data_dir.join("ledger.wal");
     let identity_path = cli.data_dir.join("node_identity.vault");
 
-    let identity = Arc::new(QuantumNodeIdentity::generate_node_identity()
-        .map_err(|e| anyhow::anyhow!("Crypto identity gen failed: {e}"))?);
-    
-    KeyVault::save_identity(&identity_path, &identity, b"super_secret_passphrase")
-        .context("Failed to save identity to vault")?;
-        
+    // Use a secret provider (Env var)
+    let vault_pass = std::env::var("VARDHAN_VAULT_PASS").map_err(|_| {
+        if std::env::var("VARDHAN_ENV").ok().as_deref() == Some("production") {
+            anyhow::anyhow!("CRITICAL: VARDHAN_VAULT_PASS must be set in production environment")
+        } else {
+            anyhow::anyhow!("VARDHAN_VAULT_PASS environment variable not set")
+        }
+    })?;
+    let protector = ledger_persistence::HardenedLocalKeyProtector::new(vault_pass.as_bytes());
+
+    let identity = Arc::new(
+        QuantumNodeIdentity::load_or_generate(&identity_path, &protector)
+            .map_err(|e| anyhow::anyhow!("Identity load/gen failed: {e}"))?,
+    );
+
     let node_pub_key = identity.dsa_public_key_bytes();
-    info!("Node PQ identity generated and securely vaulted.");
+    info!("Node PQ identity loaded/generated and securely vaulted.");
 
     let ledger = MerkleLedger::new();
     let wal = Arc::new(DiskLedgerWal::new(wal_path.to_string_lossy().to_string()));
 
-    let replayed = wal.replay_into_ledger(&ledger, &node_pub_key).await
+    let replayed = wal
+        .replay_into_ledger(&ledger, &node_pub_key)
+        .await
         .context("Failed to replay ledger WAL")?;
     info!("Replayed {} blocks from WAL into Merkle Ledger.", replayed);
 
@@ -81,16 +98,32 @@ async fn main() -> Result<()> {
         }
     }
 
-    let gossip_engine = Arc::new(GossipEngine::new(identity.clone(), registry.clone(), block_tx));
+    let local_id = ha_cluster::NodeId::new("node-0");
+    let gossip_engine = Arc::new(GossipEngine::new(
+        identity.clone(),
+        local_id,
+        registry.clone(),
+        block_tx,
+    ));
 
     if cli.genesis && replayed == 0 {
-        let genesis_block = LedgerBlock::new(0, 1, [0u8; 32], [0u8; 32], b"VARDHAN_QUANTUM_GENESIS_BLOCK", &identity)
-            .map_err(|e| anyhow::anyhow!("Genesis creation failed: {e}"))?;
-        
-        ledger.append_block(genesis_block.clone(), &node_pub_key).await
+        let genesis_block = LedgerBlock::new(
+            0,
+            1,
+            [0u8; 32],
+            [0u8; 32],
+            b"VARDHAN_QUANTUM_GENESIS_BLOCK",
+            &identity,
+        )
+        .map_err(|e| anyhow::anyhow!("Genesis creation failed: {e}"))?;
+
+        ledger
+            .append_block(genesis_block.clone(), &node_pub_key)
+            .await
             .map_err(|e| anyhow::anyhow!("Genesis append failed: {e}"))?;
-        wal.append(&genesis_block).context("Failed to append genesis to WAL")?;
-        
+        wal.append(&genesis_block)
+            .context("Failed to append genesis to WAL")?;
+
         // Broadcast genesis block
         let _ = gossip_tx.send(genesis_block);
         info!("Genesis block successfully committed and broadcasted.");
@@ -103,7 +136,11 @@ async fn main() -> Result<()> {
     let npk_clone = node_pub_key.clone();
     tokio::spawn(async move {
         while let Some(block) = block_rx.recv().await {
-            if ledger_clone.append_block(block.clone(), &npk_clone).await.is_ok() {
+            if ledger_clone
+                .append_block(block.clone(), &npk_clone)
+                .await
+                .is_ok()
+            {
                 let _ = wal_clone.append(&block);
                 let _ = gossip_tx_clone.send(block); // re-broadcast
             }
@@ -112,13 +149,17 @@ async fn main() -> Result<()> {
 
     let bind_addr = cli.bind.clone();
     let listener_identity = (*identity).clone();
-    
+
     // Spawn Ingress Proxy Listener Task
     let engine_clone = gossip_engine.clone();
     let bcast_tx = gossip_tx.clone();
     let listener_handle = tokio::spawn(async move {
         let tcp_listener = match tokio::net::TcpListener::bind(&bind_addr).await {
-            Ok(l) => l, Err(e) => { error!("Failed to bind TCP listener on {bind_addr}: {e}"); return; }
+            Ok(l) => l,
+            Err(e) => {
+                error!("Failed to bind TCP listener on {bind_addr}: {e}");
+                return;
+            }
         };
         let listener = QuantumProxyListener::from_parts(tcp_listener, listener_identity);
         info!("Quantum Proxy Listener active on {}", bind_addr);
@@ -126,7 +167,7 @@ async fn main() -> Result<()> {
         loop {
             if let Ok((session, stream)) = listener.accept_handshake().await {
                 info!("Established PQ handshake session with peer: {}", "UNKNOWN");
-                let mut channel = LedgerSyncChannel::new(stream, session.session_id);
+                let mut channel = LedgerSyncChannel::new(stream, &session, true);
                 let session_key = session.session_id;
                 let mut bcast_rx = bcast_tx.subscribe();
                 let engine = engine_clone.clone();
@@ -156,16 +197,16 @@ async fn main() -> Result<()> {
         let client_id = (*identity).clone();
         let engine_clone = gossip_engine.clone();
         let bcast_tx = gossip_tx.clone();
-        
+
         tokio::spawn(async move {
             info!("Initiating outbound PQ session to peer: {peer_addr}");
             if let Ok(mut stream) = TcpStream::connect(&peer_addr).await {
                 if let Ok(session) = run_initiator(&mut stream, &client_id).await {
                     info!("Outbound PQ session established with {}", "UNKNOWN");
-                    let mut channel = LedgerSyncChannel::new(stream, session.session_id);
+                    let mut channel = LedgerSyncChannel::new(stream, &session, false);
                     let session_key = session.session_id;
                     let mut bcast_rx = bcast_tx.subscribe();
-                    
+
                     loop {
                         tokio::select! {
                             Ok(Some(block)) = channel.recv_block() => {
@@ -185,7 +226,9 @@ async fn main() -> Result<()> {
     }
 
     info!("Node running. Press Ctrl+C to shut down gracefully.");
-    signal::ctrl_c().await.context("Failed to listen for Ctrl+C signal")?;
+    signal::ctrl_c()
+        .await
+        .context("Failed to listen for Ctrl+C signal")?;
     info!("Shutdown signal received. Flushing state and stopping node...");
     listener_handle.abort();
     info!("Vardhan Quantum Proxy Node terminated cleanly.");

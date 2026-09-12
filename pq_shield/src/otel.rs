@@ -1,8 +1,8 @@
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_sdk::trace::{SdkTracerProvider, Sampler};
-use opentelemetry_sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
+use opentelemetry_sdk::Resource;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Registry;
@@ -20,8 +20,8 @@ impl Drop for OtelGuard {
 }
 
 pub fn init_observability() -> OtelGuard {
-    let service_name = std::env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| "vardhan-quantum-proxy".to_string());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "vardhan-quantum-proxy".to_string());
 
     let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
 
@@ -52,22 +52,26 @@ pub fn init_observability() -> OtelGuard {
             Ok(exporter) => {
                 let provider = SdkTracerProvider::builder()
                     .with_resource(resource)
-                    .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(sample_ratio))))
+                    .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                        sample_ratio,
+                    ))))
                     .with_batch_exporter(exporter)
                     .build();
 
                 let tracer = provider.tracer("pq_shield");
                 let otel_layer = tracing_opentelemetry::OpenTelemetryLayer::new(tracer);
 
-                let subscriber = Registry::default()
-                    .with(fmt_layer)
-                    .with(otel_layer);
+                let subscriber = Registry::default().with(fmt_layer).with(otel_layer);
 
                 let _ = subscriber.try_init();
-                return OtelGuard { provider: Some(provider) };
+                return OtelGuard {
+                    provider: Some(provider),
+                };
             }
             Err(e) => {
-                eprintln!("WARN: Failed to initialize OTLP exporter ({e}), falling back to local tracing");
+                eprintln!(
+                    "WARN: Failed to initialize OTLP exporter ({e}), falling back to local tracing"
+                );
             }
         }
     }

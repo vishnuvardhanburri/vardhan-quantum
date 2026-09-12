@@ -1,14 +1,14 @@
-use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::{mpsc, broadcast};
-use serde::Serialize;
-use hdrhistogram::Histogram;
-use uuid::Uuid;
-use std::collections::VecDeque;
-use tokio::sync::RwLock;
+use crate::prometheus_metrics::PrometheusMetrics;
 use audit_ledger::LedgerWriter;
 use core_crypto::QuantumNodeIdentity;
-use crate::prometheus_metrics::PrometheusMetrics;
+use hdrhistogram::Histogram;
+use serde::Serialize;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
+use tokio::sync::{broadcast, mpsc};
+use uuid::Uuid;
 
 // Versioned immutable event schema
 #[derive(Debug, Clone, Serialize)]
@@ -23,11 +23,19 @@ pub struct QuantumEvent {
 }
 
 impl QuantumEvent {
-    pub fn new(session_id: &str, event_type: &str, sequence: u64, payload: serde_json::Value) -> Self {
+    pub fn new(
+        session_id: &str,
+        event_type: &str,
+        sequence: u64,
+        payload: serde_json::Value,
+    ) -> Self {
         Self {
             schema_version: 1,
             event_id: Uuid::new_v4().to_string(),
-            timestamp_ms: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis(),
+            timestamp_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
             session_id: session_id.to_string(),
             event_type: event_type.to_string(),
             sequence,
@@ -133,14 +141,22 @@ impl TelemetryEngine {
             let mut nonce_samples: VecDeque<u8> = VecDeque::with_capacity(4096);
 
             fn calc_shannon(samples: &VecDeque<u8>) -> f64 {
-                if samples.is_empty() { return 0.0; }
+                if samples.is_empty() {
+                    return 0.0;
+                }
                 let mut freqs = [0usize; 256];
-                for &b in samples { freqs[b as usize] += 1; }
+                for &b in samples {
+                    freqs[b as usize] += 1;
+                }
                 let len = samples.len() as f64;
-                freqs.iter().filter(|&&f| f > 0).map(|&f| {
-                    let p = (f as f64) / len;
-                    -p * p.log2()
-                }).sum()
+                freqs
+                    .iter()
+                    .filter(|&&f| f > 0)
+                    .map(|&f| {
+                        let p = (f as f64) / len;
+                        -p * p.log2()
+                    })
+                    .sum()
             }
 
             // P2/P3: emit_event:
@@ -176,74 +192,149 @@ impl TelemetryEngine {
             }
 
             loop {
-                match tokio::time::timeout(tokio::time::Duration::from_millis(50), rx.recv()).await {
-                    Ok(Some(msg)) => {
-                        match msg {
-                            InternalMsg::LatencySample(us) => {
-                                let _ = hist.record(us);
-                                prom_ref.request_duration_seconds.observe((us as f64) / 1_000_000.0);
-                            }
-                            InternalMsg::RequestCompleted => {
-                                requests_this_sec += 1;
-                                prom_ref.requests_total.with_label_values(&["success"]).inc();
-                            }
-                            InternalMsg::HandshakeCompleted(sid, us) => {
-                                handshakes_this_sec += 1;
-                                successful_handshakes += 1;
-                                active_sessions += 1;
-                                prom_ref.handshakes_total.with_label_values(&["success"]).inc();
-                                prom_ref.handshake_duration_seconds.observe((us as f64) / 1_000_000.0);
-                                prom_ref.active_sessions.set(active_sessions as i64);
+                match tokio::time::timeout(tokio::time::Duration::from_millis(50), rx.recv()).await
+                {
+                    Ok(Some(msg)) => match msg {
+                        InternalMsg::LatencySample(us) => {
+                            let _ = hist.record(us);
+                            prom_ref
+                                .request_duration_seconds
+                                .observe((us as f64) / 1_000_000.0);
+                        }
+                        InternalMsg::RequestCompleted => {
+                            requests_this_sec += 1;
+                            prom_ref
+                                .requests_total
+                                .with_label_values(&["success"])
+                                .inc();
+                        }
+                        InternalMsg::HandshakeCompleted(sid, us) => {
+                            handshakes_this_sec += 1;
+                            successful_handshakes += 1;
+                            active_sessions += 1;
+                            prom_ref
+                                .handshakes_total
+                                .with_label_values(&["success"])
+                                .inc();
+                            prom_ref
+                                .handshake_duration_seconds
+                                .observe((us as f64) / 1_000_000.0);
+                            prom_ref.active_sessions.set(active_sessions as i64);
 
-                                let ev = QuantumEvent::new(&sid, "HandshakeCompleted", 0, serde_json::json!({}));
-                                emit_event(ev, &history_ref, &history_wrapped_ref, &event_tx, &ledger, &identity, &prom_ref).await;
-                            }
-                            InternalMsg::UpstreamConnected(sid) => {
-                                let ev = QuantumEvent::new(&sid, "UpstreamConnected", 0, serde_json::json!({}));
-                                emit_event(ev, &history_ref, &history_wrapped_ref, &event_tx, &ledger, &identity, &prom_ref).await;
-                            }
-                            InternalMsg::UpstreamFailed(sid) => {
-                                upstream_failures += 1;
-                                prom_ref.upstream_failures_total.inc();
-                                prom_ref.requests_total.with_label_values(&["failure"]).inc();
+                            let ev = QuantumEvent::new(
+                                &sid,
+                                "HandshakeCompleted",
+                                0,
+                                serde_json::json!({}),
+                            );
+                            emit_event(
+                                ev,
+                                &history_ref,
+                                &history_wrapped_ref,
+                                &event_tx,
+                                &ledger,
+                                &identity,
+                                &prom_ref,
+                            )
+                            .await;
+                        }
+                        InternalMsg::UpstreamConnected(sid) => {
+                            let ev = QuantumEvent::new(
+                                &sid,
+                                "UpstreamConnected",
+                                0,
+                                serde_json::json!({}),
+                            );
+                            emit_event(
+                                ev,
+                                &history_ref,
+                                &history_wrapped_ref,
+                                &event_tx,
+                                &ledger,
+                                &identity,
+                                &prom_ref,
+                            )
+                            .await;
+                        }
+                        InternalMsg::UpstreamFailed(sid) => {
+                            upstream_failures += 1;
+                            prom_ref.upstream_failures_total.inc();
+                            prom_ref
+                                .requests_total
+                                .with_label_values(&["failure"])
+                                .inc();
 
-                                let ev = QuantumEvent::new(&sid, "UpstreamFailed", 0, serde_json::json!({}));
-                                emit_event(ev, &history_ref, &history_wrapped_ref, &event_tx, &ledger, &identity, &prom_ref).await;
+                            let ev =
+                                QuantumEvent::new(&sid, "UpstreamFailed", 0, serde_json::json!({}));
+                            emit_event(
+                                ev,
+                                &history_ref,
+                                &history_wrapped_ref,
+                                &event_tx,
+                                &ledger,
+                                &identity,
+                                &prom_ref,
+                            )
+                            .await;
+                        }
+                        InternalMsg::SessionClosed(sid) => {
+                            if active_sessions > 0 {
+                                active_sessions -= 1;
                             }
-                            InternalMsg::SessionClosed(sid) => {
-                                if active_sessions > 0 { active_sessions -= 1; }
-                                prom_ref.active_sessions.set(active_sessions as i64);
+                            prom_ref.active_sessions.set(active_sessions as i64);
 
-                                let ev = QuantumEvent::new(&sid, "SessionClosed", 0, serde_json::json!({}));
-                                emit_event(ev, &history_ref, &history_wrapped_ref, &event_tx, &ledger, &identity, &prom_ref).await;
-                            }
-                            InternalMsg::FrameRejected => {
-                                rejected_frames += 1;
-                                prom_ref.frames_rejected_total.inc();
-                                prom_ref.handshakes_total.with_label_values(&["rejected"]).inc();
-                            }
-                            InternalMsg::KemEntropySample(bytes) => {
-                                for b in bytes {
-                                    if kem_samples.len() == 4096 { kem_samples.pop_front(); }
-                                    kem_samples.push_back(b);
+                            let ev =
+                                QuantumEvent::new(&sid, "SessionClosed", 0, serde_json::json!({}));
+                            emit_event(
+                                ev,
+                                &history_ref,
+                                &history_wrapped_ref,
+                                &event_tx,
+                                &ledger,
+                                &identity,
+                                &prom_ref,
+                            )
+                            .await;
+                        }
+                        InternalMsg::FrameRejected => {
+                            rejected_frames += 1;
+                            prom_ref.frames_rejected_total.inc();
+                            prom_ref
+                                .handshakes_total
+                                .with_label_values(&["rejected"])
+                                .inc();
+                        }
+                        InternalMsg::KemEntropySample(bytes) => {
+                            for b in bytes {
+                                if kem_samples.len() == 4096 {
+                                    kem_samples.pop_front();
                                 }
-                            }
-                            InternalMsg::NonceEntropySample(bytes) => {
-                                for b in bytes {
-                                    if nonce_samples.len() == 4096 { nonce_samples.pop_front(); }
-                                    nonce_samples.push_back(b);
-                                }
+                                kem_samples.push_back(b);
                             }
                         }
-                    }
+                        InternalMsg::NonceEntropySample(bytes) => {
+                            for b in bytes {
+                                if nonce_samples.len() == 4096 {
+                                    nonce_samples.pop_front();
+                                }
+                                nonce_samples.push_back(b);
+                            }
+                        }
+                    },
                     Ok(None) => break,
                     Err(_) => {
                         if last_tick.elapsed().as_secs() >= 1 {
                             let kem_entropy = calc_shannon(&kem_samples);
                             let nonce_entropy = calc_shannon(&nonce_samples);
 
-                            prom_ref.shannon_entropy_bits.with_label_values(&["kem"]).set(kem_entropy);
-                            prom_ref.shannon_entropy_bits.with_label_values(&["nonce"]).set(nonce_entropy);
+                            prom_ref
+                                .shannon_entropy_bits
+                                .with_label_values(&["kem"])
+                                .set(kem_entropy);
+                            prom_ref
+                                .shannon_entropy_bits
+                                .with_label_values(&["nonce"])
+                                .set(nonce_entropy);
 
                             let mut w = snapshot_ref.write().await;
                             w.requests_per_sec = requests_this_sec;

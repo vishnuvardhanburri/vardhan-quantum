@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
 use tokio::sync::RwLock;
+use tokio::time::{sleep, Duration};
 
 /// Represents the health state of a regional edge node
 #[derive(Debug, Clone)]
@@ -44,10 +44,11 @@ impl OrchestrationIntelligence {
 
         for node in health_map.iter_mut() {
             // Predictive Failure Thresholds
-            if node.latency_ms > 150 || node.packet_drop_rate > 0.05 || node.cpu_utilization > 0.90 {
+            if node.latency_ms > 150 || node.packet_drop_rate > 0.05 || node.cpu_utilization > 0.90
+            {
                 println!("[ORCHESTRATION-AI] ⚠️ Predictive Failure Detected on Node {}: Latency {}ms, CPU {}%.", 
                     node.node_id, node.latency_ms, node.cpu_utilization * 100.0);
-                
+
                 requires_rebalance = true;
                 // Initiate graceful drain and re-route
                 Self::execute_zero_downtime_drain(&node.node_id).await;
@@ -56,12 +57,15 @@ impl OrchestrationIntelligence {
 
         if requires_rebalance {
             let epoch = self.routing_epoch.fetch_add(1, Ordering::SeqCst);
-            println!("[ORCHESTRATION-AI] 🔄 Cluster Rebalanced. Initiating Routing Epoch {}.", epoch + 1);
+            println!(
+                "[ORCHESTRATION-AI] 🔄 Cluster Rebalanced. Initiating Routing Epoch {}.",
+                epoch + 1
+            );
         }
     }
 
     async fn execute_zero_downtime_drain(node_id: &str) {
-        // In a real system, this interacts with Kubernetes API or Envoy xDS 
+        // In a real system, this interacts with Kubernetes API or Envoy xDS
         // to gracefully shift gRPC weights away from the failing node to healthy peers.
         println!("[ORCHESTRATION-AI] ⚡ Executing zero-downtime traffic shift away from {}. Synchronizing P2P Mesh state...", node_id);
     }

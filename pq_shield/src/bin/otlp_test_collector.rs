@@ -1,10 +1,4 @@
-use axum::{
-    routing::post,
-    Router,
-    body::Bytes,
-    http::StatusCode,
-    response::IntoResponse,
-};
+use axum::{body::Bytes, http::StatusCode, response::IntoResponse, routing::post, Router};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as ProtoVal;
 use prost::Message;
@@ -13,10 +7,11 @@ use std::io::Write;
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new()
-        .route("/v1/traces", post(handle_traces));
+    let app = Router::new().route("/v1/traces", post(handle_traces));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:4318").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:4318")
+        .await
+        .unwrap();
     println!("[*] OTLP Test Collector listening on 127.0.0.1:4318/v1/traces");
     axum::serve(listener, app).await.unwrap();
 }
@@ -39,7 +34,11 @@ async fn handle_traces(body: Bytes) -> impl IntoResponse {
                             };
                             attrs.insert(attr.key, json_val);
                         }
-                        println!("[OTLP RECEIVED SPAN] name: {}, attrs: {}", span.name, serde_json::to_string(&attrs).unwrap_or_default());
+                        println!(
+                            "[OTLP RECEIVED SPAN] name: {}, attrs: {}",
+                            span.name,
+                            serde_json::to_string(&attrs).unwrap_or_default()
+                        );
                         recorded_spans.push(json!({
                             "name": span.name,
                             "attributes": attrs,
@@ -47,16 +46,28 @@ async fn handle_traces(body: Bytes) -> impl IntoResponse {
                     }
                 }
             }
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/otlp_received_spans.jsonl") {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/otlp_received_spans.jsonl")
+            {
                 for s in recorded_spans {
                     let _ = writeln!(f, "{}", s);
                 }
             }
-            (StatusCode::OK, [("content-type", "application/x-protobuf")], vec![])
+            (
+                StatusCode::OK,
+                [("content-type", "application/x-protobuf")],
+                vec![],
+            )
         }
         Err(e) => {
             eprintln!("Failed to decode OTLP request: {e}");
-            (StatusCode::BAD_REQUEST, [("content-type", "text/plain")], vec![])
+            (
+                StatusCode::BAD_REQUEST,
+                [("content-type", "text/plain")],
+                vec![],
+            )
         }
     }
 }

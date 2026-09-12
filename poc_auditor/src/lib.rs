@@ -35,7 +35,7 @@ impl CisoPdfGenerator {
     pub fn new<P: AsRef<Path>>(font_path: P) -> Result<Self, AuditorError> {
         let font_data = std::fs::read(font_path.as_ref())
             .map_err(|e| AuditorError::FontError(e.to_string()))?;
-        
+
         // Genpdf requires a font family. We use the same font for all styles for simplicity.
         let font = fonts::FontData::new(font_data, None)
             .map_err(|e| AuditorError::FontError(e.to_string()))?;
@@ -47,7 +47,9 @@ impl CisoPdfGenerator {
             bold_italic: font,
         };
 
-        Ok(Self { font_family: family })
+        Ok(Self {
+            font_family: family,
+        })
     }
 
     pub fn generate_dora_report(
@@ -72,11 +74,16 @@ impl CisoPdfGenerator {
 
         doc.push(Paragraph::new("VARDHAN TECHNOLOGIES - QUANTUM PROXY"));
         doc.push(Break::new(1));
-        doc.push(Paragraph::new("DORA / NIS2 POST-QUANTUM COMPLIANCE AUDIT REPORT"));
+        doc.push(Paragraph::new(
+            "DORA / NIS2 POST-QUANTUM COMPLIANCE AUDIT REPORT",
+        ));
         doc.push(Break::new(2));
 
         doc.push(Paragraph::new(format!("Tenant ID: {}", report.tenant_id)));
-        doc.push(Paragraph::new(format!("Date Generated: {}", report.report_timestamp)));
+        doc.push(Paragraph::new(format!(
+            "Date Generated: {}",
+            report.report_timestamp
+        )));
         doc.push(Break::new(1));
 
         doc.push(Paragraph::new("--- EXECUTIVE SUMMARY ---"));
@@ -98,10 +105,16 @@ impl CisoPdfGenerator {
             report.crypto_agility_status
         )));
         doc.push(Break::new(1));
-        
+
         doc.push(Paragraph::new("--- CRYPTOGRAPHIC SIGNATURE ---"));
-        doc.push(Paragraph::new(format!("BLAKE3 Merkle Hash: {}", report.blake3_audit_hash)));
-        doc.push(Paragraph::new(format!("Node Signature: {}", hex::encode(&receipt.signature))));
+        doc.push(Paragraph::new(format!(
+            "BLAKE3 Merkle Hash: {}",
+            report.blake3_audit_hash
+        )));
+        doc.push(Paragraph::new(format!(
+            "Node Signature: {}",
+            hex::encode(&receipt.signature)
+        )));
 
         doc.render_to_file(output_path)
             .map_err(|e| AuditorError::PdfError(e.to_string()))?;

@@ -1,6 +1,6 @@
 use prometheus::{
-    CounterVec, GaugeVec, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry,
-    TextEncoder, Encoder,
+    CounterVec, Encoder, GaugeVec, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry,
+    TextEncoder,
 };
 
 #[derive(Clone)]
@@ -22,7 +22,10 @@ impl PrometheusMetrics {
         let registry = Registry::new();
 
         let requests_total = CounterVec::new(
-            Opts::new("proxy_requests_total", "Total completed upstream proxy requests"),
+            Opts::new(
+                "proxy_requests_total",
+                "Total completed upstream proxy requests",
+            ),
             &["status"],
         )?;
         registry.register(Box::new(requests_total.clone()))?;
@@ -38,7 +41,10 @@ impl PrometheusMetrics {
         registry.register(Box::new(request_duration_seconds.clone()))?;
 
         let handshakes_total = CounterVec::new(
-            Opts::new("proxy_handshakes_total", "Total post-quantum handshake attempts"),
+            Opts::new(
+                "proxy_handshakes_total",
+                "Total post-quantum handshake attempts",
+            ),
             &["status"],
         )?;
         registry.register(Box::new(handshakes_total.clone()))?;
@@ -51,7 +57,10 @@ impl PrometheusMetrics {
         let handshake_duration_seconds = Histogram::with_opts(handshake_duration_opts)?;
         registry.register(Box::new(handshake_duration_seconds.clone()))?;
 
-        let active_sessions = IntGauge::new("proxy_active_sessions", "Number of active post-quantum sessions")?;
+        let active_sessions = IntGauge::new(
+            "proxy_active_sessions",
+            "Number of active post-quantum sessions",
+        )?;
         registry.register(Box::new(active_sessions.clone()))?;
 
         let frames_rejected_total = IntCounter::new(
@@ -67,7 +76,10 @@ impl PrometheusMetrics {
         registry.register(Box::new(upstream_failures_total.clone()))?;
 
         let shannon_entropy_bits = GaugeVec::new(
-            Opts::new("proxy_shannon_entropy_bits", "Byte Shannon Entropy (bits/byte)"),
+            Opts::new(
+                "proxy_shannon_entropy_bits",
+                "Byte Shannon Entropy (bits/byte)",
+            ),
             &["source"],
         )?;
         registry.register(Box::new(shannon_entropy_bits.clone()))?;
@@ -112,13 +124,22 @@ mod tests {
     #[test]
     fn test_prometheus_metrics_lifecycle() {
         let metrics = PrometheusMetrics::new().expect("PrometheusMetrics::new should succeed");
-        
-        metrics.requests_total.with_label_values(&["success"]).inc_by(42.0);
+
+        metrics
+            .requests_total
+            .with_label_values(&["success"])
+            .inc_by(42.0);
         metrics.active_sessions.set(7);
         metrics.request_duration_seconds.observe(0.0025);
-        metrics.handshakes_total.with_label_values(&["success"]).inc();
+        metrics
+            .handshakes_total
+            .with_label_values(&["success"])
+            .inc();
         metrics.handshake_duration_seconds.observe(0.015);
-        metrics.shannon_entropy_bits.with_label_values(&["nonce"]).set(7.99);
+        metrics
+            .shannon_entropy_bits
+            .with_label_values(&["nonce"])
+            .set(7.99);
         metrics.ledger_entries_total.inc_by(10);
 
         let output = metrics.encode();

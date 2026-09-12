@@ -20,11 +20,11 @@
 //!   1 = FAIL (cryptographic failure or structural violation)
 //!   2 = Usage / IO error
 
+use audit_ledger::{canonical_hash, LedgerEntry};
 use clap::Parser;
-use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
-use audit_ledger::{LedgerEntry, canonical_hash};
 use core_crypto::QuantumNodeIdentity;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -66,7 +66,9 @@ fn run_verification(args: &Args) -> VerificationReport {
     let mut failures: Vec<String> = Vec::new();
 
     // ─── Load public key ──────────────────────────────────────────────────────
-    let pub_key_path = args.public_key.clone()
+    let pub_key_path = args
+        .public_key
+        .clone()
         .unwrap_or_else(|| args.evidence_dir.join("public_key.hex"));
 
     let pub_key_bytes = match load_public_key(&pub_key_path) {
@@ -87,9 +89,7 @@ fn run_verification(args: &Args) -> VerificationReport {
     };
 
     // Compute expected fingerprint from supplied public key
-    let expected_fingerprint = hex::encode(
-        QuantumNodeIdentity::hash_ledger_block(&pub_key_bytes)
-    );
+    let expected_fingerprint = hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key_bytes));
 
     // ─── Load ledger file ─────────────────────────────────────────────────────
     let ledger_path = args.evidence_dir.join("ledger.jsonl");
@@ -120,7 +120,9 @@ fn run_verification(args: &Args) -> VerificationReport {
     let mut tip_hash = String::from("0".repeat(64));
 
     for (line_no, line) in content.lines().enumerate() {
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
 
         // 1. Parse
         let entry: LedgerEntry = match serde_json::from_str(line) {
@@ -136,11 +138,18 @@ fn run_verification(args: &Args) -> VerificationReport {
         // 2. Sequence check
         match last_seq {
             None if entry.seq != 0 => {
-                failures.push(format!("Line {line_no}: expected seq=0 as first entry, got seq={}", entry.seq));
+                failures.push(format!(
+                    "Line {line_no}: expected seq=0 as first entry, got seq={}",
+                    entry.seq
+                ));
                 seq_ok = false;
             }
             Some(s) if entry.seq != s + 1 => {
-                failures.push(format!("Line {line_no}: sequence gap — expected seq={}, got seq={}", s + 1, entry.seq));
+                failures.push(format!(
+                    "Line {line_no}: sequence gap — expected seq={}, got seq={}",
+                    s + 1,
+                    entry.seq
+                ));
                 seq_ok = false;
             }
             _ => {}
@@ -166,8 +175,7 @@ fn run_verification(args: &Args) -> VerificationReport {
         }
 
         // 5. Recompute canonical hash and verify signature
-        let event_json = serde_json::to_string(&entry.event)
-            .expect("event must be serializable");
+        let event_json = serde_json::to_string(&entry.event).expect("event must be serializable");
         let prev_hash_bytes = match hex::decode(&entry.prev_hash) {
             Ok(b) => b,
             Err(e) => {
@@ -176,7 +184,8 @@ fn run_verification(args: &Args) -> VerificationReport {
                 continue;
             }
         };
-        let canonical = canonical_hash(entry.seq, entry.timestamp_ms, &event_json, &prev_hash_bytes);
+        let canonical =
+            canonical_hash(entry.seq, entry.timestamp_ms, &event_json, &prev_hash_bytes);
 
         let sig_bytes = match hex::decode(&entry.signature) {
             Ok(b) => b,
@@ -228,8 +237,10 @@ fn load_public_key(path: &std::path::Path) -> Result<Vec<u8>, Box<dyn std::error
     if bytes.len() != core_crypto::DSA_PUB_KEY_LEN {
         return Err(format!(
             "Public key must be {} bytes, got {}",
-            core_crypto::DSA_PUB_KEY_LEN, bytes.len()
-        ).into());
+            core_crypto::DSA_PUB_KEY_LEN,
+            bytes.len()
+        )
+        .into());
     }
     Ok(bytes)
 }

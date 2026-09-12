@@ -22,46 +22,75 @@ pub enum PersistenceError {
     Ledger(#[from] ledger_sync::LedgerError),
 }
 
-/// Encrypted Key Vault for loading/saving Node Identities on disk
-pub struct KeyVault;
+/// A passphrase-based key protector that uses Argon2 for key derivation
+/// and AES-256-GCM for envelope encryption.
+pub struct HardenedLocalKeyProtector {
+    passphrase: Zeroizing<Vec<u8>>,
+}
 
-impl KeyVault {
-    pub fn save_identity(
-        path: impl AsRef<Path>,
-        identity: &QuantumNodeIdentity,
-        passphrase: &[u8],
-    ) -> Result<(), PersistenceError> {
+impl HardenedLocalKeyProtector {
+    pub fn new(passphrase: &[u8]) -> Self {
+        Self {
+            passphrase: Zeroizing::new(passphrase.to_vec()),
+        }
+    }
+
+    fn derive_key(&self, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, PersistenceError> {
+        let mut derived_key = Zeroizing::new([0u8; 32]);
+        Argon2::default()
+            .hash_password_into(&self.passphrase, salt, derived_key.as_mut())
+            .map_err(|_| PersistenceError::CryptoError)?;
+        Ok(derived_key)
+    }
+}
+
+impl core_crypto::vault::KeyProtector for HardenedLocalKeyProtector {
+    fn provider_name(&self) -> &'static str {
+        "hardened-local"
+    }
+
+    fn wrap(&self, plaintext: &[u8]) -> Result<Vec<u8>, core_crypto::vault::VaultError> {
         let mut salt = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut salt);
 
-        let mut derived_key = Zeroizing::new([0u8; 32]);
-        Argon2::default()
-            .hash_password_into(passphrase, &salt, derived_key.as_mut())
-            .map_err(|_| PersistenceError::CryptoError)?;
-
-        let serialized = serde_json::to_vec(&(
-            identity.encap_key_bytes(),
-            identity.dsa_public_key_bytes(),
-        ))?;
-
-        let cipher = Aes256Gcm::new_from_slice(derived_key.as_ref())
-            .map_err(|_| PersistenceError::CryptoError)?;
-        
+        let key = self
+            .derive_key(&salt)
+            .map_err(|e| core_crypto::vault::VaultError::Crypto(e.to_string()))?;
+        let cipher = Aes256Gcm::new(&(*key).into());
         let mut nonce_bytes = [0u8; 12];
         rand::thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let ciphertext = cipher
-            .encrypt(nonce, serialized.as_slice())
-            .map_err(|_| PersistenceError::CryptoError)?;
+        let ciphertext = cipher.encrypt(nonce, plaintext).map_err(|e| {
+            core_crypto::vault::VaultError::Crypto(format!("Encryption failed: {:?}", e))
+        })?;
 
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&salt);
+        let mut payload = salt.to_vec();
         payload.extend_from_slice(&nonce_bytes);
         payload.extend_from_slice(&ciphertext);
+        Ok(payload)
+    }
 
-        std::fs::write(path, payload)?;
-        Ok(())
+    fn unwrap(&self, ciphertext: &[u8]) -> Result<Vec<u8>, core_crypto::vault::VaultError> {
+        if ciphertext.len() < 28 {
+            // 16 salt + 12 nonce
+            return Err(core_crypto::vault::VaultError::Crypto(
+                "Ciphertext too short".into(),
+            ));
+        }
+        let salt = &ciphertext[..16];
+        let nonce_bytes = &ciphertext[16..28];
+        let data = &ciphertext[28..];
+
+        let key = self
+            .derive_key(salt)
+            .map_err(|e| core_crypto::vault::VaultError::Crypto(e.to_string()))?;
+        let cipher = Aes256Gcm::new(&(*key).into());
+        let nonce = Nonce::from_slice(nonce_bytes);
+
+        cipher.decrypt(nonce, data).map_err(|e| {
+            core_crypto::vault::VaultError::Crypto(format!("Decryption failed: {:?}", e))
+        })
     }
 }
 
