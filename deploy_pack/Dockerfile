@@ -55,8 +55,8 @@ COPY --from=builder --chown=nonroot:nonroot /usr/src/vardhan-quantum-proxy/targe
 COPY --from=builder --chown=nonroot:nonroot /usr/src/vardhan-quantum-proxy/target/release/quantum_node /app/quantum_node
 COPY --from=builder --chown=nonroot:nonroot /usr/src/vardhan-quantum-proxy/target/release/pq_verify /app/pq_verify
 
-# Expose Ingress Interceptor Port and Telemetry/Gossip Ports
-EXPOSE 8080 9090 7001
+# Expose Ingress Interceptor Port and Telemetry/Gossip Ports + Admin API Port
+EXPOSE 8080 9090 7001 8081
 
 USER nonroot:nonroot
 

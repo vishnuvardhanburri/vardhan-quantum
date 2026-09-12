@@ -6,10 +6,43 @@ services:
       dockerfile: deploy_pack/Dockerfile
     environment:
       - RUST_LOG=info
+      - VARDHAN_PORT=8080
+      - VARDHAN_UPSTREAM=127.0.0.1:9090
+      - VARDHAN_ADMIN_PORT=8081
+      - VARDHAN_ADMIN_TOKEN=${VARDHAN_ADMIN_TOKEN:-dev-admin-token}
+      - VARDHAN_ADMIN_CORS_ORIGIN=http://localhost:3000,http://localhost:8081
+      - VARDHAN_NODE_ID=node-a
+      - VARDHAN_REGION=us-east-1
+      - VARDHAN_HEARTBEAT_PORT=18080
+      - VARDHAN_LEDGER_PATH=/app/ledger.jsonl
+      - VARDHAN_ENV=development
+      - VARDHAN_KEY_PROTECTOR=local-dev
+      - VARDHAN_KEK_PATH=/app/kek.bin
     ports:
       - "8080:8080"
       - "9090:9090"
       - "7001:7001"
+      - "8081:8081"
+    volumes:
+      - pq_shield_data:/app
+    depends_on:
+      - mock-upstream
+    restart: unless-stopped
+
+  mock-upstream:
+    image: python:3.12-alpine
+    command: >
+      sh -c "pip install flask && python -c '
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route(\"/\", defaults={\"path\": \"\"})
+      @app.route(\"/<path:path>\", methods=[\"GET\", \"POST\", \"PUT\", \"DELETE\"])
+      def proxy(path):
+          return jsonify({\"status\": \"ok\", \"upstream\": True, \"path\": path})
+      app.run(host=\"0.0.0.0\", port=9090)
+      '"
+    ports:
+      - "9090:9090"
     restart: unless-stopped
 
   dashboard:
@@ -18,11 +51,19 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
-    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://proxy:8081
+      - ADMIN_TOKEN=${VARDHAN_ADMIN_TOKEN:-dev-admin-token}
+      - NEXT_PUBLIC_ADMIN_TOKEN=${VARDHAN_ADMIN_TOKEN:-dev-admin-token}
     depends_on:
       - proxy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/api/admin/api/v1/cluster/status"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start-period: 10s
+    restart: unless-stopped
+
+volumes:
+  pq_shield_data:

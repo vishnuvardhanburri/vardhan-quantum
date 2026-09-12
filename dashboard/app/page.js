@@ -1,203 +1,223 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Header } from '../components/Header';
-import { MetricCard } from '../components/MetricCard';
-import { SplitStream } from '../components/SplitStream';
-import { ComplianceFeed } from '../components/ComplianceFeed';
-import { withAuth } from '@/components/withAuth';
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { MetricCard } from '@/components/MetricCard';
 import { useAuth } from '@/components/AuthProvider';
-import {
-  useMetrics,
-  useClusterStatus,
-  useLedgerStatus,
-  useSSE,
-  usePrometheusMetrics,
-  exportEvidenceBundle,
-} from '@/lib/useApi';
-import { Link } from 'next/link';
+import { useMetrics, useClusterStatus, useLedgerStatus, useSSE, exportEvidenceBundle } from '@/lib/useApi';
+import { BarChart3, Server, Shield } from 'lucide-react';
 
-function DashboardPage() {
+export default function DashboardPage() {
   const { logout } = useAuth();
 
   // Real backend data
-  const {
-    data: metrics,
-    loading: metricsLoading,
-    error: metricsError,
-    refetch: refetchMetrics,
-  } = useMetrics();
-  const {
-    data: clusterStatus,
-    loading: clusterLoading,
-    error: clusterError,
-  } = useClusterStatus();
-  const {
-    data: ledgerStatus,
-    loading: ledgerLoading,
-    error: ledgerError,
-  } = useLedgerStatus();
-  const { data: prometheusText } = usePrometheusMetrics();
+  const { data: metrics, loading: metricsLoading, error: metricsError } = useMetrics();
+  const { data: clusterStatus, loading: clusterLoading } = useClusterStatus();
+  const { data: ledgerStatus } = useLedgerStatus();
 
-  // Derived display values — fall back to loading placeholders
+  // SSE live events
+  const [sseEvents, setSseEvents] = useState([]);
+  const handleSSE = useCallback((event) => {
+    setSseEvents((prev) => {
+      const next = [event, ...prev];
+      return next.slice(0, 50);
+    });
+  }, []);
+  const { connected: sseConnected, error: sseError } = useSSE(true, handleSSE);
+
+  // Live telemetry display values
   const tps = metrics?.requests_per_sec ?? 0;
-  const entropy = metrics?.nonce_entropy.toFixed(4) ?? '0.0000';
+  const entropy = metrics?.nonce_entropy;
+  const entropyStr = entropy > 0 ? entropy.toFixed(4) : '0.0000';
   const activeSessions = metrics?.active_sessions ?? 0;
   const latencyP50 = metrics?.latency_p50_us ?? 0;
   const latencyP95 = metrics?.latency_p95_us ?? 0;
   const rejectedFrames = metrics?.rejected_frames ?? 0;
   const upstreamFailures = metrics?.upstream_failures ?? 0;
 
-  // Ciphertext stream derived from SSE events (real, not random)
+  // Ledger entry stream (real SSE events with session IDs)
   const [ciphertextStream, setCiphertextStream] = useState('');
-  const [ciphertextBlocks, setCiphertextBlocks] = useState([]);
-
-  // SSE live updates
-  const handleSSEEvent = useCallback((event) => {
-    // Append real event data to the ciphertext stream display.
-    // Event payload is hex-encoded session IDs / timing data from the backend.
-    const sessionInfo = event.session_id || event.event_id || '';
-    const eventType = event.event_type || '';
-    if (sessionInfo) {
-      const hexBlock = sessionInfo.split('').map(c =>
-        c.charCodeAt(0).toString(16).padStart(2, '0')
-      ).join('');
-      setCiphertextStream((prev) => prev + hexBlock.substring(0, 64));
-      setCiphertextBlocks((prev) => {
-        const newBlocks = [...prev, { type: eventType, data: sessionInfo }];
-        return newBlocks.slice(-50); // cap buffer
-      });
+  useEffect(() => {
+    if (sseEvents.length > 0) {
+      const latest = sseEvents[0];
+      const sid = latest?.session_id || latest?.event_id || '';
+      if (sid) {
+        const hexBlock = Array.from(sid.slice(0, 32), c =>
+          c.charCodeAt(0).toString(16).padStart(2, '0')
+        ).join('');
+        setCiphertextStream((prev) => (hexBlock + prev).slice(0, 256));
+      }
     }
-  }, []);
-
-  const { connected: sseConnected, error: sseError } = useSSE(true, handleSSEEvent);
-
-  // Audit/compliance events from SSE (real QuantumEvent stream)
-  const [auditEvents, setAuditEvents] = useState([]);
-
-  const handleSSEComplianceEvent = useCallback((event) => {
-    const timestamp = Math.floor((event.timestamp_ms || Date.now()) / 1000);
-    const newEvent = {
-      timestamp,
-      mandate: 'DORA_ART_9_2_CRYPTOGRAPHIC_SHIELD',
-      primitive: event.event_type || 'Quantum Event',
-      entropy: `${metrics?.kem_entropy.toFixed(4) ?? '0.0000'} bits`,
-      status: 'OK',
-    };
-    setAuditEvents((prev) => [newEvent, ...prev.slice(0, 9)]);
-  }, [metrics?.kem_entropy]);
-
-  const { connected: sseConnected2 } = useSSE(true, handleSSEComplianceEvent);
+  }, [sseEvents]);
 
   const handleExportPdf = async () => {
     try {
       const result = await exportEvidenceBundle();
-      alert(`Evidence bundle exported:\nEntries: ${result.entry_count}\nTip Hash: ${result.tip_hash?.substring(0, 32)}...`);
+      const entryCount = result.entry_count || 0;
+      const tipHash = result.tip_hash || 'N/A';
+      alert(`Evidence bundle exported:\nEntries: ${entryCount}\nTip Hash: ${tipHash.substring(0, 32)}...`);
     } catch (err) {
       console.error('Export failed:', err);
       alert(`Export failed: ${err.message || 'Unknown error'}`);
     }
   };
 
-  const nodeId = clusterStatus?.leader || 'NO LEADER';
-  const quorumStatus = clusterStatus
-    ? `${clusterStatus.healthy_count}/${clusterStatus.node_count} Healthy`
-    : 'Loading…';
+  // Build audit events from SSE stream
+  const auditEvents = sseEvents.map((ev, idx) => ({
+    timestamp: Math.floor((ev.timestamp_ms || Date.now()) / 1000),
+    mandate: 'DORA_ART_9_2_CRYPTOGRAPHIC_SHIELD',
+    primitive: ev.event_type || 'Quantum Event',
+    entropy: `${metrics?.kem_entropy.toFixed(4) ?? '0.0000'} bits`,
+    status: 'OK',
+  }));
 
   return (
-    <main className="max-w-7xl mx-auto">
-      {/* Header */}
-      <Header
-        nodeId={nodeId}
-        quorumStatus={quorumStatus}
-        onExport={handleExportPdf}
-        onLogout={logout}
-      />
+    <DashboardLayout title="Overview">
+      <div className="space-y-8">
+        {/* Metrics Row — real data from /api/v1/metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <MetricCard
+            title="Ingress TPS"
+            badge={metricsLoading ? 'LOADING' : 'ACTIVE'}
+            value={metricsLoading ? '—' : tps.toLocaleString()}
+            unit="req/s"
+            subtitle={metricsLoading ? 'Loading…' : '↑ +99.98% vs unshielded HTTP baseline'}
+            glowColor="teal"
+          />
+          <MetricCard
+            title="Shannon Entropy"
+            badge="HNDL IMPERVIOUS"
+            value={metricsLoading ? '—' : entropyStr}
+            unit="/ 8.0"
+            subtitle="Maximum theoretical randomness active"
+            glowColor="purple"
+          />
+          <MetricCard
+            title="FIPS 203 / ML-KEM-1024"
+            badge="LATTICE CIPHER"
+            value="SHIELDED"
+            subtitle="In-Flight PQ Re-Encryptor Running"
+            glowColor="teal"
+          />
+          <MetricCard
+            title="Active Sessions"
+            badge={activeSessions > 0 ? 'ACTIVE' : 'IDLE'}
+            value={activeSessions}
+            unit="sessions"
+            subtitle="Current PQ sessions"
+            glowColor="teal"
+          />
+          <MetricCard
+            title="Latency P95"
+            badge={latencyP95 > 0 ? 'HEALTHY' : 'IDLE'}
+            value={latencyP95 > 0 ? (latencyP95 / 1000).toFixed(3) : '—'}
+            unit="ms"
+            subtitle={`P50: ${latencyP50 > 0 ? (latencyP50 / 1000).toFixed(3) : '0'} ms`}
+            glowColor="purple"
+          />
+          <MetricCard
+            title="Errors"
+            badge={rejectedFrames + upstreamFailures > 0 ? 'WARN' : 'CLEAN'}
+            value={(rejectedFrames + upstreamFailures).toLocaleString()}
+            unit="frames/failures"
+            subtitle={`Rejected: ${rejectedFrames} | Upstream: ${upstreamFailures}`}
+            glowColor={rejectedFrames + upstreamFailures > 0 ? 'red' : 'teal'}
+          />
+        </div>
 
-      {/* SSE Connection Status (subtle indicator) */}
-      <div className="flex items-center gap-4 mb-4 text-[10px] text-slate-500 font-mono">
-        <span className={`flex items-center gap-1 ${sseConnected ? 'text-emerald-400' : 'text-red-400'}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
-          SSE {sseConnected ? 'Live' : 'Disconnected'}
-        </span>
-        {sseError && <span className="text-red-400/70"> — {sseError}</span>}
-        <span>
-          Ledger: {ledgerLoading ? 'Loading…' : ledgerStatus?.configured ? `${ledgerStatus.entry_count_estimate ?? 0} entries` : 'Not configured'}
-        </span>
-        <span>
-          Active Sessions: {activeSessions}
-        </span>
-        <Link href="/cluster" className="hover:text-[#00F5D4] transition-colors">Infrastructure / HA →</Link>
+        {/* Cluster Status Cards — real data from /api/v1/cluster/status */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <MetricCard
+            title="Cluster Nodes"
+            badge="TOTAL"
+            value={clusterLoading ? '—' : (clusterStatus?.node_count ?? 0)}
+            unit="nodes"
+            subtitle={`Healthy: ${clusterStatus?.healthy_count ?? 0}`}
+            glowColor="teal"
+          />
+          <MetricCard
+            title="Current Leader"
+            badge="RAFT LEADER"
+            value={clusterLoading ? '—' : (clusterStatus?.leader || '—')}
+            subtitle={`Term: ${clusterStatus?.healthy_nodes?.[0]?.term ?? 0}`}
+            glowColor="purple"
+          />
+          <MetricCard
+            title="Cluster Health"
+            badge="OPERATIONAL"
+            value={clusterLoading ? '—' : `${clusterStatus?.healthy_count ?? 0}/${clusterStatus?.node_count ?? 0}`}
+            unit="healthy"
+            subtitle="Lexicographic leader election"
+            glowColor="teal"
+          />
+          <MetricCard
+            title="Ledger Status"
+            badge={ledgerStatus?.configured ? 'ACTIVE' : 'INACTIVE'}
+            value={ledgerStatus?.configured ? (ledgerStatus?.entry_count_estimate ?? 0).toLocaleString() : '0'}
+            unit={ledgerStatus?.configured ? 'entries' : 'N/A'}
+            subtitle="ML-DSA-87 signed, BLAKE3 chained"
+            glowColor="purple"
+          />
+        </div>
+
+        {/* Live Split Interception Stream — real SSE events */}
+        <div className="bg-surface-card panel rounded-xl p-6 shadow-card">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-panel">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#00F5D4]"></div>
+              <h3 className="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-widest">
+                Live Event Stream
+              </h3>
+            </div>
+            <span className={`text-[10px] font-mono ${sseConnected ? 'text-emerald-400' : 'text-red-400'}`}>
+              {sseConnected ? '● LIVE' : '● DISCONNECTED'}
+            </span>
+          </div>
+          <div className="font-mono text-xs text-[#00F5D4]/80 break-all leading-relaxed max-h-40 overflow-auto">
+            {ciphertextStream || 'Awaiting live traffic…'}
+          </div>
+          {sseEvents.length > 0 && (
+            <div className="mt-3 text-[10px] text-slate-500 font-mono">
+              {sseEvents.length} live event{sseEvents.length === 1 ? '' : 's'} received
+            </div>
+          )}
+        </div>
+
+        {/* Real-time Compliance Feed — from SSE */}
+        <div className="bg-surface-card panel rounded-xl p-6 shadow-card">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-panel">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-blue-400/70" />
+              <h3 className="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-widest">
+                Continuous DORA / NIS2 Compliance Feed
+              </h3>
+            </div>
+            <span className={`text-[10px] font-mono ${sseConnected ? 'text-emerald-400' : 'text-red-400'}`}>
+              ● {sseConnected ? 'LIVE' : 'DISCONNECTED'}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {auditEvents.length === 0 ? (
+              <div className="text-[10px] text-slate-500 font-mono py-4 text-center">
+                Awaiting first SSE event from backend…
+              </div>
+            ) : (
+              auditEvents.map((ev, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 rounded bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors"
+                >
+                  <span className="text-slate-500 w-28">[{ev.timestamp}]</span>
+                  <span className="text-[#00F5D4] font-semibold w-64">{ev.mandate}</span>
+                  <span className="text-slate-400 w-44">{ev.primitive}</span>
+                  <span className="text-[#8A2BE2] w-28">{ev.entropy}</span>
+                  <span className="text-emerald-400 font-bold w-12 text-right">{ev.status}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
-
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <MetricCard
-          title="Ingress TPS"
-          badge={metricsLoading ? 'LOADING' : 'ACTIVE'}
-          value={metricsLoading ? '—' : tps.toLocaleString()}
-          unit="req/s"
-          subtitle="↑ +99.98% vs unshielded HTTP baseline"
-          glowColor="teal"
-        />
-        <MetricCard
-          title="Shannon Entropy"
-          badge="HNDL IMPERVIOUS"
-          value={metricsLoading ? '—' : entropy}
-          unit="/ 8.0"
-          subtitle="Maximum theoretical randomness active"
-          glowColor="purple"
-        />
-        <MetricCard
-          title="FIPS 203 / ML-KEM-1024"
-          badge="LATTICE CIPHER"
-          value="SHIELDED"
-          subtitle="In-Flight PQ Re-Encryptor Running"
-          glowColor="teal"
-        />
-        <MetricCard
-          title="Latency P95"
-          badge={latencyP95 > 0 ? 'HEALTHY' : 'IDLE'}
-          value={latencyP95 > 0 ? (latencyP95 / 1000).toFixed(3) : '—'}
-          unit="ms"
-          subtitle={`P50: ${latencyP50 > 0 ? (latencyP50 / 1000).toFixed(3) : '0'} ms`}
-          glowColor="teal"
-        />
-        <MetricCard
-          title="Latency P50"
-          badge="MED"
-          value={latencyP50 > 0 ? (latencyP50 / 1000).toFixed(3) : '—'}
-          unit="ms"
-          subtitle="95th percentile latency"
-          glowColor="purple"
-        />
-        <MetricCard
-          title="Errors"
-          badge={rejectedFrames + upstreamFailures > 0 ? 'WARN' : 'CLEAN'}
-          value={(rejectedFrames + upstreamFailures).toLocaleString()}
-          unit="frames/failures"
-          subtitle={`Rejected: ${rejectedFrames} | Upstream: ${upstreamFailures}`}
-          glowColor={rejectedFrames + upstreamFailures > 0 ? 'red' : 'teal'}
-        />
-      </div>
-
-      {/* Live Split Interception Stream */}
-      <SplitStream ciphertextStream={ciphertextStream || 'Awaiting live traffic…'} />
-
-      {/* Real-time Compliance Feed */}
-      <ComplianceFeed
-        events={auditEvents.length > 0 ? auditEvents : [
-          {
-            timestamp: Math.floor(Date.now() / 1000),
-            mandate: 'AWAITING_LIVE_EVENTS',
-            primitive: 'SSE stream — no events yet',
-            entropy: '0.0000 bits',
-            status: 'PENDING',
-          },
-        ]}
-      />
-    </main>
+    </DashboardLayout>
   );
 }
-
-export default withAuth(DashboardPage);

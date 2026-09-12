@@ -17,6 +17,11 @@ export function useSSE(enabled, onEvent) {
   const subRef = useRef(null);
   const seenEventIdsRef = useRef(new Set());
 
+  // Bail out on SSR / prerendering
+  if (typeof window === 'undefined') {
+    return { connected: false, error: null };
+  }
+
   // Reset error when re-enabling
   useEffect(() => {
     if (enabled) {

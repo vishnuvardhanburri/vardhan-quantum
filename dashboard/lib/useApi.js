@@ -10,6 +10,10 @@ import {
   drainNode,
   fetchPrometheusMetrics,
 } from '@/lib/api';
+import { useSSE } from '@/lib/useSSE';
+
+// Re-export useSSE for convenient single-source imports
+export { useSSE };
 
 /**
  * Generic data-fetch hook with loading / error / empty states.
