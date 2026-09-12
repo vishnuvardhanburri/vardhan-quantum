@@ -1,8 +1,9 @@
 'use client';
 
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Settings, Server, Database, Shield, Bell, Copy } from 'lucide-react';
-import { useClusterStatus, useClusterPeers, useMetrics, useRaftStatus, drainNode } from '@/lib/useApi';
+import { Settings, Server, Database, Shield, Bell, Copy, BarChart3 } from 'lucide-react';
+import { useClusterStatus, useClusterPeers, useMetrics, useRaftStatus } from '@/lib/useApi';
+import { exportEvidenceBundle, drainNodeRequest } from '@/lib/useApi';
 import { useState, useCallback } from 'react';
 import { useSSE } from '@/lib/useApi';
 
@@ -19,7 +20,7 @@ export default function AdminPage() {
     setDrainLoading(true);
     setDrainError(null);
     try {
-      const result = await drainNode();
+      const result = await drainNodeRequest();
       setDrainResult(result);
       refetchCluster();
     } catch (err) {
