@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { ShieldCheck, Cpu, Download, Activity } from 'lucide-react';
+import { ShieldCheck, Cpu, Download, Activity, LogOut } from 'lucide-react';
 
-export const Header = ({ nodeId, quorumStatus, onExport }) => {
+export const Header = ({ nodeId, quorumStatus, onExport, onLogout }) => {
   return (
     <header className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8 bg-[#0D0F17]/80 backdrop-blur-xl border border-white/10 p-4 rounded-xl shadow-2xl">
       <div className="flex items-center gap-4">
@@ -44,6 +44,15 @@ export const Header = ({ nodeId, quorumStatus, onExport }) => {
           <Download className="w-3.5 h-3.5 text-[#00F5D4]" />
           EXPORT DORA PDF
         </button>
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-mono font-medium rounded-lg bg-white/5 border border-red-500/30 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400 transition-all duration-300"
+          >
+            <LogOut className="w-3.5 h-3.5 text-red-400" />
+            LOGOUT
+          </button>
+        )}
       </div>
     </header>
   );

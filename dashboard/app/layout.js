@@ -1,4 +1,5 @@
 import './globals.css';
+import { AuthProvider } from '@/components/AuthProvider';
 
 export const metadata = {
   title: 'Vardhan Quantum Proxy :: Enterprise CISO Control Center',
@@ -7,10 +8,12 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body className="bg-grid-pattern min-h-screen p-4 sm:p-8 text-white antialiased">
-        {children}
-      </body>
-    </html>
+    <AuthProvider>
+      <html lang="en">
+        <body className="bg-grid-pattern min-h-screen p-4 sm:p-8 text-white antialiased">
+          {children}
+        </body>
+      </html>
+    </AuthProvider>
   );
 }

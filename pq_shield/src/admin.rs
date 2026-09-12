@@ -105,6 +105,7 @@ pub async fn run_admin_server(state: AdminState) {
         .route("/api/v1/ledger/export", get(ledger_export))
         // P3.4: cluster endpoints
         .route("/api/v1/cluster/peers", get(cluster_peers))
+        .route("/api/v1/cluster/status", get(cluster_status))
         .route("/api/v1/cluster/drain", post(cluster_drain))
         // P3.5: region-aware cluster endpoints
         .route(
@@ -477,6 +478,50 @@ async fn cluster_peers_in_region(
                     "region": region,
                     "node_count": nodes.len(),
                     "nodes": nodes,
+                })),
+            )
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "HA cluster not configured on this node"
+            })),
+        ),
+    }
+}
+/// Cluster status endpoint: aggregates node states, computes leader, and
+/// returns a high-level operational view for the frontend dashboard.
+async fn cluster_status(State(state): State<AdminState>) -> impl IntoResponse {
+    match &state.cluster {
+        Some(cluster) => {
+            let nodes = cluster.all_nodes().await;
+            let healthy: Vec<_> = nodes.iter()
+                .filter(|n| n.state == ha_cluster::NodeState::Healthy)
+                .cloned().collect();
+            let draining: Vec<_> = nodes.iter()
+                .filter(|n| n.state == ha_cluster::NodeState::Draining)
+                .cloned().collect();
+            let dead: Vec<_> = nodes.iter()
+                .filter(|n| n.state == ha_cluster::NodeState::Dead)
+                .cloned().collect();
+            let leader = ha_cluster::election::compute_leader(cluster).await;
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "node_count": nodes.len(),
+                    "healthy_count": healthy.len(),
+                    "draining_count": draining.len(),
+                    "dead_count": dead.len(),
+                    "leader": leader.as_ref().map(|n| n.as_str()),
+                    "healthy_nodes": healthy.iter().map(|n| serde_json::json!({
+                        "node_id": n.node_id.as_str(),
+                        "addr": n.addr.to_string(),
+                        "region": n.region.as_str(),
+                        "state": n.state.to_string(),
+                        "last_seen_ms": n.last_seen_ms,
+                        "term": n.term,
+                    })).collect::<Vec<_>>(),
                 })),
             )
         }
