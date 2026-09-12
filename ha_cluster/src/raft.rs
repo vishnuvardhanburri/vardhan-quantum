@@ -86,6 +86,51 @@ const ELECTION_TIMEOUT_MIN: u64 = 150;
 const ELECTION_TIMEOUT_MAX: u64 = 300;
 const HEARTBEAT_INTERVAL_MS: u64 = 100;
 
+/// Raft timing configuration.
+///
+/// Invariant (verified at creation): heartbeat_interval must be < election_timeout_min
+/// so that a healthy leader's heartbeats always reset the election timer before
+/// any follower times out.
+#[derive(Clone, Debug)]
+pub struct RaftConfig {
+    pub election_timeout_min_ms: u64,
+    pub election_timeout_max_ms: u64,
+    pub heartbeat_interval_ms: u64,
+}
+
+impl Default for RaftConfig {
+    fn default() -> Self {
+        Self {
+            election_timeout_min_ms: ELECTION_TIMEOUT_MIN,
+            election_timeout_max_ms: ELECTION_TIMEOUT_MAX,
+            heartbeat_interval_ms: HEARTBEAT_INTERVAL_MS,
+        }
+    }
+}
+
+impl RaftConfig {
+    /// Verify the Raft timing invariant: heartbeat must arrive faster than
+    /// the minimum election timeout, otherwise a healthy leader could be
+    /// deposed by followers who time out before receiving a heartbeat.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.heartbeat_interval_ms >= self.election_timeout_min_ms {
+            return Err(format!(
+                "invariant violated: heartbeat_interval_ms ({}) must be < \
+                 election_timeout_min_ms ({})",
+                self.heartbeat_interval_ms, self.election_timeout_min_ms
+            ));
+        }
+        if self.election_timeout_min_ms > self.election_timeout_max_ms {
+            return Err(format!(
+                "invariant violated: election_timeout_min_ms ({}) must be <= \
+                 election_timeout_max_ms ({})",
+                self.election_timeout_min_ms, self.election_timeout_max_ms
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Interface for sending Raft RPCs.
 /// Decouples the consensus logic from the network transport.
 pub trait RaftRpcClient: Send + Sync {
@@ -128,18 +173,40 @@ pub struct RaftNode {
     pub commit_index: Arc<RwLock<u64>>,
     pub last_applied: Arc<RwLock<u64>>,
     pub last_heartbeat: Arc<RwLock<Instant>>,
+    /// Persistent randomized election deadline. Generated once when entering
+    /// Follower/Candidate state; reset by heartbeats or state transitions.
+    /// Not regenerated on every run() tick (unlike a per-tick random draw).
+    pub election_timeout: Arc<RwLock<Duration>>,
     pub persistence_path: PathBuf,
     pub rpc_client: Arc<dyn RaftRpcClient>,
     pub next_index: Arc<RwLock<HashMap<NodeId, u64>>>,
     pub match_index: Arc<RwLock<HashMap<NodeId, u64>>>,
+    pub config: RaftConfig,
 }
 
 impl RaftNode {
     pub fn new(id: NodeId, persistence_path: PathBuf, rpc_client: Arc<dyn RaftRpcClient>) -> Self {
+        Self::with_config(id, persistence_path, rpc_client, RaftConfig::default())
+    }
+
+    pub fn with_config(
+        id: NodeId,
+        persistence_path: PathBuf,
+        rpc_client: Arc<dyn RaftRpcClient>,
+        config: RaftConfig,
+    ) -> Self {
+        config.validate().expect("invalid RaftConfig: timing invariant violated");
         let state = Self::load_persistent_state(&persistence_path).unwrap_or(RaftPersistentState {
             current_term: 0,
             voted_for: None,
         });
+
+        let election_timeout = {
+            let mut rng = rand::thread_rng();
+            Duration::from_millis(
+                rng.gen_range(config.election_timeout_min_ms..config.election_timeout_max_ms),
+            )
+        };
 
         Self {
             id,
@@ -150,10 +217,12 @@ impl RaftNode {
             commit_index: Arc::new(RwLock::new(0)),
             last_applied: Arc::new(RwLock::new(0)),
             last_heartbeat: Arc::new(RwLock::new(Instant::now())),
+            election_timeout: Arc::new(RwLock::new(election_timeout)),
             next_index: Arc::new(RwLock::new(HashMap::new())),
             match_index: Arc::new(RwLock::new(HashMap::new())),
             persistence_path,
             rpc_client,
+            config,
         }
     }
 
@@ -267,7 +336,8 @@ impl RaftNode {
         if stepped_down || vote_changed {
             let _ = self.persist_state().await;
         }
-        *self.last_heartbeat.write().await = Instant::now();
+        // Reset election timer (heartbeat-like behavior on valid vote)
+        self.reset_election_timer().await;
 
         RequestVoteReply {
             term: reply_term,
@@ -276,7 +346,7 @@ impl RaftNode {
     }
 
     pub async fn handle_append_entries(&self, args: AppendEntriesArgs) -> AppendEntriesReply {
-        let reply_term;
+        let mut reply_term;
         let mut stepped_down = false;
         {
             let mut term = self.current_term.write().await;
@@ -291,6 +361,7 @@ impl RaftNode {
 
             if args.term > *term {
                 *term = args.term;
+                reply_term = args.term; // Report updated term to leader
                 let mut voted = self.voted_for.write().await;
                 *voted = None;
                 stepped_down = true;
@@ -298,8 +369,8 @@ impl RaftNode {
             // persist_state must run after write locks are released
         }
 
-        // Reset heartbeat timer outside the current_term lock block.
-        *self.last_heartbeat.write().await = Instant::now();
+        // Reset heartbeat timer on valid AppendEntries
+        self.reset_election_timer().await;
 
         // Raft: if AppendEntries term > currentTerm, convert to follower (step down).
         if stepped_down {
@@ -397,23 +468,42 @@ impl RaftNode {
             last_log_term: last_term,
         };
 
-        let mut votes = 1; // self
         info!(candidate_id = %self.id, "DEBUG_BEFORE_REQUEST_VOTE_LOOP");
-        for peer in peers {
-            info!(
-                candidate_id = %self.id,
-                term = args.term,
-                target_id = %peer,
-                last_log_index = last_idx,
-                last_log_term = last_term,
-                "REQUEST_VOTE_SENT"
-            );
-            info!(candidate_id = %self.id, target_id = %peer, "DEBUG_CALLING_RPC");
-            if let Ok(reply) = self
-                .rpc_client
-                .send_request_vote(peer.clone(), args.clone())
-                .await
-            {
+
+        // Dispatch all RequestVote RPCs concurrently via bounded join_all.
+        // This ensures one slow peer cannot delay requests to other peers.
+        // Bounded by RPC timeout (2s) inside RaftPeerManager::send_request_vote.
+        let rpc_futures: Vec<_> = peers
+            .iter()
+            .map(|peer| {
+                let client = self.rpc_client.clone();
+                let peer_id = peer.clone();
+                let rpc_args = args.clone();
+                info!(
+                    candidate_id = %self.id,
+                    term = rpc_args.term,
+                    target_id = %peer_id,
+                    last_log_index = last_idx,
+                    last_log_term = last_term,
+                    "REQUEST_VOTE_SENT"
+                );
+                info!(candidate_id = %self.id, target_id = %peer_id, "DEBUG_CALLING_RPC");
+                let fut = Box::pin(async move {
+                    let reply = client.send_request_vote(peer_id.clone(), rpc_args).await;
+                    (peer_id, reply)
+                });
+                fut as Pin<Box<dyn Future<Output = (NodeId, Result<RequestVoteReply, String>)> + Send>>
+            })
+            .collect();
+
+        let replies = join_all(rpc_futures).await;
+
+        let mut votes = 1; // self
+        let mut should_step_down = false;
+        let mut max_reply_term = cur_term;
+
+        for (peer, result) in replies {
+            if let Ok(reply) = result {
                 info!(
                     candidate_id = %self.id,
                     voter_id = %peer,
@@ -421,9 +511,22 @@ impl RaftNode {
                     vote_granted = reply.vote_granted,
                     "REQUEST_VOTE_RESPONSE_RECEIVED"
                 );
-                if reply.vote_granted {
+                if reply.term > cur_term {
+                    should_step_down = true;
+                    if reply.term > max_reply_term {
+                        max_reply_term = reply.term;
+                    }
+                }
+                // Only count votes if not seeing a higher term
+                if reply.vote_granted && !should_step_down {
                     votes += 1;
                 }
+            } else {
+                info!(
+                    candidate_id = %self.id,
+                    voter_id = %peer,
+                    "REQUEST_VOTE_RESPONSE_FAILED"
+                );
             }
         }
 
@@ -433,6 +536,16 @@ impl RaftNode {
             votes = votes,
             "VOTE_COUNT"
         );
+
+        // Higher-term reply: step down, do not become Leader.
+        if should_step_down {
+            self.update_term(max_reply_term).await;
+            let mut role_lock = self.role.write().await;
+            *role_lock = RaftRole::Follower;
+            self.reset_election_timer().await;
+            info!(node_id = %self.id, "Stepped down to Follower (higher-term vote reply)");
+            return Ok(false);
+        }
 
         if votes >= (peers.len() + 1) / 2 + 1 {
             info!(node_id = %self.id, term = args.term, "LEADER_TRANSITION");
@@ -459,23 +572,42 @@ impl RaftNode {
         }
     }
 
-    pub fn get_randomized_timeout() -> Duration {
-        let millis = rand::thread_rng().gen_range(150..300);
+    /// Generate a fresh randomized election timeout based on config.
+    fn random_election_timeout(&self) -> Duration {
+        let cfg = &self.config;
+        let millis = rand::thread_rng()
+            .gen_range(cfg.election_timeout_min_ms..cfg.election_timeout_max_ms);
         Duration::from_millis(millis)
+    }
+
+    /// Reset the election deadline to a new random value.
+    /// Called on state transitions (Follower/Candidate) and resets last_heartbeat.
+    pub async fn reset_election_timer(&self) {
+        let new_timeout = self.random_election_timeout();
+        {
+            let mut et = self.election_timeout.write().await;
+            *et = new_timeout;
+        }
+        *self.last_heartbeat.write().await = Instant::now();
+    }
+
+    /// Check whether the election deadline has elapsed.
+    async fn election_timer_expired(&self) -> bool {
+        let last_hb = *self.last_heartbeat.read().await;
+        let timeout = *self.election_timeout.read().await;
+        last_hb.elapsed() >= timeout
     }
 
     pub async fn run(&self, peers: Vec<NodeId>) {
         info!(node_id = %self.id, "Raft run loop starting");
-        let mut ticker = tokio::time::interval(Duration::from_millis(HEARTBEAT_INTERVAL_MS));
+        let heartbeat = self.config.heartbeat_interval_ms;
+        let mut ticker = tokio::time::interval(Duration::from_millis(heartbeat));
         loop {
             ticker.tick().await;
             let role = *self.role.read().await;
             match role {
                 RaftRole::Follower | RaftRole::Candidate => {
-                    let last_hb = *self.last_heartbeat.read().await;
-                    let timeout = Duration::from_millis(rand::thread_rng().gen_range(ELECTION_TIMEOUT_MIN..ELECTION_TIMEOUT_MAX));
-
-                    if last_hb.elapsed() >= timeout {
+                    if self.election_timer_expired().await {
                         info!(node_id = %self.id, "Election timeout reached, starting election");
 
                         // Transition to Candidate
@@ -483,7 +615,8 @@ impl RaftNode {
                             let mut role_lock = self.role.write().await;
                             *role_lock = RaftRole::Candidate;
                         }
-                        *self.last_heartbeat.write().await = Instant::now();
+                        // Reset election timer for the new term
+                        self.reset_election_timer().await;
 
                         // Start election
                         let peer_ids: Vec<NodeId> = peers.iter()
@@ -502,6 +635,8 @@ impl RaftNode {
                             info!(node_id = %self.id, "Failed to win election, returning to follower");
                             let mut role_lock = self.role.write().await;
                             *role_lock = RaftRole::Follower;
+                            // Reset election timer for the new follower term state
+                            self.reset_election_timer().await;
                         }
                     }
                 }
@@ -578,18 +713,36 @@ impl RaftNode {
                     let replies = join_all(append_futures).await;
 
                     let mut should_step_down = false;
+                    let mut max_reply_term = cur_term;
                     for (peer, result, prev_log_index, entries_len) in replies {
+                        // Once we detect a higher-term reply, stop processing
+                        // further replies to prevent stale replies from
+                        // mutating leader state (match_index/next_index).
+                        if should_step_down {
+                            warn!(
+                                node_id = %self.id,
+                                peer = %peer,
+                                "Skipping stale AppendEntries reply after step-down"
+                            );
+                            continue;
+                        }
                         match result {
                             Ok(reply) => {
                                 if reply.term > cur_term {
                                     should_step_down = true;
+                                    if reply.term > max_reply_term {
+                                        max_reply_term = reply.term;
+                                    }
                                     warn!(
                                         node_id = %self.id,
                                         peer = %peer,
                                         reply_term = reply.term,
                                         current_term = cur_term,
-                                        "Leader stepping down: stale-term AppendEntries reply"
+                                        "Leader stepping down: higher-term AppendEntries reply"
                                     );
+                                    // Don't process this reply's success/failure —
+                                    // we're stepping down, leader state is invalid.
+                                    continue;
                                 }
                                 if reply.success {
                                     // matchIndex[n] = max(matchIndex[n], prevLogIndex + len(entries))
@@ -635,9 +788,17 @@ impl RaftNode {
 
                     // Step down if any reply carried a higher term.
                     if should_step_down {
+                        self.update_term(max_reply_term).await;
                         let mut role_lock = self.role.write().await;
                         *role_lock = RaftRole::Follower;
-                        info!(node_id = %self.id, "Stepped down to Follower (higher-term reply)");
+                        self.reset_election_timer().await;
+                        info!(
+                            node_id = %self.id,
+                            step_down_term = max_reply_term,
+                            "Stepped down to Follower (higher-term AppendEntries reply)"
+                        );
+                        // Do NOT advance commit_index or process further — leader state is invalid.
+                        continue;
                     }
 
                     // Phase 3: Advance commit index based on match_index quorum.

@@ -16,7 +16,7 @@ pub mod raft_listener;
 pub mod raft_test_utils;
 
 pub use peer_manager::RaftPeerManager;
-pub use raft::{RaftNode, RaftRole};
+pub use raft::{RaftConfig, RaftNode, RaftRole};
 pub use raft_listener::RaftNetworkListener;
 use serde::{Deserialize, Serialize};
 use std::{
