@@ -86,6 +86,23 @@ const ELECTION_TIMEOUT_MIN: u64 = 150;
 const ELECTION_TIMEOUT_MAX: u64 = 300;
 const HEARTBEAT_INTERVAL_MS: u64 = 100;
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RaftNodeStatus {
+    pub node_id: String,
+    pub role: String,
+    pub current_term: u64,
+    pub commit_index: u64,
+    pub last_applied: u64,
+    pub last_log_index: u64,
+    pub last_log_term: u64,
+    pub leader_id: Option<String>,
+    pub configured_peer_count: usize,
+    pub match_index: HashMap<String, u64>,
+    pub next_index: HashMap<String, u64>,
+    pub voted_for: Option<String>,
+    pub timestamp_ms: u64,
+}
+
 /// Raft timing configuration.
 ///
 /// Invariant (verified at creation): heartbeat_interval must be < election_timeout_min
@@ -285,6 +302,63 @@ impl RaftNode {
                 next_idx.insert(peer.clone(), log_len + 1);
                 match_idx.insert(peer.clone(), 0);
             }
+        }
+    }
+
+    /// Read-only snapshot of Raft node state for the admin API.
+    /// Acquires read locks on all fields and returns a consistent snapshot.
+    /// Does NOT expose private keys, KMS secrets, or cryptographic material.
+    pub async fn raft_status(&self, peers: &[NodeId]) -> RaftNodeStatus {
+        let role = *self.role.read().await;
+        let current_term = *self.current_term.read().await;
+        let commit_index = *self.commit_index.read().await;
+        let last_applied = *self.last_applied.read().await;
+        let log = self.log.read().await;
+        let last_log_index = log.len() as u64;
+        let last_log_term = if last_log_index > 0 {
+            log[(last_log_index - 1) as usize].term
+        } else {
+            0
+        };
+        let voted_for = self.voted_for.read().await.clone();
+        let match_index = self.match_index.read().await.clone();
+        let next_index = self.next_index.read().await.clone();
+
+        drop(log);
+
+        let leader_id = if role == RaftRole::Leader {
+            Some(self.id.as_str().to_string())
+        } else {
+            None
+        };
+
+        let match_index_str: HashMap<String, u64> = match_index
+            .iter()
+            .map(|(k, v)| (k.as_str().to_string(), *v))
+            .collect();
+        let next_index_str: HashMap<String, u64> = next_index
+            .iter()
+            .map(|(k, v)| (k.as_str().to_string(), *v))
+            .collect();
+
+        RaftNodeStatus {
+            node_id: self.id.as_str().to_string(),
+            role: match role {
+                RaftRole::Follower => "Follower",
+                RaftRole::Candidate => "Candidate",
+                RaftRole::Leader => "Leader",
+            }.to_string(),
+            current_term,
+            commit_index,
+            last_applied,
+            last_log_index,
+            last_log_term,
+            leader_id,
+            configured_peer_count: peers.len(),
+            match_index: match_index_str,
+            next_index: next_index_str,
+            voted_for: voted_for.map(|v| v.as_str().to_string()),
+            timestamp_ms: crate::epoch_ms(),
         }
     }
 

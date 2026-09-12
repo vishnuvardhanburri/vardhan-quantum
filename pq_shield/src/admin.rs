@@ -12,7 +12,7 @@ use axum::{
     Json, Router,
 };
 use core_crypto::QuantumNodeIdentity;
-use ha_cluster::{ClusterMembership, NodeId, NodeState};
+use ha_cluster::{ClusterMembership, NodeId, NodeState, RaftNode, RaftNodeStatus};
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::convert::Infallible;
@@ -41,6 +41,8 @@ pub struct AdminState {
     pub prometheus: Arc<crate::prometheus_metrics::PrometheusMetrics>,
     /// P3.4: Cluster membership for /cluster/peers endpoint.
     pub cluster: Option<Arc<ClusterMembership>>,
+    /// P3.8: Raft consensus node for read-only status queries.
+    pub raft_node: Option<Arc<RaftNode>>,
     /// P3.4: This node's stable cluster identity, for targeted drain.
     pub self_node_id: Option<NodeId>,
 }
@@ -106,6 +108,7 @@ pub async fn run_admin_server(state: AdminState) {
         // P3.4: cluster endpoints
         .route("/api/v1/cluster/peers", get(cluster_peers))
         .route("/api/v1/cluster/status", get(cluster_status))
+        .route("/api/v1/raft/status", get(raft_status))
         .route("/api/v1/cluster/drain", post(cluster_drain))
         // P3.5: region-aware cluster endpoints
         .route(
@@ -533,6 +536,37 @@ async fn cluster_status(State(state): State<AdminState>) -> impl IntoResponse {
         ),
     }
 }
+
+/// GET /api/v1/raft/status — Read-only snapshot of the Raft consensus node.
+/// Uses RaftNode::raft_status() which acquires read locks on all fields
+/// and returns a consistent snapshot. Does NOT expose private keys,
+/// KMS secrets, or cryptographic material.
+async fn raft_status(State(state): State<AdminState>) -> impl IntoResponse {
+    match &state.raft_node {
+        Some(raft_node) => {
+            // Get configured peer count from cluster membership
+            let peer_count = if let Some(cluster) = &state.cluster {
+                cluster.all_nodes().await.len()
+            } else {
+                0
+            };
+            // raft_status takes peer IDs — pass the peer count for reporting
+            let peer_ids: Vec<NodeId> = (0..peer_count)
+                .map(|i| NodeId::new(format!("peer-{}", i)))
+                .collect();
+            let status = raft_node.raft_status(&peer_ids).await;
+            (StatusCode::OK, Json(serde_json::to_value(status).unwrap()))
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "Raft node not configured on this node",
+                "message": "HA cluster Raft consensus is not initialized on this node."
+            })),
+        ),
+    }
+}
+
 /// The actual drain wait is handled by DrainController in main.rs on SIGTERM.
 /// This endpoint is a soft-drain signal for orchestrators that prefer HTTP over SIGTERM.
 async fn cluster_drain(State(state): State<AdminState>) -> impl IntoResponse {

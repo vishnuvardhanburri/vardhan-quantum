@@ -6,6 +6,7 @@ import {
   fetchClusterStatus,
   fetchClusterPeers,
   fetchLedgerStatus,
+  fetchRaftStatus,
   exportEvidence,
   drainNode,
   fetchPrometheusMetrics,
@@ -51,6 +52,7 @@ export const useMetrics = () => useApi(fetchMetrics, [fetchMetrics]);
 export const useClusterStatus = () => useApi(fetchClusterStatus, [fetchClusterStatus]);
 export const useClusterPeers = () => useApi(fetchClusterPeers, [fetchClusterPeers]);
 export const useLedgerStatus = () => useApi(fetchLedgerStatus, [fetchLedgerStatus]);
+export const useRaftStatus = () => useApi(fetchRaftStatus, [fetchRaftStatus]);
 export const usePrometheusMetrics = () => useApi(fetchPrometheusMetrics, [fetchPrometheusMetrics]);
 
 export async function exportEvidenceBundle() {

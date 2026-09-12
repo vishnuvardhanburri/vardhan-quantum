@@ -16,7 +16,7 @@ pub mod raft_listener;
 pub mod raft_test_utils;
 
 pub use peer_manager::RaftPeerManager;
-pub use raft::{RaftConfig, RaftNode, RaftRole};
+pub use raft::{RaftConfig, RaftNode, RaftNodeStatus, RaftRole};
 pub use raft_listener::RaftNetworkListener;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -88,6 +88,11 @@ pub struct ClusterNode {
     pub addr: SocketAddr,
     /// UDP port on which this node accepts heartbeats.
     pub hb_port: u16,
+    /// TCP port on which this node accepts Raft RPC traffic.
+    /// Defaults to 0 for backward compatibility (peers without raft_port
+    /// fall back to addr.port()).
+    #[serde(default)]
+    pub raft_port: u16,
     pub state: NodeState,
     /// Unix epoch milliseconds of last observed heartbeat.
     pub last_seen_ms: u64,
@@ -104,6 +109,7 @@ impl ClusterNode {
             node_id,
             addr,
             hb_port,
+            raft_port: 0,
             state: NodeState::Healthy,
             last_seen_ms: epoch_ms(),
             term: 0,
@@ -121,6 +127,7 @@ impl ClusterNode {
         ClusterNode {
             region: region.into(),
             term: 0,
+            raft_port: 0,
             ..Self::new(node_id, addr, hb_port)
         }
     }
@@ -181,6 +188,15 @@ impl ClusterMembership {
         info!(node_id = %node_id, addr = %addr, hb_port, region = %region, "Registered self in cluster membership (region-aware)");
     }
 
+    /// P3.8: Set the Raft RPC port for a node, so peers know where to
+    /// connect for Raft consensus RPCs.
+    pub async fn set_raft_port(&self, node_id: NodeId, port: u16) {
+        let mut map = self.inner.write().await;
+        if let Some(entry) = map.get_mut(&node_id) {
+            entry.raft_port = port;
+        }
+    }
+
     /// Record a heartbeat received from a peer.
     pub async fn apply_heartbeat(&self, node: ClusterNode) {
         let mut map = self.inner.write().await;
@@ -195,6 +211,7 @@ impl ClusterMembership {
             // accepts traffic and heartbeats.
             entry.addr = node.addr;
             entry.hb_port = node.hb_port;
+            entry.raft_port = node.raft_port;
             entry.last_seen_ms = node.last_seen_ms;
             // Allow Dead → Healthy transition when the heartbeat carries a
             // newer timestamp — this means the peer has genuinely restarted
@@ -444,6 +461,7 @@ mod tests {
             node_id: id.clone(),
             addr: a,
             hb_port: 18080,
+            raft_port: 0,
             state: NodeState::Degraded,
             last_seen_ms: epoch_ms(),
             term: 0,
@@ -518,6 +536,7 @@ mod tests {
             node_id: NodeId::new("node-region-peer"),
             addr: "127.0.0.1:9090".parse().unwrap(),
             hb_port: 18080,
+            raft_port: 0,
             state: NodeState::Healthy,
             last_seen_ms: epoch_ms(),
             term: 0,

@@ -27,6 +27,9 @@ pub struct HeartbeatFrame {
     /// for backward compatibility with P3.4 heartbeat frames.
     #[serde(default)]
     pub region: String,
+    /// P3.8: TCP port for Raft RPC. Defaults to 0 if not set (backward compat).
+    #[serde(default)]
+    pub raft_port: u16,
 }
 
 impl HeartbeatFrame {
@@ -38,6 +41,7 @@ impl HeartbeatFrame {
             state: node.state,
             epoch_ms: epoch_ms(),
             region: node.region.clone(),
+            raft_port: node.raft_port,
         }
     }
 
@@ -48,6 +52,7 @@ impl HeartbeatFrame {
             node_id: NodeId::new(self.node_id),
             addr,
             hb_port: self.hb_port,
+            raft_port: self.raft_port,
             state: self.state,
             last_seen_ms: self.epoch_ms,
             region: self.region,
@@ -228,6 +233,7 @@ mod tests {
             node_id: NodeId::new("node-test"),
             addr: "127.0.0.1:8080".parse().unwrap(),
             hb_port: 18080,
+            raft_port: 0,
             state: NodeState::Healthy,
             last_seen_ms: 12345678,
             term: 0,
@@ -266,6 +272,7 @@ mod tests {
             state: NodeState::Healthy,
             epoch_ms: epoch_ms(),
             region: "eu-central-1".to_string(),
+            raft_port: 0,
         };
         let bytes = serde_json::to_vec(&peer_frame).unwrap();
         sender

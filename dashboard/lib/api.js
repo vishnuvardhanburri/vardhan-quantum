@@ -115,6 +115,11 @@ export async function fetchLedgerStatus() {
   return data;
 }
 
+export async function fetchRaftStatus() {
+  const data = await apiRequest('/api/v1/raft/status');
+  return data;
+}
+
 export async function exportEvidence() {
   const data = await apiRequest('/api/v1/ledger/export', { method: 'GET' });
   return data;

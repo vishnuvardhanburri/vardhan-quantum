@@ -4,6 +4,11 @@ dist/
 *.log
 cloudflared
 kek.bin
-test_kek.bin
+kek_a.bin
+kek_b.bin
+kek_c.bin
 pq_vault.json
+pq_vault_a.json
+pq_vault_b.json
+pq_vault_c.json
 .DS_Store

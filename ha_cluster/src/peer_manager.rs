@@ -112,7 +112,11 @@ impl RaftPeerManagerInner {
             .into_iter()
             .find(|n| n.node_id == to)
             .ok_or_else(|| format!("Node {} not found in membership", to))?;
-        let addr = node.addr;
+        let addr = if node.raft_port > 0 {
+            std::net::SocketAddr::new(node.addr.ip(), node.raft_port)
+        } else {
+            node.addr
+        };
         info!(to = %to, addr = %addr, "Spawning new worker");
 
         let (tx, rx) = mpsc::channel::<PeerRequest>(100);

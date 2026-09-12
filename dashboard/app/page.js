@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { MetricCard } from '@/components/MetricCard';
 import { useAuth } from '@/components/AuthProvider';
-import { useMetrics, useClusterStatus, useLedgerStatus, useSSE, exportEvidenceBundle } from '@/lib/useApi';
+import { useMetrics, useClusterStatus, useLedgerStatus, useRaftStatus, useSSE, exportEvidenceBundle } from '@/lib/useApi';
 import { BarChart3, Server, Shield } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -14,6 +14,7 @@ export default function DashboardPage() {
   const { data: metrics, loading: metricsLoading, error: metricsError } = useMetrics();
   const { data: clusterStatus, loading: clusterLoading } = useClusterStatus();
   const { data: ledgerStatus } = useLedgerStatus();
+  const { data: raftStatus, loading: raftLoading } = useRaftStatus();
 
   // SSE live events
   const [sseEvents, setSseEvents] = useState([]);
@@ -125,8 +126,8 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Cluster Status Cards — real data from /api/v1/cluster/status */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Cluster Status Cards — real data from /api/v1/cluster/status + /api/v1/raft/status */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <MetricCard
             title="Cluster Nodes"
             badge="TOTAL"
@@ -136,19 +137,25 @@ export default function DashboardPage() {
             glowColor="teal"
           />
           <MetricCard
-            title="Current Leader"
-            badge="RAFT LEADER"
+            title="Coordination Leader"
+            badge="ELECTION"
             value={clusterLoading ? '—' : (clusterStatus?.leader || '—')}
             subtitle={`Term: ${clusterStatus?.healthy_nodes?.[0]?.term ?? 0}`}
-            glowColor="purple"
+            glowColor=" Indigo"
           />
           <MetricCard
-            title="Cluster Health"
-            badge="OPERATIONAL"
-            value={clusterLoading ? '—' : `${clusterStatus?.healthy_count ?? 0}/${clusterStatus?.node_count ?? 0}`}
-            unit="healthy"
-            subtitle="Lexicographic leader election"
-            glowColor="teal"
+            title="Raft Role"
+            badge="RAFT"
+            value={raftLoading ? '—' : (raftStatus?.role || '—')}
+            subtitle={raftLoading ? 'Loading…' : `Term: ${raftStatus?.current_term ?? 0} | Commit: ${raftStatus?.commit_index ?? 0}`}
+            glowColor={raftStatus?.role === 'Leader' ? 'amber' : 'teal'}
+          />
+          <MetricCard
+            title="Raft Commit Index"
+            badge="LOG COMMIT"
+            value={raftLoading ? '—' : (raftStatus?.commit_index ?? 0).toString()}
+            subtitle={`Last Log: ${raftStatus?.last_log_index ?? 0} (term ${raftStatus?.last_log_term ?? 0})`}
+            glowColor="purple"
           />
           <MetricCard
             title="Ledger Status"
@@ -158,6 +165,47 @@ export default function DashboardPage() {
             subtitle="ML-DSA-87 signed, BLAKE3 chained"
             glowColor="purple"
           />
+        </div>
+
+        {/* Raft Consensus Detail — real data from /api/v1/raft/status */}
+        <div className="bg-surface-card panel rounded-xl p-6 shadow-card">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-panel">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-slate-400/70" />
+              <h3 className="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-widest">
+                Raft Consensus State
+              </h3>
+            </div>
+            <span className={`text-[10px] font-mono ${raftLoading ? 'text-slate-500' : 'text-emerald-400'}`}>
+              ● {raftLoading ? 'LOADING' : 'REAL-TIME'}
+            </span>
+          </div>
+          {raftLoading ? (
+            <div className="text-[12px] text-slate-500 font-mono py-4">Loading Raft state…</div>
+          ) : raftStatus?.error ? (
+            <div className="text-[12px] text-red-400 font-mono py-4">
+              Raft node unavailable: {raftStatus.error}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[12px]">
+              <div>
+                <div className="text-slate-500 font-mono">Node ID</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.node_id || '—'}</div>
+              </div>
+              <div>
+                <div className="text-slate-500 font-mono">Current Term</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.current_term ?? 0}</div>
+              </div>
+              <div>
+                <div className="text-slate-500 font-mono">Leader ID</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.leader_id || '—'}</div>
+              </div>
+              <div>
+                <div className="text-slate-500 font-mono">Peers</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.configured_peer_count ?? 0} configured</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Live Split Interception Stream — real SSE events */}

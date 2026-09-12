@@ -2,7 +2,7 @@
 
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Settings, Server, Database, Shield, Bell, Copy } from 'lucide-react';
-import { useClusterStatus, useClusterPeers, useMetrics, drainNode } from '@/lib/useApi';
+import { useClusterStatus, useClusterPeers, useMetrics, useRaftStatus, drainNode } from '@/lib/useApi';
 import { useState, useCallback } from 'react';
 import { useSSE } from '@/lib/useApi';
 
@@ -10,6 +10,7 @@ export default function AdminPage() {
   const { data: clusterStatus, loading: clusterLoading, refetch: refetchCluster } = useClusterStatus();
   const { data: peers, loading: peersLoading } = useClusterPeers();
   const { data: metrics, loading: metricsLoading } = useMetrics();
+  const { data: raftStatus, loading: raftLoading } = useRaftStatus();
   const [drainResult, setDrainResult] = useState(null);
   const [drainLoading, setDrainLoading] = useState(false);
   const [drainError, setDrainError] = useState(null);
@@ -96,6 +97,36 @@ export default function AdminPage() {
               <pre className="text-[10px] text-slate-300 font-mono overflow-x-auto">
                 {JSON.stringify(drainResult, null, 2)}
               </pre>
+            </div>
+          )}
+        </div>
+
+        {/* Raft Consensus State */}
+        <div className="panel rounded-xl p-6 shadow-card">
+          <h2 className="text-xs text-slate-500 font-mono uppercase tracking-wider mb-4 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" /> Raft Consensus State
+          </h2>
+          {raftLoading ? (
+            <p className="text-sm text-slate-400">Loading Raft state…</p>
+          ) : raftStatus?.error ? (
+            <p className="text-sm text-red-400 font-mono">
+              Raft node not available: {raftStatus.error}
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-[12px]">
+              <ConfigCard title="Node ID" value={raftStatus?.node_id || '—'} subtitle="This Raft node" />
+              <ConfigCard title="Role" value={raftStatus?.role || '—'} subtitle={raftStatus?.role === 'Leader' ? 'Cluster leader' : 'Follower/Candidate'} />
+              <ConfigCard title="Current Term" value={raftStatus?.current_term ?? 0} subtitle="Raft term" />
+              <ConfigCard title="Commit Index" value={raftStatus?.commit_index ?? 0} subtitle="Applied to state machine" />
+              <ConfigCard title="Leader ID" value={raftStatus?.leader_id || '—'} subtitle="Current Raft leader" />
+            </div>
+          )}
+          {!raftLoading && !raftStatus?.error && raftStatus && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-[12px]">
+              <ConfigCard title="Last Log Index" value={raftStatus.last_log_index ?? 0} subtitle="Log entries" />
+              <ConfigCard title="Last Log Term" value={raftStatus.last_log_term ?? 0} subtitle="Term of last entry" />
+              <ConfigCard title="Peers" value={raftStatus.configured_peer_count ?? 0} subtitle="Configured peers" />
+              <ConfigCard title="Voted For" value={raftStatus.voted_for || '—'} subtitle="Last vote cast" />
             </div>
           )}
         </div>

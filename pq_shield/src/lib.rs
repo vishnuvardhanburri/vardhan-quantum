@@ -19,7 +19,7 @@ use crate::prometheus_metrics::PrometheusMetrics;
 use crate::telemetry::{InternalMsg, TelemetryEngine};
 use audit_ledger::LedgerWriter;
 use core_crypto::QuantumNodeIdentity;
-use ha_cluster::{drain::ActiveSessionCounter, ClusterMembership, NodeId, NodeState};
+use ha_cluster::{drain::ActiveSessionCounter, ClusterMembership, NodeId, NodeState, RaftNode};
 use proxy_engine::run_responder;
 use proxy_engine::transport::AeadTransport;
 
@@ -76,6 +76,9 @@ pub struct IngressShield {
     pub session_counter: Option<ActiveSessionCounter>,
     /// P3.4: This node's stable cluster identity (when HA is configured).
     pub self_node_id: Option<NodeId>,
+    /// P3.8: Raft consensus node for read-only status queries (when HA is
+    /// configured with VARDHAN_NODE_ID and a persistence path).
+    pub raft_node: Option<Arc<RaftNode>>,
 }
 
 impl IngressShield {
@@ -116,6 +119,8 @@ impl IngressShield {
         let per_ip_limit = get_max_concurrency_per_ip();
         let handshake_timeout = get_handshake_timeout();
         let idle_timeout = get_idle_timeout();
+        let raft_node: Option<Arc<RaftNode>> = None;
+
         let shield = Self {
             listen_addr,
             upstream_addr,
@@ -131,6 +136,7 @@ impl IngressShield {
             cluster: None,
             session_counter: None,
             self_node_id: None,
+            raft_node,
         };
         (shield, ledger_path_stored)
     }
@@ -179,6 +185,7 @@ impl IngressShield {
             prometheus: self.prometheus.clone(),
             cluster: self.cluster.clone(),
             self_node_id: self.self_node_id.clone(),
+            raft_node: self.raft_node.clone(),
         };
         tokio::spawn(async move {
             run_admin_server(admin_state).await;

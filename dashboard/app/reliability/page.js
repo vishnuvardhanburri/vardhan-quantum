@@ -1,12 +1,13 @@
 'use client';
 
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { useMetrics, useSSE } from '@/lib/useApi';
+import { useMetrics, useRaftStatus, useSSE } from '@/lib/useApi';
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Activity, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Activity, AlertTriangle, TrendingUp, BarChart3 } from 'lucide-react';
 
 export default function ReliabilityPage() {
   const { data: metrics, loading, error } = useMetrics();
+  const { data: raftStatus, loading: raftLoading } = useRaftStatus();
   const [sseEvents, setSseEvents] = useState([]);
   const handleSSE = useCallback((event) => {
     setSseEvents((prev) => {
@@ -109,6 +110,78 @@ export default function ReliabilityPage() {
             Throughput History
           </h2>
           <ThroughputChart data={throughputHistory.current} />
+        </div>
+
+        {/* Throughput Chart */}
+        <div className="panel rounded-xl p-6 shadow-card">
+          <h2 className="text-xs text-slate-500 font-mono uppercase tracking-wider mb-4">
+            Throughput History
+          </h2>
+          <ThroughputChart data={throughputHistory.current} />
+        </div>
+
+        {/* Raft Consensus State */}
+        <div className="panel rounded-xl p-6 shadow-card">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-panel">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-slate-400/70" />
+              <h2 className="text-xs text-slate-500 font-mono uppercase tracking-wider">
+                Raft Consensus State
+              </h2>
+            </div>
+            <span className={`text-[10px] font-mono ${raftLoading ? 'text-slate-500' : 'text-emerald-400'}`}>
+              ● {raftLoading ? 'LOADING' : 'REAL-TIME'}
+            </span>
+          </div>
+          {raftLoading ? (
+            <p className="text-[12px] text-slate-500 font-mono">Loading Raft state…</p>
+          ) : raftStatus?.error ? (
+            <p className="text-[12px] text-red-400 font-mono">
+              Raft node not available: {raftStatus.error}
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-[12px]">
+              <div>
+                <div className="text-[10px] text-slate-500 font-mono uppercase">Node ID</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.node_id || '—'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-500 font-mono uppercase">Role</div>
+                <div className={`font-mono ${raftStatus?.role === 'Leader' ? 'text-amber-400' : 'text-teal-400'}`}>
+                  {raftStatus?.role || '—'}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-500 font-mono uppercase">Term</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.current_term ?? 0}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-500 font-mono uppercase">Commit Index</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.commit_index ?? 0}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-500 font-mono uppercase">Leader ID</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.leader_id || '—'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-500 font-mono uppercase">Peers</div>
+                <div className="text-slate-100 font-mono">{raftStatus?.configured_peer_count ?? 0}</div>
+              </div>
+            </div>
+          )}
+          {!raftLoading && !raftStatus?.error && raftStatus?.match_index && Object.keys(raftStatus.match_index).length > 0 && (
+            <div className="mt-4">
+              <div className="text-[10px] text-slate-500 font-mono uppercase mb-2">Replication State</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-[12px]">
+                {Object.entries(raftStatus.match_index).map(([peer, matchIdx]) => (
+                  <div key={peer} className="panel bg-white/[0.02] rounded-lg p-2">
+                    <span className="text-slate-500 font-mono">{peer}</span>
+                    <span className="float-right text-slate-100">match={matchIdx}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Recent Events */}

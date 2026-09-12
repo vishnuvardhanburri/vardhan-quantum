@@ -5,11 +5,13 @@ use core_crypto::QuantumNodeIdentity;
 use ha_cluster::{
     drain::{ActiveSessionCounter, DrainController},
     heartbeat::{start_heartbeat, HeartbeatConfig},
-    ClusterMembership, NodeId,
+    raft::RaftNode,
+    ClusterMembership, NodeId, RaftNetworkListener, RaftPeerManager,
 };
 use pq_shield::IngressShield;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -173,7 +175,83 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Session counter (for graceful drain)
     let session_counter = ActiveSessionCounter::new();
 
-    let shield = IngressShield::new_with_cluster(
+    // ── P3.8: Raft consensus node ─────────────────────────────────────────────
+    // The Raft node runs the Raft run loop for leader election and log
+    // replication. Its state is exposed read-only via GET /api/v1/raft/status.
+    let raft_port: u16 = std::env::var("VARDHAN_RAFT_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(18090);
+    let raft_persist_path = std::env::var("VARDHAN_RAFT_PERSIST")
+        .unwrap_or_else(|_| "raft_state.json".to_string());
+
+    // Update self's ClusterNode entry with raft_port so peers know where
+    // to connect for Raft RPC.
+    {
+        let nodes = membership.all_nodes().await;
+        if let Some(self_entry) = nodes.iter().find(|n| n.node_id == self_node_id) {
+            if self_entry.raft_port == 0 {
+                membership
+                    .set_raft_port(self_node_id.clone(), raft_port)
+                    .await;
+            }
+        }
+    }
+
+    let raft_peer_mgr = RaftPeerManager::new(
+        Arc::clone(&identity),
+        Arc::clone(&membership),
+        self_node_id.clone(),
+    );
+    let raft_node = Arc::new(RaftNode::new(
+        self_node_id.clone(),
+        PathBuf::from(&raft_persist_path),
+        Arc::new(raft_peer_mgr),
+    ));
+
+    let raft_listen_addr: std::net::SocketAddr =
+        format!("0.0.0.0:{}", raft_port).parse()?;
+    let raft_listener = RaftNetworkListener::new(
+        raft_listen_addr,
+        Arc::clone(&identity),
+        Arc::clone(&raft_node),
+    );
+
+    let raft_run_node = Arc::clone(&raft_node);
+    let membership_for_peers = Arc::clone(&membership);
+    let self_id_for_peers = self_node_id.clone();
+    tokio::spawn(async move {
+        // Brief warmup so heartbeats propagate peer raft_port before run() reads them.
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+        let peers: Vec<NodeId> = membership_for_peers
+            .all_nodes()
+            .await
+            .into_iter()
+            .filter(|n| n.node_id != self_id_for_peers)
+            .filter(|n| n.raft_port > 0)
+            .map(|n| n.node_id.clone())
+            .collect();
+        let count = peers.len();
+        info!(
+            "P3.8: Raft node {} starting with {} peers",
+            self_id_for_peers, count
+        );
+        raft_run_node.run(peers).await;
+    });
+
+    let raft_l = raft_listener;
+    tokio::spawn(async move {
+        if let Err(e) = raft_l.run().await {
+            error!(err = %e, "Raft network listener fatal error");
+        }
+    });
+
+    println!(
+        "[*] P3.8: Raft consensus node started (ID: {}, RPC: {})",
+        self_node_id, raft_listen_addr
+    );
+
+    let mut shield = IngressShield::new_with_cluster(
         listen_addr,
         upstream_addr,
         identity,
@@ -181,6 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&membership),
         session_counter.clone(),
     );
+    shield.raft_node = Some(Arc::clone(&raft_node));
 
     println!("[*] Starting pq_shield gateway (P3.4 HA-aware)");
     println!("    Node ID:      {}", self_node_id);
