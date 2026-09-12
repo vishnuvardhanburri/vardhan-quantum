@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # P3.6: Create non-root user for build step (prevents root-owned cache poisoning)
 RUN addgroup --system --gid 1001 appgroup && \
-    adduser --system --uid 10001 --gid 10001 appuser
+    adduser --system --uid 10001 --ingroup appgroup appuser
 
 # Copy workspace files
 COPY --chown=appuser:appgroup Cargo.toml Cargo.lock ./
