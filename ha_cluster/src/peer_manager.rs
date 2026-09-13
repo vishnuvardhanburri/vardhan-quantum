@@ -94,6 +94,11 @@ impl RaftPeerManager {
     pub async fn get_or_spawn_worker(&self, to: NodeId) -> Result<mpsc::Sender<PeerRequest>, String> {
         self.inner.get_or_spawn_worker(to).await
     }
+
+    /// P3.8: Clear cached worker so the next RPC forces a fresh connection.
+    pub async fn clear_worker(&self, to: &NodeId) {
+        self.inner.clear_worker(to).await
+    }
 }
 
 impl RaftPeerManagerInner {
@@ -106,6 +111,7 @@ impl RaftPeerManagerInner {
                 return Ok(tx.clone());
             }
         }
+
 
         let nodes = self.membership.all_nodes().await;
         let node = nodes
@@ -133,6 +139,13 @@ impl RaftPeerManagerInner {
         let mut workers = self.workers.write().await;
         workers.insert(to, tx.clone());
         Ok(tx)
+    }
+
+    /// Remove a cached worker, forcing the next RPC to create a new PeerWorker
+    /// with a fresh connection (uses updated membership address).
+    pub async fn clear_worker(&self, to: &NodeId) {
+        let mut workers = self.workers.write().await;
+        workers.remove(to);
     }
 }
 
