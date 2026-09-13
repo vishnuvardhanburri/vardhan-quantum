@@ -101,4 +101,27 @@ The Vardhan Post-Quantum Ingress Engine is distributed as a zero-attack-surface 
 For enterprise procurement, architectural deep dives, and localized CISO onboarding, contact the **Vardhan Technologies Enterprise Deployment Team**.
 
 ---
+
+## 🧪 Development & Testing
+
+### P3.8 Raft High-Availability Validation
+
+The `ha_cluster` crate implements a from-scratch Raft consensus engine with a custom AEAD-secured TCP transport (`AeadTransport`). All failure/recovery scenarios are validated through deterministic integration tests using a test-only `NetworkController` fault-injection layer that sits between the `RaftRpcClient` and `AeadTransport`.
+
+**Test suite (`ha_cluster/tests/raft_l3_failure.rs`):**
+- **10 single failure tests** — persistence/torn-write, leader crash, follower crash + real listener restart, old-leader-returns fencing, network partition, partition healing, stale/delayed RPC, duplicate request idempotency, rapid leader churn (3 rounds), slow peer
+- **4 × 10× repetition tests** — leader crash (10/10), follower crash (10/10), partition/heal (10/10), stale RPC (10/10)
+- **All 14 tests pass** with `--test-threads=1`
+
+**P3.8 Step 3 status: ✅ COMPLETE**
+
+```bash
+# Run all Raft failure tests (sequential, fault-injection)
+CARGO_TARGET_DIR=/tmp/vardhan-quantum-target \
+  cargo test -p ha_cluster --test raft_l3_failure -- --test-threads=1
+```
+
+**P3.8 Step 3.1 status: ✅ COMPLETE** — Hardening pass covering real process crash (SIGKILL subprocess), durable log persistence & replay, majority progress with timed-out slow peer via `FuturesUnordered`, post-timeout stale response rejection, stale-term rejection, duplicate RPC idempotency, stale worker replacement, bidirectional partition proof, address-change recovery, and crash-during-commit. See `docs/P3.8_STEP3.1_VERIFICATION_REPORT.md`.
+
+---
 *© Vardhan Technologies &mdash; Securing the critical infrastructure of tomorrow against the cryptographically relevant quantum computers of today.*
