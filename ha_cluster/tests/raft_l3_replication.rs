@@ -705,6 +705,7 @@ async fn test_election_timer_persistence() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 300,
         heartbeat_interval_ms: 50, // < 150, satisfies invariant
+        persist_on_submit: false,
     };
     config.validate().expect("config should be valid");
 
@@ -825,6 +826,7 @@ async fn test_config_timing_invariant() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 300,
         heartbeat_interval_ms: 50,
+        persist_on_submit: false,
     };
     assert!(valid.validate().is_ok(), "Valid config should pass validation");
 
@@ -833,6 +835,7 @@ async fn test_config_timing_invariant() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 300,
         heartbeat_interval_ms: 200,
+        persist_on_submit: false,
     };
     assert!(invalid.validate().is_err(), "Invalid config should fail validation");
 
@@ -841,6 +844,7 @@ async fn test_config_timing_invariant() {
         election_timeout_min_ms: 300,
         election_timeout_max_ms: 150,
         heartbeat_interval_ms: 50,
+        persist_on_submit: false,
     };
     assert!(invalid2.validate().is_err(), "min > max should fail validation");
 }

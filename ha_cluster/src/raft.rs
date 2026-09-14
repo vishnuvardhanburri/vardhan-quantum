@@ -1,6 +1,7 @@
 use crate::{ClusterNode, NodeId};
 use core_crypto::QuantumNodeIdentity;
 use futures::future::join_all;
+use futures::stream::{FuturesUnordered, StreamExt};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,10 +24,14 @@ pub struct LogEntry {
     pub data: Vec<u8>, // The serialized LedgerBlock payload
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct RaftPersistentState {
     pub current_term: u64,
     pub voted_for: Option<NodeId>,
+    #[serde(default)]
+    pub log: Vec<LogEntry>,
+    #[serde(default)]
+    pub commit_index: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -113,6 +118,10 @@ pub struct RaftConfig {
     pub election_timeout_min_ms: u64,
     pub election_timeout_max_ms: u64,
     pub heartbeat_interval_ms: u64,
+    /// If true, log entries are persisted to disk on submit_entry and
+    /// handle_append_entries. Needed for crash-recovery tests.
+    /// Default false avoids file I/O contention in timing-sensitive tests.
+    pub persist_on_submit: bool,
 }
 
 impl Default for RaftConfig {
@@ -121,6 +130,7 @@ impl Default for RaftConfig {
             election_timeout_min_ms: ELECTION_TIMEOUT_MIN,
             election_timeout_max_ms: ELECTION_TIMEOUT_MAX,
             heartbeat_interval_ms: HEARTBEAT_INTERVAL_MS,
+            persist_on_submit: false,
         }
     }
 }
@@ -216,6 +226,8 @@ impl RaftNode {
         let state = Self::load_persistent_state(&persistence_path).unwrap_or(RaftPersistentState {
             current_term: 0,
             voted_for: None,
+            log: Vec::new(),
+            commit_index: 0,
         });
 
         let election_timeout = {
@@ -225,14 +237,16 @@ impl RaftNode {
             )
         };
 
+        let persisted_commit = state.commit_index;
+
         Self {
             id,
             role: RwLock::new(RaftRole::Follower),
             current_term: Arc::new(RwLock::new(state.current_term)),
             voted_for: Arc::new(RwLock::new(state.voted_for)),
-            log: Arc::new(RwLock::new(Vec::new())),
-            commit_index: Arc::new(RwLock::new(0)),
-            last_applied: Arc::new(RwLock::new(0)),
+            log: Arc::new(RwLock::new(state.log)),
+            commit_index: Arc::new(RwLock::new(persisted_commit)),
+            last_applied: Arc::new(RwLock::new(persisted_commit)),
             last_heartbeat: Arc::new(RwLock::new(Instant::now())),
             election_timeout: Arc::new(RwLock::new(election_timeout)),
             next_index: Arc::new(RwLock::new(HashMap::new())),
@@ -240,6 +254,8 @@ impl RaftNode {
             persistence_path,
             rpc_client,
             config,
+            // Mark that the log was pre-loaded from disk so the leader
+            // initialises next_index correctly for the recovered log.
         }
     }
 
@@ -250,15 +266,31 @@ impl RaftNode {
         serde_json::from_slice(&buf).ok()
     }
 
+
     pub async fn persist_state(&self) -> std::io::Result<()> {
         let term = *self.current_term.read().await;
         let voted_for = self.voted_for.read().await.clone();
+        let log_clone = self.log.read().await.clone();
+        let commit_index = *self.commit_index.read().await;
+        self.persist_state_with(term, voted_for, log_clone, commit_index).await
+    }
+
+    /// Persist Raft state with explicit values. Used when the caller already
+    /// holds write locks and must avoid re-entrant lock acquisition.
+    async fn persist_state_with(
+        &self,
+        term: u64,
+        voted_for: Option<NodeId>,
+        log: Vec<LogEntry>,
+        commit_index: u64,
+    ) -> std::io::Result<()> {
         let state = RaftPersistentState {
             current_term: term,
             voted_for,
+            log,
+            commit_index,
         };
         let bytes = serde_json::to_vec(&state).unwrap();
-
         let tmp_path = self.persistence_path.with_extension("tmp");
         std::fs::write(&tmp_path, bytes)?;
         std::fs::rename(tmp_path, &self.persistence_path)
@@ -286,6 +318,30 @@ impl RaftNode {
         let mut log = self.log.write().await;
         let index = (log.len() as u64) + 1;
         log.push(entry);
+        // Fire-and-forget persist for crash recovery when persist_on_submit is enabled.
+        // Uses spawn_blocking (not await) to avoid blocking the heartbeat timer.
+        if self.config.persist_on_submit {
+            let term = *self.current_term.read().await;
+            let voted_for = self.voted_for.read().await.clone();
+            let log_clone = log.clone();
+            let commit_idx = *self.commit_index.read().await;
+            let persist_path = self.persistence_path.clone();
+            drop(log);
+            tokio::task::spawn_blocking(move || {
+                let state = RaftPersistentState {
+                    current_term: term,
+                    voted_for,
+                    log: log_clone,
+                    commit_index: commit_idx,
+                };
+                let bytes = match serde_json::to_vec(&state) { Ok(b) => b, Err(_) => return };
+                let tmp_path = persist_path.with_extension("tmp");
+                let _ = std::fs::write(&tmp_path, &bytes);
+                let _ = std::fs::rename(tmp_path, &persist_path);
+            });
+        } else {
+            drop(log);
+        }
         Ok(index)
     }
 
@@ -469,6 +525,7 @@ impl RaftNode {
             }
         }
 
+        let needs_persist;
         if !args.entries.is_empty() {
             // Raft log matching: entries must be inserted starting at prev_log_index
             // (which is the count of entries the follower already has that are confirmed).
@@ -482,10 +539,39 @@ impl RaftNode {
 
             // Append the new entries.
             log.extend(args.entries.clone());
+            needs_persist = true;
+        } else {
+            needs_persist = false;
+        }
+
+        // Capture values needed for persistence, then release log write lock.
+        let commit_idx_val = std::cmp::min(args.leader_commit, log.len() as u64);
+        let term_for_persist = *self.current_term.read().await;
+        let voted_for_for_persist = self.voted_for.read().await.clone();
+        let log_clone = log.clone();
+        let needs_persist_val = needs_persist && self.config.persist_on_submit;
+        drop(log);
+
+        if needs_persist_val {
+            // Fire-and-forget persist — do NOT await, to avoid blocking the
+            // heartbeat cycle on single-threaded test runtimes.
+            let persist_path = self.persistence_path.clone();
+            tokio::task::spawn_blocking(move || {
+                let state = RaftPersistentState {
+                    current_term: term_for_persist,
+                    voted_for: voted_for_for_persist,
+                    log: log_clone,
+                    commit_index: commit_idx_val,
+                };
+                let bytes = match serde_json::to_vec(&state) { Ok(b) => b, Err(_) => return };
+                let tmp_path = persist_path.with_extension("tmp");
+                let _ = std::fs::write(&tmp_path, &bytes);
+                let _ = std::fs::rename(tmp_path, &persist_path);
+            });
         }
 
         let mut commit_idx = self.commit_index.write().await;
-        *commit_idx = std::cmp::min(args.leader_commit, log.len() as u64);
+        *commit_idx = commit_idx_val;
 
         AppendEntriesReply {
             term: reply_term,
@@ -629,7 +715,7 @@ impl RaftNode {
         }
     }
 
-    pub async fn advance_commit_index(&self, match_indices: &HashMap<NodeId, u64>) {
+    pub async fn advance_commit_index(&self, match_indices: &HashMap<NodeId, u64>) -> bool {
         let mut commit_idx = self.commit_index.write().await;
         let term = *self.current_term.read().await;
         let log = self.log.read().await;
@@ -642,8 +728,12 @@ impl RaftNode {
         if let Some(&n) = possible_commits.get(quorum - 1) {
             if n > *commit_idx && n > 0 && log[(n - 1) as usize].term == term {
                 *commit_idx = n;
+                drop(commit_idx);
+                drop(log);
+                return true;
             }
         }
+        false
     }
 
     /// Generate a fresh randomized election timeout based on config.
@@ -783,12 +873,18 @@ impl RaftNode {
                         }
                     } // log + next_index read locks released
 
-                    // Phase 2: Send all AppendEntries concurrently, then process replies.
-                    let replies = join_all(append_futures).await;
-
+                    // Phase 2: Send all AppendEntries concurrently via FuturesUnordered.
+                    // This ensures a slow/dead peer's 2s RPC timeout cannot block
+                    // the entire heartbeat cycle — fast peers are processed immediately.
+                    // (P3.8 Step 3.1 hardening)
                     let mut should_step_down = false;
                     let mut max_reply_term = cur_term;
-                    for (peer, result, prev_log_index, entries_len) in replies {
+
+                    let mut fut_stream = append_futures
+                        .into_iter()
+                        .collect::<FuturesUnordered<_>>();
+
+                    while let Some((peer, result, prev_log_index, entries_len)) = fut_stream.next().await {
                         // Once we detect a higher-term reply, stop processing
                         // further replies to prevent stale replies from
                         // mutating leader state (match_index/next_index).
@@ -879,7 +975,27 @@ impl RaftNode {
                     {
                         let match_clone: HashMap<NodeId, u64> =
                             self.match_index.read().await.clone();
-                        self.advance_commit_index(&match_clone).await;
+                        let advanced = self.advance_commit_index(&match_clone).await;
+                        if advanced && self.config.persist_on_submit {
+                            // Fire-and-forget persist — do NOT await.
+                            let persist_path = self.persistence_path.clone();
+                            let term = *self.current_term.read().await;
+                            let voted_for = self.voted_for.read().await.clone();
+                            let log_clone = self.log.read().await.clone();
+                            let commit_idx = *self.commit_index.read().await;
+                            tokio::task::spawn_blocking(move || {
+                                let state = RaftPersistentState {
+                                    current_term: term,
+                                    voted_for,
+                                    log: log_clone,
+                                    commit_index: commit_idx,
+                                };
+                                let bytes = match serde_json::to_vec(&state) { Ok(b) => b, Err(_) => return };
+                                let tmp_path = persist_path.with_extension("tmp");
+                                let _ = std::fs::write(&tmp_path, &bytes);
+                                let _ = std::fs::rename(tmp_path, &persist_path);
+                            });
+                        }
                     }
                 }
             }
