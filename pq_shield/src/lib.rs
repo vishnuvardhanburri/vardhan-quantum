@@ -79,6 +79,7 @@ pub struct IngressShield {
     /// P3.8: Raft consensus node for read-only status queries (when HA is
     /// configured with VARDHAN_NODE_ID and a persistence path).
     pub raft_node: Option<Arc<RaftNode>>,
+    pub ledger_writer: Option<Arc<LedgerWriter>>,
 }
 
 impl IngressShield {
@@ -110,7 +111,7 @@ impl IngressShield {
             PrometheusMetrics::new().expect("FATAL: Failed to initialize Prometheus registry"),
         );
         let telemetry = Arc::new(TelemetryEngine::new(
-            ledger,
+            ledger.clone(),
             Some(identity.clone()),
             prometheus.clone(),
         ));
@@ -137,6 +138,7 @@ impl IngressShield {
             session_counter: None,
             self_node_id: None,
             raft_node,
+            ledger_writer: ledger,
         };
         (shield, ledger_path_stored)
     }
@@ -174,6 +176,31 @@ impl IngressShield {
         let admin_token = std::env::var("VARDHAN_ADMIN_TOKEN")
             .expect("FATAL: VARDHAN_ADMIN_TOKEN must be strictly provided in environment.");
 
+        let auth_db_path = std::env::var("VARDHAN_AUTH_DB_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("data/auth_db"));
+        if let Some(parent) = auth_db_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let cred_store = match auth_service::store::CredentialStore::open_or_bootstrap(&auth_db_path) {
+            Ok(store) => Arc::new(store),
+            Err(e) => {
+                tracing::warn!("Auth credential store bootstrap notice: {e}");
+                Arc::new(auth_service::store::CredentialStore::open(&auth_db_path).expect("failed to open auth store"))
+            }
+        };
+
+        let auth_state = auth_service::AuthState {
+            credentials: cred_store,
+            sessions: Arc::new(auth_service::session::SessionStore::new()),
+            rate_limiter: Arc::new(auth_service::rate_limit::RateLimiter::new()),
+            ledger: self.ledger_writer.clone(),
+            identity: Some(Arc::clone(&self.identity)),
+            node_id: self.self_node_id.as_ref().map(|n| n.0.clone()),
+            admin_token: Some(admin_token.clone()),
+        };
+
         let admin_state = AdminState {
             metrics: self.telemetry.snapshot.clone(),
             event_tx: self.telemetry.event_broadcast.clone(),
@@ -186,6 +213,7 @@ impl IngressShield {
             cluster: self.cluster.clone(),
             self_node_id: self.self_node_id.clone(),
             raft_node: self.raft_node.clone(),
+            auth_state,
         };
         tokio::spawn(async move {
             run_admin_server(admin_state).await;

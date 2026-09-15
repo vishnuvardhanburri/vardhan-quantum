@@ -24,6 +24,14 @@ export async function POST(request, { params }) {
   return proxyRequest('POST', request, params);
 }
 
+export async function PUT(request, { params }) {
+  return proxyRequest('PUT', request, params);
+}
+
+export async function DELETE(request, { params }) {
+  return proxyRequest('DELETE', request, params);
+}
+
 export async function OPTIONS(request, { params }) {
   return proxyRequest('OPTIONS', request, params);
 }
@@ -33,6 +41,8 @@ async function proxyRequest(method, request, params) {
   const backendPath = Array.isArray(path) ? `/${path.join('/')}` : `/${path || ''}`;
 
   // ── Auth gate ──────────────────────────────────────────────────────
+  const isAuthEndpoint = backendPath === '/api/v1/auth/login';
+
   const authHeader = request.headers.get('authorization');
   const { searchParams } = new URL(request.url, 'http://localhost');
   const queryToken = searchParams.get('token');
@@ -41,7 +51,7 @@ async function proxyRequest(method, request, params) {
     ? authHeader.substring(7)
     : queryToken;
 
-  if (!effectiveToken) {
+  if (!effectiveToken && !isAuthEndpoint) {
     return new Response(
       JSON.stringify({ error: 'Authentication required', details: 'No valid Bearer token provided' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -69,7 +79,14 @@ async function proxyRequest(method, request, params) {
 
   // ── REST: use fetch ──────────────────────────────────────────────────
   const headers = new Headers();
-  headers.set('Authorization', `Bearer ${effectiveToken}`);
+  if (effectiveToken) {
+    headers.set('Authorization', `Bearer ${effectiveToken}`);
+  }
+
+  const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip');
+  if (clientIp) {
+    headers.set('x-forwarded-for', clientIp);
+  }
 
   const contentType = request.headers.get('content-type');
   if (contentType) headers.set('content-type', contentType);

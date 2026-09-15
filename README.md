@@ -1,127 +1,208 @@
-# Vardhan Post-Quantum Ingress Engine
+# Vardhan Post-Quantum Ingress Engine & Platform
 
 ![Vardhan Technologies](https://img.shields.io/badge/Vardhan_Technologies-Enterprise_Quantum_Security-00F5D4?style=for-the-badge&logo=shield&logoColor=black)
 ![Compliance](https://img.shields.io/badge/DORA_|_NIS2-Compliant-8A2BE2?style=for-the-badge)
+![Rust](https://img.shields.io/badge/Rust-2021_Edition-orange?style=for-the-badge&logo=rust&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=nextdotjs)
+![FIPS 203](https://img.shields.io/badge/FIPS_203-ML--KEM--1024-00F5D4?style=for-the-badge)
+![FIPS 204](https://img.shields.io/badge/FIPS_204-ML--DSA--87-8A2BE2?style=for-the-badge)
 
-The **Vardhan Post-Quantum Ingress Engine** is an enterprise-grade cryptographic interception gateway deployed by Tier-1 financial institutions, global logistics networks, and sovereign critical infrastructure. Engineered as a zero-touch reverse proxy, the engine transparently upgrades legacy HTTP, TCP, and gRPC traffic to NIST-standardized Post-Quantum Cryptography (**FIPS 203 ML-KEM** and **FIPS 204 ML-DSA**).
+The **Vardhan Post-Quantum Ingress Engine** is an enterprise-grade cryptographic interception gateway and high-availability distributed control plane. Built in memory-safe asynchronous Rust, the engine transparently upgrades network traffic (HTTP, TCP, gRPC) to NIST-standardized Post-Quantum Cryptography (**FIPS 203 ML-KEM** and **FIPS 204 ML-DSA**), maintains an immutable append-only BLAKE3 Merkle ledger, coordinates state via a from-scratch Raft consensus cluster, and provides an authenticated administrative dashboard.
 
 Designed for seamless enterprise integration, the Vardhan engine enables immediate cryptographic modernization and strict adherence to **DORA (Article 9)** and **NIS2 (Article 21)** regulatory mandates—without requiring source code modifications to existing downstream microservices.
 
 ---
 
-## 🏛️ Enterprise Architecture
+## 🏛️ System Architecture
 
-The Vardhan network operates as a decentralized, fault-tolerant edge cluster, engineered in memory-safe asynchronous Rust for deterministic, sub-millisecond latency.
-
-```mermaid
-graph TD
-    subgraph "Untrusted Global WAN"
-        A[External API Clients] -->|Plaintext / Legacy TLS| B
-        C[Third-Party Services] -->|Legacy gRPC| B
-    end
-
-    subgraph "Vardhan Edge Cluster (Zero-Trust Perimeter)"
-        B[pq_shield Ingress Engine]
-        B -->|Shannon Entropy Check| D{FIPS 203 ML-KEM + AES-256-GCM}
-        D -->|Encrypted Transit| E[quantum_network Mesh]
-        
-        E -->|Telemetry & Billing| F[(BLAKE3 Immutable Ledger)]
-        F -->|FIPS 204 Signature| G[DORA / NIS2 Audit PDF]
-    end
-
-    subgraph "Protected Enterprise Intranet"
-        E -->|Decapsulated Plaintext| H[Legacy Banking Core]
-        E -->|Decapsulated Plaintext| I[Logistics Microservices]
-    end
-
-    style B fill:#0D0F17,stroke:#00F5D4,stroke-width:2px,color:#fff
-    style D fill:#141724,stroke:#8A2BE2,stroke-width:2px,color:#fff
-    style F fill:#141724,stroke:#FFB703,stroke-width:2px,color:#fff
-    style G fill:#FF0055,stroke:#FF0055,stroke-width:2px,color:#fff
 ```
-
-### 1. Zero-Touch Edge Gateway
-* **Transparent Interception:** Operates as an invisible edge interceptor, dynamically enveloping plaintext transit in AES-256-GCM utilizing HKDF-SHA-256 session keys derived exclusively via ML-KEM post-quantum lattices.
-* **Ultra-High Throughput:** Benchmarked at **> 1.7 Million requests per second**, utilizing lock-free atomic buffers and asynchronous multi-threading to ensure zero degradation to stringent SLA latency requirements.
-* **Cryptographic Finality:** Continuously monitors Shannon Entropy metrics (targeting ~7.998 bits/byte) to cryptographically guarantee transit randomness and mitigate deep packet inspection vulnerabilities.
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Vardhan Quantum Edge Mesh                          │
+│                                                                             │
+│   ┌──────────────┐          ┌──────────────┐          ┌──────────────────┐  │
+│   │  pq_shield   │◄────────►│  ha_cluster  │◄────────►│   audit_ledger   │  │
+│   │ Axum Gateway │          │ Raft engine  │          │  BLAKE3 Merkle   │  │
+│   │ + Admin API  │          │ + AEAD mesh  │          │  + ML-DSA Signed │  │
+│   └──────┬───────┘          └──────────────┘          └──────────────────┘  │
+│          │                                                                  │
+│   ┌──────▼───────┐          ┌──────────────┐          ┌──────────────────┐  │
+│   │ auth_service │          │ core_crypto  │          │   proxy_engine   │  │
+│   │ Sessions,    │          │ ML-KEM-1024  │          │   AES-256-GCM    │  │
+│   │ API keys,    │          │ ML-DSA-87    │          │   HKDF-SHA-256   │  │
+│   │ RBAC, Argon2 │          │ BLAKE3       │          │   Shannon check  │  │
+│   └──────────────┘          └──────────────┘          └──────────────────┘  │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  dashboard (Next.js 14 + MUI Dark Glassmorphism)                    │   │
+│   │  /login  /admin  /security  /infrastructure  /consensus  /evidence  │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ```mermaid
 sequenceDiagram
-    participant C as External Client
-    participant V as Vardhan Edge Node
-    participant K as Post-Quantum KEM
-    participant L as Internal Legacy App
+    participant C as Client
+    participant G as pq_shield (Gateway)
+    participant A as auth_service (RBAC / Sessions)
+    participant K as core_crypto (ML-KEM / ML-DSA)
+    participant P as proxy_engine (AES-256-GCM)
+    participant L as audit_ledger (Append-Only)
+    participant U as Upstream Service
 
-    C->>V: Legacy HTTP / gRPC Request (Plaintext)
-    V->>K: Initialize FIPS 203 ML-KEM Handshake
-    K-->>V: Shared Quantum-Safe Secret
-    V->>V: Derive AES-256-GCM Session Key (HKDF)
-    V->>V: Seal Payload & Calculate Shannon Entropy
-    V->>V: Distribute via P2P Mesh
-    V->>L: Forward Decapsulated Request
-    L-->>V: Legacy Response
-    V-->>C: Encrypted Response
-```
-
-### 2. High-Availability State Replication
-* **Decentralized Epidemic Mesh:** Core edge nodes are orchestrated via a proprietary, loop-free P2P gossip protocol. This dynamic discovery mesh ensures instantaneous state replication and self-healing fault tolerance across global, multi-cloud deployment regions.
-
-### 3. Immutable SaaS Metering Ledger
-* **Cryptographic Write-Ahead Logging:** Intercepted telemetry is hashed via high-performance BLAKE3 Merkle chains, creating an immutable, verifiable ledger of edge activity.
-* **Multi-Tenant Isolation:** Safely orchestrates dynamic connection mapping and cryptographic SLA tiering utilizing Argon2-hardened key vaults, ensuring strict data residency and tenant isolation for enterprise SaaS environments.
-
-### 4. Automated Compliance & Telemetry
-* **CISO Command Center:** A highly-dense telemetry center provides Site Reliability Engineering (SRE) teams with real-time visibility into Shannon Entropy metrics, quorum finality, and cryptanalytic differentials.
-* **Automated DORA / NIS2 Audit Export:** The engine dynamically parses the cryptographic ledger to generate verifiable, mathematically signed PDF Audit Reports, streamlining CISO and Risk Committee sign-offs.
-
-```mermaid
-flowchart LR
-    A[(Edge Ingress Logs)] -->|Atomic Counters| B(Usage Metering)
-    B -->|Calculate Metrics| C{BLAKE3 Merkle Root}
-    C -->|Hash Ledger Data| D[Argon2 Vaulted Identity]
-    D -->|Sign with FIPS 204| E(Cryptographic Signature)
-    E --> F[Automated PDF Audit Report]
-    
-    style C fill:#0D0F17,stroke:#00F5D4,stroke-width:2px,color:#fff
-    style E fill:#141724,stroke:#8A2BE2,stroke-width:2px,color:#fff
-    style F fill:#FF0055,stroke:#FF0055,stroke-width:2px,color:#fff
+    C->>G: Inbound Request (Admin or Proxy)
+    alt Admin Operation
+        G->>A: Validate Bearer Session / API Key
+        A->>A: Check RBAC Permissions (Role::Admin / Operator / User)
+        G->>L: Emit Signed Audit Event (ML-DSA-87)
+        G-->>C: Response (Session, Profile, Settings, Cluster Drain)
+    else Encrypted Data Transit
+        G->>K: Encapsulate Shared Secret (FIPS 203 ML-KEM-1024)
+        K-->>P: Derive AES-256-GCM Keys via HKDF-SHA-256
+        P->>P: Verify Shannon Entropy (~7.998 bits/byte)
+        P->>U: Forward Decapsulated Request to Upstream
+        U-->>P: Upstream Response
+        P->>L: Record Telemetry Entry in Merkle Chain
+        P-->>C: Encrypted Post-Quantum Response
+    end
 ```
 
 ---
 
-## ⚡ Deployment Topology
+## 📦 Workspace Crates
 
-The Vardhan Post-Quantum Ingress Engine is distributed as a zero-attack-surface `distroless` OCI container image, built exclusively for orchestration via Kubernetes Helm charts or isolated bare-metal edge environments.
+| Crate | Purpose | Core Technologies |
+|---|---|---|
+| **`pq_shield`** | Enterprise ingress gateway & administrative HTTP control plane | Axum, Tokio, Tower-HTTP, Prometheus metrics |
+| **`auth_service`** | Authentication, RBAC, session store, API keys, credential persistence | Argon2id, Sled, DashMap, BLAKE3, Constant-time checks |
+| **`core_crypto`** | NIST post-quantum primitives & node identities | FIPS 203 ML-KEM-1024, FIPS 204 ML-DSA-87, BLAKE3, HKDF |
+| **`proxy_engine`** | Interception proxy with cryptographic payload encapsulation | AES-256-GCM, Shannon entropy validation, Atomic metrics |
+| **`ha_cluster`** | High-availability Raft consensus & distributed peer manager | Custom Raft state machine, AEAD TCP transport, Fault injection |
+| **`audit_ledger`** | Tamper-proof, cryptographically signed audit ledger | Fsynced JSONL, BLAKE3 hash chain, ML-DSA-87 digital signatures |
+| **`pq_verify`** | Offline audit bundle and signature verification CLI | Cryptographic receipt and ledger validation |
+| **`quantum_node`** | Distributed mesh node runner & identity bootstrap | P2P network discovery, multi-region clustering |
+| **`quantum_network`**| Secure P2P communication mesh | Encrypted node-to-node transport |
+| **`ledger_sync`** | Inter-node ledger synchronization & block verification | Distributed consensus ledger replication |
+| **`dashboard`** | CISO & Operator administrative control center | Next.js 14, React, MUI dark glassmorphism |
+
+---
+
+## 🔒 Security & Administrative Operations
+
+### 1. Robust Authentication & Session Management
+- **Password Security:** Argon2id with memory-hard parameters ($m=65536$, $t=3$, $p=4$).
+- **Per-IP Rate Limiting:** Sliding-window rate limiter prevents brute-force credential attacks.
+- **Dual-Token Session Architecture:**
+  - **Secret Token:** 256-bit OS-random hex token provided in `Authorization: Bearer <token>`, never exposed via listing APIs.
+  - **Public Session ID:** Opaque `sess_<16-hex>` identifier used for auditing and targeted revocation.
+- **Idempotent Revocation:** Revoked sessions are cached in a secondary map to ensure repeated revoke calls return clean idempotency.
+- **Session Flush:** Admin-triggered global session invalidation that safely preserves the caller's active session.
+
+### 2. Machine-to-Machine API Keys
+- Generated using cryptographically secure random bytes with prefix `vq_live_<64-hex>`.
+- **Zero Plaintext Storage:** API key secrets are presented exactly once upon creation. Only BLAKE3 hashes are persisted in the database.
+- Key authentication grants authenticated access with full audit tracking.
+
+### 3. Role-Based Access Control (RBAC)
+Granular role assignments (`Role::Admin`, `Role::Operator`, `Role::User`) backed by 11 explicit permissions:
+- `ViewSessions`, `RevokeSessions`, `FlushSessions`
+- `ManageApiKeys`, `ViewAuditLog`, `ExportEvidence`
+- `DrainCluster`, `RebootCluster`
+- `ManageSettings`, `ManageProfile`, `ChangePassword`
+
+### 4. Cluster Lifecycle Operations
+- **Node Draining:** Validated state transitions (`Dead → 400 Bad Request`, `Draining → 409 Conflict`, `Healthy/Degraded → 200 OK`). Emits durable `ClusterDrainRequested` and `ClusterDrainCompleted` audit events.
+- **Emergency Reboot:** Protected administrative endpoint requiring explicit `confirm: true` payload and `Role::Admin`. Issues a durable audit event and returns an informative HTTP 501 with orchestrator guidance (`systemctl` / `kubectl rollout restart`).
+
+### 5. Durable Cryptographic Audit Ledger
+- Write-Ahead JSONL logging with filesystem synchronization (`fsync`).
+- Every entry contains a sequence counter, timestamp, event payload, and the BLAKE3 hash of the preceding block.
+- Each block is mathematically signed with the node's **ML-DSA-87** post-quantum keypair.
+
+---
+
+## 📡 Administrative API Surface
+
+| Method | Endpoint | Authorization | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/auth/login` | Public | Authenticate with credentials, returns session token |
+| `POST` | `/api/v1/auth/logout` | Bearer Token | Invalidate current session |
+| `GET` | `/api/v1/auth/session` | Bearer Token | Retrieve caller session details |
+| `GET` | `/api/v1/sessions` | Operator+ | List all active and revoked sessions |
+| `POST` | `/api/v1/sessions/{id}/revoke`| Admin | Revoke an active session by session ID |
+| `POST` | `/api/v1/sessions/flush` | Admin | Invalidate all sessions except caller |
+| `GET` | `/api/v1/admin/api-keys` | Admin | List registered API keys (masked) |
+| `POST` | `/api/v1/admin/api-keys` | Admin | Provision a new API key (secret returned once) |
+| `DELETE`| `/api/v1/admin/api-keys/{id}` | Admin | Invalidate and revoke an API key |
+| `GET` | `/api/v1/admin/profile` | Operator+ | Retrieve admin profile metadata |
+| `PUT` | `/api/v1/admin/profile` | Admin | Update display name and notification email |
+| `POST` | `/api/v1/admin/password` | Admin | Change account password with Argon2id re-hashing |
+| `GET` | `/api/v1/settings` | Operator+ | Inspect system settings and immutable crypto identity |
+| `PUT` | `/api/v1/settings` | Admin | Update mutable operational settings |
+| `POST` | `/api/v1/cluster/drain` | Operator+ | Safely mark node draining and reroute traffic |
+| `POST` | `/api/v1/cluster/reboot` | Admin | Trigger reboot protocol with orchestrator guidance |
+| `GET` | `/api/v1/cluster/status` | Public / Token | Node and cluster health indicators |
+| `GET` | `/api/v1/cluster/peers` | Public / Token | Active cluster peer status |
+| `GET` | `/api/v1/ledger/status` | Public / Token | Merkle chain sequence and integrity status |
+| `GET` | `/api/v1/ledger/export` | Operator+ | Export audit chain bundle for external verification |
+
+---
+
+## 🚀 Deployment & Operations
+
+### Docker & Docker Compose
+The system is packaged as a distroless container for minimal attack surface:
 
 ```bash
-# Enterprise Edge Initialization via Vardhan Deployment Engine
-./scripts/deploy_edge_node.sh TENANT_LLOYDS_BANK_01
+# Start full edge stack: proxy, mock upstream, and Next.js dashboard
+docker compose up -d --build
 ```
 
-For enterprise procurement, architectural deep dives, and localized CISO onboarding, contact the **Vardhan Technologies Enterprise Deployment Team**.
+### Local Development Setup
 
----
-
-## 🧪 Development & Testing
-
-### P3.8 Raft High-Availability Validation
-
-The `ha_cluster` crate implements a from-scratch Raft consensus engine with a custom AEAD-secured TCP transport (`AeadTransport`). All failure/recovery scenarios are validated through deterministic integration tests using a test-only `NetworkController` fault-injection layer that sits between the `RaftRpcClient` and `AeadTransport`.
-
-**Test suite (`ha_cluster/tests/raft_l3_failure.rs`):**
-- **10 single failure tests** — persistence/torn-write, leader crash, follower crash + real listener restart, old-leader-returns fencing, network partition, partition healing, stale/delayed RPC, duplicate request idempotency, rapid leader churn (3 rounds), slow peer
-- **4 × 10× repetition tests** — leader crash (10/10), follower crash (10/10), partition/heal (10/10), stale RPC (10/10)
-- **All 14 tests pass** with `--test-threads=1`
-
-**P3.8 Step 3 status: ✅ COMPLETE**
-
+#### 1. Backend (Rust 1.80+)
 ```bash
-# Run all Raft failure tests (sequential, fault-injection)
-CARGO_TARGET_DIR=/tmp/vardhan-quantum-target \
-  cargo test -p ha_cluster --test raft_l3_failure -- --test-threads=1
+# Build workspace
+cargo build --workspace
+
+# Run all unit and integration tests
+cargo test --workspace
+
+# Run auth_service tests
+cargo test -p auth_service --lib
+cargo test -p auth_service --test integration_auth
+
+# Run pq_shield admin integration tests
+cargo test -p pq_shield --lib
 ```
 
-**P3.8 Step 3.1 status: ✅ COMPLETE** — Hardening pass covering real process crash (SIGKILL subprocess), durable log persistence & replay, majority progress with timed-out slow peer via `FuturesUnordered`, post-timeout stale response rejection, stale-term rejection, duplicate RPC idempotency, stale worker replacement, bidirectional partition proof, address-change recovery, and crash-during-commit. See `docs/P3.8_STEP3.1_VERIFICATION_REPORT.md`.
+#### 2. Dashboard (Node.js 18+)
+```bash
+cd dashboard
+npm install
+npm run dev      # Local dev server at http://localhost:3000
+npm run build    # Production build
+```
 
 ---
-*© Vardhan Technologies &mdash; Securing the critical infrastructure of tomorrow against the cryptographically relevant quantum computers of today.*
+
+## 🧪 Verification & Test Suite
+
+The test suite validates cryptographic soundness, API contract compliance, concurrency, and distributed failover:
+
+- **Authentication & RBAC:** 35 unit tests + 6 integration tests verifying Argon2id hashing, rate limiting, session TTL, and permission checks.
+- **Administrative Operations:** Integration tests verifying session revocation, caller preservation during flushes, API key verification, cluster drain state machine, and emergency reboot handling.
+- **Raft High-Availability:** 14 failure scenario tests verifying partition tolerance, leader crash failover, follower crash recovery, torn-write prevention, and stale RPC rejection.
+- **Production Build:** Verified zero-warning release compilation and Next.js production packaging.
+
+---
+
+## 📄 Compliance & Regulatory Adherence
+
+- **DORA (Digital Operational Resilience Act) — Article 9:** Cryptographic agility and post-quantum resistance across financial communication channels.
+- **NIS2 Directive — Article 21:** End-to-end encryption with quantum-safe key exchange and immutable audit evidence logging.
+- **NIST FIPS 203 & 204:** Native implementation of standard lattice-based Key Encapsulation (ML-KEM-1024) and Digital Signature (ML-DSA-87) algorithms.
+
+---
+
+*© Vardhan Technologies &mdash; Securing critical infrastructure against cryptographically relevant quantum computers.*
+

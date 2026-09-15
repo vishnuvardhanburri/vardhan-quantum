@@ -36,6 +36,7 @@ COPY --chown=appuser:appgroup ha_cluster ./ha_cluster
 COPY --chown=appuser:appgroup pq_verify ./pq_verify
 COPY --chown=appuser:appgroup verifier ./verifier
 COPY --chown=appuser:appgroup mock_upstream ./mock_upstream
+COPY --chown=appuser:appgroup auth_service ./auth_service
 
 # P3.6: Build as non-root user
 RUN chown appuser:appgroup /usr/src/vardhan-quantum-proxy

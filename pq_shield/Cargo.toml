@@ -36,6 +36,10 @@ prost = "0.14"
 default = []
 aws-kms-real = ["core_crypto/aws-kms-real"]
 
+[dev-dependencies]
+tempfile = "3"
+reqwest = { version = "0.13", features = ["json"] }
+
 [[bench]]
 name = "ingress_throughput"
 harness = false

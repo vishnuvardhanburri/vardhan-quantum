@@ -27,7 +27,7 @@ const CRED_PREFIX: &[u8] = b"cred:";
 /// Thread-safe handle to the credential store.
 #[derive(Clone)]
 pub struct CredentialStore {
-    db: Arc<sled::Db>,
+    pub(crate) db: Arc<sled::Db>,
 }
 
 impl CredentialStore {
@@ -106,6 +106,15 @@ impl CredentialStore {
             .insert(Self::key(username), phc.as_bytes())
             .map(|_| ())
             .map_err(|e| format!("Credential write failed: {e}"))
+    }
+
+    /// Synchronous PHC read.
+    pub fn get_phc_sync(&self, username: &str) -> Option<String> {
+        self.db
+            .get(Self::key(username))
+            .ok()
+            .flatten()
+            .and_then(|v| String::from_utf8(v.to_vec()).ok())
     }
 
     // ── Public async API ──────────────────────────────────────────────────────
