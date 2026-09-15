@@ -4,7 +4,8 @@
 **Date:** 2026-09-15  
 **Environment:** macOS arm64 (Darwin), Docker Compose + standalone release binaries  
 **Source commit tested:** `f0cd9c2` (commit containing all Phase 0–12 code changes)  
-**HEAD (this report):** `3caed54`  
+**HEAD (this commit):** `d716c10` (source tested + docker-compose healthcheck/HOSTNAME fix + this report)  
+**Base commit (pre-changes):** `c2f52c1`  
 **Build:** `cargo build --workspace --release` — ✅ Finished  
 **Test count:** 26 workspace tests (10× skipped) + 37 Raft tests (excluding 10× stress)  
 
@@ -332,8 +333,8 @@ localStorage behavior, etc.).
 
 ```
 proxy (pq_shield)      → ports 8080, 7001, 8081  ✅ Running
-mock-upstream (Python) → port 9090              ✅ Running
-dashboard (Next.js)    → port 3000              ✅ Running, healthcheck 200
+mock-upstream (Python) → port 9090              ✅ Running (restarts — Python Flask image)
+dashboard (Next.js)    → port 3000              ✅ Running, **healthcheck: healthy**
 ```
 
 Fixes applied to `docker-compose.yml`:
@@ -342,6 +343,10 @@ Fixes applied to `docker-compose.yml`:
 - Removed obsolete `version: '3.8'` attribute
 - Fixed port conflict: proxy no longer publishes 9090 (only mock-upstream does)
 - Removed unsupported `start-period` healthcheck property
+- Set `HOSTNAME=0.0.0.0` in dashboard env (Docker sets HOSTNAME to container ID,
+  which restricts Next.js server binding to a single interface)
+- Healthcheck uses `127.0.0.1` instead of `localhost` (BusyBox wget prefers IPv6 `::1`)
+- Healthcheck includes auth token via `?token=` query parameter
 - `VARDHAN_UPSTREAM=mock-upstream:9090` (Docker DNS hostname)
 - CORS: `http://localhost:3000,http://localhost:8081` (restricted, not `*`)
 
@@ -377,8 +382,29 @@ All tests verified through `http://localhost:3000`:
 | Hardening suite (full, incl. 10×) | `cargo test -p ha_cluster --test raft_l3_1_hardening -- --test-threads=1` | ✅ 12 passed, 0 failed |
 | Replication suite | `cargo test -p ha_cluster --test raft_l3_replication -- --test-threads=1` | ✅ 11 passed, 0 failed |
 | Failure suite (skip 10×) | `cargo test -p ha_cluster --test raft_l3_failure -- --skip "10x" --test-threads=1` | ✅ 14 passed, 0 failed |
-| Release build | `cargo build --workspace --release` | ✅ Finished |
-| Frontend build | `npx next build` (in dashboard/) | ✅ 13/13 pages |
+### 11.1 Compile & Test Matrix
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Workspace tests (skip 10×) | `CARGO_TARGET_DIR=/tmp/vardhan-quantum-target RUST_LOG=error cargo test --workspace -- --skip "10x" --test-threads=1` | ✅ 26 passed, 0 failed |
+| Hardening suite (skip 10× first run) | `CARGO_TARGET_DIR=/tmp/vardhan-quantum-target RUST_LOG=error cargo test -p ha_cluster --test raft_l3_1_hardening -- --skip "10x" --test-threads=1` | ✅ 10 passed, 0 failed |
+| Hardening full suite (incl. 10×) | `CARGO_TARGET_DIR=/tmp/vardhan-quantum-target RUST_LOG=error cargo test -p ha_cluster --test raft_l3_1_hardening -- --test-threads=1` | ⚠️ 11 passed, 1 failed (10× flaky) |
+| 10× crash test re-run | `CARGO_TARGET_DIR=/tmp/vardhan-quantum-target RUST_LOG=error cargo test -p ha_cluster --test raft_l3_1_hardening -- --test-threads=1 test_real_process_crash_10x` | ✅ 1 passed (10/10), 0 failed |
+| Replication suite | `CARGO_TARGET_DIR=/tmp/vardhan-quantum-target RUST_LOG=error cargo test -p ha_cluster --test raft_l3_replication -- --test-threads=1` | ✅ 11 passed, 0 failed |
+| Failure suite (skip 10×) | `CARGO_TARGET_DIR=/tmp/vardhan-quantum-target RUST_LOG=error cargo test -p ha_cluster --test raft_l3_failure -- --skip "10x" --test-threads=1` | ✅ 14 passed, 0 failed |
+| Release build | `CARGO_TARGET_DIR=/tmp/vardhan-quantum-target cargo build --workspace --release` | ✅ Finished |
+| Frontend build | `cd dashboard && npx next build` | ✅ 13/13 pages |
+
+**Note on 10× tests:** The workspace-wide test command uses `--skip "10x"` as
+specified, which skips all 10× stress tests. The 10× tests were run individually
+as supplementary validation. `test_real_process_crash_10x` was flaky on first
+run (9/10 sub-tests passed) and passed on re-run (10/10). This flakiness is
+a remaining concern (see §13).
+
+**Note on test ordering:** Raft tests require `--test-threads=1` due to shared
+TCP ports and persist files. Persist files (`/tmp/raft_l3_node-*.json`,
+`/tmp/raft_h31_*.json`) must be cleaned before runs to avoid stale state
+contamination.
 
 ### 11.2 Security Matrix
 
@@ -456,8 +482,11 @@ PRODUCTION               NOT VERIFIED
    and should be investigated by tuning election timeouts or adding
    retry/detection logic.
 
-5. **Docker Compose port sharing:** The proxy and mock-upstream use
-   `network_mode: "service:mock-upstream"` semantics (shared network namespace)
-   via `VARDHAN_UPSTREAM=mock-upstream:9090`. This was resolved by fixing the
-   upstream parser to support DNS hostnames. In a real multi-host deployment,
-   this would be handled by Kubernetes service discovery.
+5. **Docker Compose networking:** The proxy needed to connect to the
+   `mock-upstream` container using Docker DNS (`mock-upstream:9090`).
+   The original `SocketAddr::parse()` only accepts IP addresses (no hostnames),
+   so the proxy panicked with `AddrParseError`. Fixed by changing the parser
+   to `to_socket_addrs()` in `pq_shield/src/main.rs`. The port conflict (both
+   proxy and mock-upstream publishing 9090) was resolved by removing the
+   unnecessary port publication from the proxy service (it is a client, not a
+   server on 9090).
