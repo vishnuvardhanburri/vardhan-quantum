@@ -33,6 +33,9 @@ export function useSSE(enabled, onEvent) {
     if (!enabled) return;
 
     const handleEvent = (event) => {
+      // Log for debugging integration
+      console.debug('[SSE Event Received]', event);
+
       // De-duplicate by event ID if present
       const eventId = event?.id || event?.event_id || event?.id;
       if (eventId) {

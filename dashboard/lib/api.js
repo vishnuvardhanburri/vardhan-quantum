@@ -21,12 +21,13 @@ class ApiError extends Error {
 }
 
 function getToken() {
-  // Token is read from the AuthContext at call time.  We export a getter
-  // so tests / consumers can inject a token.
+  // Token is user-supplied via the login screen and stored in memory only.
+  // It is NEVER read from NEXT_PUBLIC_* env vars — those would be inlined
+  // into the browser bundle and expose the secret.
   if (typeof window !== 'undefined' && window.__VARDHAN_ADMIN_TOKEN__) {
     return window.__VARDHAN_ADMIN_TOKEN__;
   }
-  return config.adminToken;
+  return null;
 }
 
 export function setAuthToken(token) {
@@ -151,12 +152,12 @@ export function subscribeEvents(onEvent, onError, onClose) {
   const connect = () => {
     // We use the route-handler proxy which appends the auth token.
     const token = getToken();
-    let url = '/api/admin/api/v1/events';
-    // EventSource doesn't support custom headers; we rely on the proxy
-    // reading the token from a cookie or the in-memory store. Since the
-    // proxy runs server-side we pass the token via the URL query string
-    // as a fallback for non-browser environments. In the browser, the
-    // proxy reads the auth cookie.
+    // EventSource doesn't support custom headers.
+    // We pass the token via query string so the proxy can authenticate the request.
+    const url = token
+      ? `/api/admin/api/v1/events?token=${encodeURIComponent(token)}`
+      : '/api/admin/api/v1/events';
+
     eventSource = new EventSource(url);
 
     eventSource.onmessage = (e) => {

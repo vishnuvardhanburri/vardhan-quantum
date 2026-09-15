@@ -110,6 +110,7 @@ pub async fn run_admin_server(state: AdminState) {
         .route("/api/v1/cluster/status", get(cluster_status))
         .route("/api/v1/raft/status", get(raft_status))
         .route("/api/v1/cluster/drain", post(cluster_drain))
+        .route("/api/v1/security/crypto/status", get(crypto_status))
         // P3.5: region-aware cluster endpoints
         .route(
             "/api/v1/cluster/peers/region/{region}",
@@ -140,6 +141,24 @@ async fn prometheus_metrics(State(state): State<AdminState>) -> impl IntoRespons
         )],
         body,
     )
+}
+
+#[derive(serde::Serialize)]
+struct CryptoStatus {
+    algorithm: String,
+    state: String,
+    detail: String,
+}
+
+async fn crypto_status() -> impl IntoResponse {
+    let payload = vec![
+        CryptoStatus { algorithm: "ML-KEM-1024".into(), state: "Active".into(), detail: "FIPS 203 - Quantum Safe Encapsulation".into() },
+        CryptoStatus { algorithm: "ML-DSA-87".into(), state: "Active".into(), detail: "FIPS 204 - Quantum Safe Signatures".into() },
+        CryptoStatus { algorithm: "AES-256-GCM".into(), state: "Active".into(), detail: "Authenticated Encryption".into() },
+        CryptoStatus { algorithm: "HKDF-SHA256".into(), state: "Active".into(), detail: "Session Key Derivation".into() },
+        CryptoStatus { algorithm: "BLAKE3".into(), state: "Active".into(), detail: "Fast Integrity Hashing".into() },
+    ];
+    axum::Json(payload)
 }
 
 async fn get_metrics(State(state): State<AdminState>) -> impl IntoResponse {

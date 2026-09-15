@@ -1,15 +1,20 @@
 /**
  * Vardhan Quantum Dashboard — Runtime configuration.
  *
- * Reads backend admin API connection details from environment variables
- * injected at build time. Next.js inlines NEXT_PUBLIC prefixed vars.
- * Falls back to development defaults only when not overridden.
+ * IMPORTANT: The browser must never know the backend URL or admin token.
+ * The frontend only talks to the Next.js route-handler proxy at /api/admin/*.
+ * The proxy (server-side) reads VARDHAN_BACKEND_URL and ADMIN_TOKEN from
+ * the server environment and injects them when forwarding to pq_shield.
+ *
+ * The admin token entered by the user on the login screen is stored in
+ * memory only (window.__VARDHAN_ADMIN_TOKEN__) and forwarded via the
+ * Authorization header.  It is NOT a NEXT_PUBLIC_* variable.
  */
 export const config = {
-  /** Base URL of the pq_shield admin / telemetry API */
-  apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8081',
-  /** Admin Bearer token (may be empty; user enters it via login screen) */
-  adminToken: process.env.NEXT_PUBLIC_ADMIN_TOKEN || '',
+  /** Client-side proxy path — browser never sees the backend URL directly */
+  apiProxyPath: '/api/admin',
+  /** Admin Bearer token is entered at login and stored in-memory only */
+  adminToken: '',
   /** SSE reconnect backoff (ms) upper bound */
   sseReconnectMaxDelayMs: 30000,
   /** SSE reconnect backoff (ms) start */

@@ -9,6 +9,7 @@ use ha_cluster::{
     ClusterMembership, NodeId, RaftNetworkListener, RaftPeerManager,
 };
 use pq_shield::IngressShield;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{error, info};
@@ -25,7 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listen_addr: std::net::SocketAddr = format!("0.0.0.0:{}", listen_port).parse()?;
     let upstream_addr: std::net::SocketAddr = std::env::var("VARDHAN_UPSTREAM")
         .unwrap_or_else(|_| "127.0.0.1:9090".to_string())
-        .parse()?;
+        .to_socket_addrs()?
+        .next()
+        .unwrap_or("127.0.0.1:9090".parse()?);
 
     // ── P3.3: Production KMS/HSM Key Protection & Guardrails ────────────────
     let env_mode = std::env::var("VARDHAN_ENV").unwrap_or_else(|_| "development".to_string());

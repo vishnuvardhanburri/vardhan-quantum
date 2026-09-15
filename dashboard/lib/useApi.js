@@ -19,7 +19,7 @@ export { useSSE };
 /**
  * Generic data-fetch hook with loading / error / empty states.
  */
-export function useApi(fetchFn, deps = []) {
+export function useApi(fetchFn, deps = [], pollingIntervalMs = null) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -40,7 +40,12 @@ export function useApi(fetchFn, deps = []) {
 
   useEffect(() => {
     refetch();
-  }, [refetch]);
+
+    if (pollingIntervalMs) {
+      const interval = setInterval(refetch, pollingIntervalMs);
+      return () => clearInterval(interval);
+    }
+  }, [refetch, pollingIntervalMs]);
 
   return { data, loading, error, refetch };
 }
@@ -48,12 +53,12 @@ export function useApi(fetchFn, deps = []) {
 /**
  * Convenience hooks for each backend endpoint.
  */
-export const useMetrics = () => useApi(fetchMetrics, [fetchMetrics]);
-export const useClusterStatus = () => useApi(fetchClusterStatus, [fetchClusterStatus]);
-export const useClusterPeers = () => useApi(fetchClusterPeers, [fetchClusterPeers]);
-export const useLedgerStatus = () => useApi(fetchLedgerStatus, [fetchLedgerStatus]);
-export const useRaftStatus = () => useApi(fetchRaftStatus, [fetchRaftStatus]);
-export const usePrometheusMetrics = () => useApi(fetchPrometheusMetrics, [fetchPrometheusMetrics]);
+export const useMetrics = (interval) => useApi(fetchMetrics, [fetchMetrics], interval);
+export const useClusterStatus = (interval) => useApi(fetchClusterStatus, [fetchClusterStatus], interval);
+export const useClusterPeers = (interval) => useApi(fetchClusterPeers, [fetchClusterPeers], interval);
+export const useLedgerStatus = (interval) => useApi(fetchLedgerStatus, [fetchLedgerStatus], interval);
+export const useRaftStatus = (interval) => useApi(fetchRaftStatus, [fetchRaftStatus], interval);
+export const usePrometheusMetrics = (interval) => useApi(fetchPrometheusMetrics, [fetchPrometheusMetrics], interval);
 
 export async function exportEvidenceBundle() {
   return exportEvidence();
