@@ -1,4 +1,8 @@
 /target/
+target_new/
+target_prod/
+frontend/.next/
+frontend/node_modules/
 dashboard/.next/
 dist/
 *.log
@@ -13,3 +17,9 @@ pq_vault_b.json
 pq_vault_c.json
 .DS_Store
 test_kek.bin
+raft_state.json
+venv/
+scripts/venv/
+data/
+"vardhan quantum frontend "
+

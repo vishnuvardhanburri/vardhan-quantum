@@ -18,25 +18,8 @@ RUN addgroup --system --gid 1001 appgroup && \
 
 # Copy workspace files
 COPY --chown=appuser:appgroup Cargo.toml Cargo.lock ./
-COPY --chown=appuser:appgroup core_crypto ./core_crypto
-COPY --chown=appuser:appgroup proxy_engine ./proxy_engine
-COPY --chown=appuser:appgroup ledger_sync ./ledger_sync
-COPY --chown=appuser:appgroup ledger_persistence ./ledger_persistence
-COPY --chown=appuser:appgroup quantum_network ./quantum_network
-COPY --chown=appuser:appgroup quantum_node ./quantum_node
-COPY --chown=appuser:appgroup quantum_tui ./quantum_tui
-COPY --chown=appuser:appgroup pq_shield ./pq_shield
-COPY --chown=appuser:appgroup enterprise_tenant ./enterprise_tenant
-COPY --chown=appuser:appgroup saas_metering ./saas_metering
-COPY --chown=appuser:appgroup load_tester ./load_tester
-COPY --chown=appuser:appgroup poc_auditor ./poc_auditor
-COPY --chown=appuser:appgroup orchestration_ai ./orchestration_ai
-COPY --chown=appuser:appgroup audit_ledger ./audit_ledger
-COPY --chown=appuser:appgroup ha_cluster ./ha_cluster
-COPY --chown=appuser:appgroup pq_verify ./pq_verify
-COPY --chown=appuser:appgroup verifier ./verifier
-COPY --chown=appuser:appgroup mock_upstream ./mock_upstream
-COPY --chown=appuser:appgroup auth_service ./auth_service
+COPY --chown=appuser:appgroup backend ./backend
+
 
 # P3.6: Build as non-root user
 RUN chown appuser:appgroup /usr/src/vardhan-quantum-proxy

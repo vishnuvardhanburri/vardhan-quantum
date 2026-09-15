@@ -33,11 +33,55 @@ Designed for seamless enterprise integration, the Vardhan engine enables immedia
 │   └──────────────┘          └──────────────┘          └──────────────────┘  │
 │                                                                             │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  dashboard (Next.js 14 + MUI Dark Glassmorphism)                    │   │
+│   │  frontend (Next.js 14 + MUI Dark Glassmorphism)                     │   │
 │   │  /login  /admin  /security  /infrastructure  /consensus  /evidence  │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 📂 Enterprise Monorepo Structure
+
+```
+vardhan-quantum/
+├── backend/                  # High-performance asynchronous Rust microservices & crates
+│   ├── pq_shield/            # Axum ingress gateway & administrative API
+│   ├── auth_service/         # Argon2id, RBAC, Sessions, API keys
+│   ├── core_crypto/          # FIPS 203 ML-KEM-1024 & FIPS 204 ML-DSA-87
+│   ├── proxy_engine/         # AES-256-GCM proxy with Shannon entropy validation
+│   ├── ha_cluster/           # Distributed Raft consensus engine & AEAD transport
+│   ├── audit_ledger/         # Immutable BLAKE3 Merkle chain ledger
+│   ├── pq_verify/            # Offline signature verification CLI
+│   ├── quantum_node/         # Mesh node runner & identity bootstrap
+│   ├── quantum_network/      # Secure P2P communication mesh
+│   ├── ledger_sync/          # Distributed consensus ledger sync
+│   ├── ledger_persistence/   # Durable storage layer
+│   ├── ebpf_engine/          # Kernel-level packet filter hooks
+│   ├── enterprise_tenant/    # Multi-tenant policy isolation
+│   ├── saas_metering/        # Usage-based metering counters
+│   ├── orchestration_ai/     # Node self-healing & telemetry heuristics
+│   ├── poc_auditor/          # Verification suite
+│   ├── load_tester/          # High-throughput load harness
+│   ├── verifier/             # Receipt verification utility
+│   ├── mock_upstream/        # Target service mock
+│   └── quantum_tui/          # Terminal user interface
+│
+├── frontend/                 # Enterprise Administrative Control Center
+│   ├── app/                  # Next.js 14 App Router (/login, /admin, etc.)
+│   ├── components/           # Reusable dark glassmorphic UI components
+│   ├── lib/                  # Typed API clients & React hooks
+│   ├── public/               # Static assets & brand icons
+│   ├── package.json          # Node.js dependencies
+│   └── Dockerfile            # Production multi-stage Alpine runner
+│
+├── deploy_pack/              # Deployment manifests (Docker, Kubernetes, Compose)
+├── docs/                     # Architecture specifications & audit reports
+├── scripts/                  # Cluster management & verification automation
+├── Cargo.toml                # Root workspace configuration
+└── docker-compose.yml        # Multi-service edge deployment
+```
+
 
 ```mermaid
 sequenceDiagram
@@ -175,13 +219,14 @@ cargo test -p auth_service --test integration_auth
 cargo test -p pq_shield --lib
 ```
 
-#### 2. Dashboard (Node.js 18+)
+#### 2. Frontend Dashboard (Node.js 18+)
 ```bash
-cd dashboard
+cd frontend
 npm install
 npm run dev      # Local dev server at http://localhost:3000
 npm run build    # Production build
 ```
+
 
 ---
 
