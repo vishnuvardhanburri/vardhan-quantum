@@ -36,7 +36,14 @@ export function DashboardLayout({ children, title }) {
   const pathname = usePathname();
   const { data: clusterStatus, loading: clusterLoading } = useClusterStatus();
   const { connected } = useSSE(true, () => {});
-  const { logout } = useAuth();
+  const { logout, isAuthenticated, isReady } = useAuth();
+
+  // Redirect to /login when the user becomes unauthenticated (e.g. after logout)
+  useEffect(() => {
+    if (isReady && !isAuthenticated && pathname !== '/login') {
+      router.replace('/login');
+    }
+  }, [isReady, isAuthenticated, pathname, router]);
 
   // To avoid hydration mismatch errors with pathname
   const [mounted, setMounted] = useState(false);

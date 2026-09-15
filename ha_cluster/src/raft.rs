@@ -800,7 +800,7 @@ impl RaftNode {
                     // Initialize leader state on first transition to Leader.
                     let needs_init = {
                         let ni = self.next_index.read().await;
-                        ni.is_empty()
+                        ni.len() < peers.len().saturating_sub(1) && peers.len() > 1
                     };
                     if needs_init {
                         let peer_ids: Vec<NodeId> = peers.iter()

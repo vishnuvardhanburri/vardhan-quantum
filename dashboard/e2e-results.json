@@ -1,0 +1,983 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node@22/22.22.1_3/bin/node",
+      "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/node_modules/.bin/playwright",
+      "test",
+      "--config=playwright.config.ts"
+    ],
+    "configFile": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/playwright.config.ts",
+    "rootDir": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "staging-chromium",
+        "name": "staging-chromium",
+        "testDir": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "e2e-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "staging.spec.ts",
+      "file": "staging.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Vardhan Quantum — Staging E2E",
+          "file": "staging.spec.ts",
+          "line": 11,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Login page loads with correct title",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 127,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:11.513Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--f078c-ge-loads-with-correct-title-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--f078c-ge-loads-with-correct-title-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--f078c-ge-loads-with-correct-title-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-7b6740f1b38c868698d8",
+              "file": "staging.spec.ts",
+              "line": 16,
+              "column": 7
+            },
+            {
+              "title": "Login with valid token redirects to dashboard",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 118,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:11.945Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--fd131-oken-redirects-to-dashboard-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--fd131-oken-redirects-to-dashboard-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--fd131-oken-redirects-to-dashboard-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-d3565ec7228d72a14442",
+              "file": "staging.spec.ts",
+              "line": 24,
+              "column": 7
+            },
+            {
+              "title": "Dashboard renders metrics after login",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 118,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:12.335Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--94ed6-renders-metrics-after-login-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--94ed6-renders-metrics-after-login-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--94ed6-renders-metrics-after-login-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-fee365bf9b1502377aa1",
+              "file": "staging.spec.ts",
+              "line": 33,
+              "column": 7
+            },
+            {
+              "title": "Metrics API returns real data via proxy",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 119,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:12.724Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--341fe-returns-real-data-via-proxy-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--341fe-returns-real-data-via-proxy-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--341fe-returns-real-data-via-proxy-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-8f88a1f641ab5df0488d",
+              "file": "staging.spec.ts",
+              "line": 45,
+              "column": 7
+            },
+            {
+              "title": "SSE stream connects and receives events",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 119,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:13.113Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--7ce5c-onnects-and-receives-events-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--7ce5c-onnects-and-receives-events-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--7ce5c-onnects-and-receives-events-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-8839b89ee4f5f25787d0",
+              "file": "staging.spec.ts",
+              "line": 57,
+              "column": 7
+            },
+            {
+              "title": "No auth returns 401 on admin API",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 119,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:13.503Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--c714f-th-returns-401-on-admin-API-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--c714f-th-returns-401-on-admin-API-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--c714f-th-returns-401-on-admin-API-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-4dfd82f7ea770ecd71c2",
+              "file": "staging.spec.ts",
+              "line": 74,
+              "column": 7
+            },
+            {
+              "title": "Admin token is not in browser bundle",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 126,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:13.898Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--87531-en-is-not-in-browser-bundle-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--87531-en-is-not-in-browser-bundle-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--87531-en-is-not-in-browser-bundle-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-066770db545805482a6c",
+              "file": "staging.spec.ts",
+              "line": 79,
+              "column": 7
+            },
+            {
+              "title": "Crypto status shows all algorithms active",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 7,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 118,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:14.298Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--46f4c-shows-all-algorithms-active-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--46f4c-shows-all-algorithms-active-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--46f4c-shows-all-algorithms-active-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-4c327da8970af119d569",
+              "file": "staging.spec.ts",
+              "line": 104,
+              "column": 7
+            },
+            {
+              "title": "Ledger status shows durable configuration",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 8,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 118,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:14.687Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--ad9d2-shows-durable-configuration-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--ad9d2-shows-durable-configuration-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--ad9d2-shows-durable-configuration-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-3c17ca5e7f5725dacc01",
+              "file": "staging.spec.ts",
+              "line": 119,
+              "column": 7
+            },
+            {
+              "title": "Cluster status shows node membership",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 9,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 121,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:15.075Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--73ca7-tatus-shows-node-membership-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--73ca7-tatus-shows-node-membership-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--73ca7-tatus-shows-node-membership-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-4efffaadac5154b67f00",
+              "file": "staging.spec.ts",
+              "line": 129,
+              "column": 7
+            },
+            {
+              "title": "Raft status shows leader and term",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 10,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 118,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:15.468Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--194ec-tatus-shows-leader-and-term-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--194ec-tatus-shows-leader-and-term-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--194ec-tatus-shows-leader-and-term-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-e1845f636b850e18a182",
+              "file": "staging.spec.ts",
+              "line": 140,
+              "column": 7
+            },
+            {
+              "title": "CORS rejects unauthorized origins",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging-chromium",
+                  "projectName": "staging-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 11,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 120,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16",
+                        "location": {
+                          "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                          "column": 16,
+                          "line": 13
+                        },
+                        "snippet": "  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                            "column": 16,
+                            "line": 13
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/\", waiting until \"load\"\u001b[22m\n\n\n  11 | test.describe('Vardhan Quantum — Staging E2E', () => {\n  12 |   test.beforeEach(async ({ page }) => {\n> 13 |     await page.goto(BASE_URL);\n     |                ^\n  14 |   });\n  15 |\n  16 |   test('Login page loads with correct title', async ({ page }) => {\n    at /Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts:13:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-15T18:23:15.874Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--a3e35-ejects-unauthorized-origins-staging-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--a3e35-ejects-unauthorized-origins-staging-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/test-results/staging-Vardhan-Quantum-—--a3e35-ejects-unauthorized-origins-staging-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/vishnuvardhanburri/vardhan-quantum-proxy/dashboard/e2e/staging.spec.ts",
+                        "column": 16,
+                        "line": 13
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "3adf166548af3c2233d4-ea86f00e3f3ee6e5c254",
+              "file": "staging.spec.ts",
+              "line": 152,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-09-15T18:23:11.294Z",
+    "duration": 4783.532,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 12,
+    "flaky": 0
+  }
+}

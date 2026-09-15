@@ -19,5 +19,6 @@ members = [
     "audit_ledger",
     "pq_verify",
     "ha_cluster",
+    "auth_service",
 ]
 
