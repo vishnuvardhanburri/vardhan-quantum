@@ -55,10 +55,13 @@ services:
       # into the browser bundle (no NEXT_PUBLIC_* prefix).
       - VARDHAN_BACKEND_URL=http://proxy:8081
       - ADMIN_TOKEN=${VARDHAN_ADMIN_TOKEN:-dev-admin-token}
+      # Next.js standalone server uses HOSTNAME env (Docker sets it to container ID
+      # by default, which restricts binding). Force 0.0.0.0 for healthchecks.
+      - HOSTNAME=0.0.0.0
     depends_on:
       - proxy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/api/admin/api/v1/cluster/status"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/api/admin/api/v1/cluster/status?token=${VARDHAN_ADMIN_TOKEN:-dev-admin-token}"]
       interval: 10s
       timeout: 5s
       retries: 3
