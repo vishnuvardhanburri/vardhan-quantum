@@ -1,18 +1,17 @@
 use crate::telemetry::{MetricsSnapshot, QuantumEvent};
 use audit_ledger::{schema, LedgerEntry};
 use axum::{
-    extract::Request,
-    extract::State,
+    extract::{Path, Request, State},
     http::header,
     http::StatusCode,
     middleware::{self, Next},
     response::sse::{Event, Sse},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use core_crypto::QuantumNodeIdentity;
-use ha_cluster::{ClusterMembership, NodeId, NodeState, RaftNode, RaftNodeStatus};
+use ha_cluster::{ClusterMembership, NodeId, NodeState, RaftNode};
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::convert::Infallible;
@@ -45,6 +44,8 @@ pub struct AdminState {
     pub raft_node: Option<Arc<RaftNode>>,
     /// P3.4: This node's stable cluster identity, for targeted drain.
     pub self_node_id: Option<NodeId>,
+    /// Production authentication state
+    pub auth_state: auth_service::AuthState,
 }
 
 async fn auth_middleware(
@@ -56,17 +57,68 @@ async fn auth_middleware(
         return Ok(next.run(req).await);
     }
 
-    let expected_bearer = format!("Bearer {}", state.admin_token);
+    // Public / unauthenticated endpoints
+    let path = req.uri().path();
+    if path == "/api/v1/auth/login" || path == "/metrics" {
+        return Ok(next.run(req).await);
+    }
 
-    if let Some(auth_header) = req.headers().get(header::AUTHORIZATION) {
-        if auth_header
-            .as_bytes()
-            .ct_eq(expected_bearer.as_bytes())
-            .into()
-        {
+    // Extract Bearer token from Authorization header or ?token= query param (SSE)
+    let token_header = req.headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(|s| s.to_string());
+
+    let token_query = req.uri().query().and_then(|q| {
+        q.split('&').find_map(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            if parts.next() == Some("token") {
+                parts.next().map(|v| v.to_string())
+            } else {
+                None
+            }
+        })
+    });
+
+    let token_str = match token_header.or(token_query) {
+        Some(t) => t,
+        None => return Err(StatusCode::UNAUTHORIZED),
+    };
+
+    // 1. Check active session in SessionStore (validated & sliding activity updated)
+    let session_tok = auth_service::session::SessionToken::from_str(&token_str);
+    if let Some(username) = state.auth_state.sessions.validate(&session_tok).await {
+        let role = state.auth_state.credentials.get_profile(&username)
+            .map(|p| auth_service::authorization::Role::from_str(&p.role))
+            .unwrap_or(auth_service::authorization::Role::Admin);
+        let mut req = req;
+        req.extensions_mut().insert(auth_service::authorization::AuthenticatedUser { username, role });
+        return Ok(next.run(req).await);
+    }
+
+    // 2. Fallback: constant-time check against bootstrap admin token
+    if !state.admin_token.is_empty() && token_str.as_bytes().ct_eq(state.admin_token.as_bytes()).into() {
+        let mut req = req;
+        req.extensions_mut().insert(auth_service::authorization::AuthenticatedUser {
+            username: "bootstrap-admin".to_string(),
+            role: auth_service::authorization::Role::Admin,
+        });
+        return Ok(next.run(req).await);
+    }
+
+    // 3. Check API key (starts with vq_live_)
+    if token_str.starts_with("vq_live_") {
+        if let Ok(Some(key_view)) = state.auth_state.credentials.verify_api_key(&token_str) {
+            let mut req = req;
+            req.extensions_mut().insert(auth_service::authorization::AuthenticatedUser {
+                username: key_view.created_by,
+                role: auth_service::authorization::Role::Admin,
+            });
             return Ok(next.run(req).await);
         }
     }
+
     Err(StatusCode::UNAUTHORIZED)
 }
 
@@ -98,8 +150,22 @@ pub async fn run_admin_server(state: AdminState) {
             axum::http::header::HeaderName::from_static("last-event-id"),
         ]);
 
-    let app = Router::new()
+    let app = build_admin_router(state).layer(cors);
+
+    let admin_port = std::env::var("VARDHAN_ADMIN_PORT").unwrap_or_else(|_| "8081".to_string());
+    let bind_addr = format!("0.0.0.0:{}", admin_port);
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
+    tracing::info!("Admin / Telemetry API running on http://{}", bind_addr);
+    axum::serve(listener, app).await.unwrap();
+}
+
+pub fn build_admin_router(state: AdminState) -> Router {
+    Router::new()
         .route("/metrics", get(prometheus_metrics))
+        // Authentication endpoints
+        .route("/api/v1/auth/login", post(login_handler))
+        .route("/api/v1/auth/logout", post(logout_handler))
+        .route("/api/v1/auth/session", get(session_info_handler))
         .route("/api/v1/metrics", get(get_metrics))
         .route("/api/v1/events", get(sse_handler))
         // P2: ledger endpoints
@@ -116,19 +182,132 @@ pub async fn run_admin_server(state: AdminState) {
             "/api/v1/cluster/peers/region/{region}",
             get(cluster_peers_in_region),
         )
+        // Priority 2: Admin profile & password endpoints
+        .route("/api/v1/admin/profile", get(admin_get_profile).put(admin_update_profile))
+        .route("/api/v1/admin/password", post(admin_change_password))
+        // Priority 3: Settings endpoints
+        .route("/api/v1/settings", get(admin_get_settings).put(admin_update_settings))
+        // Priority 4.1 & 4.6: Session management endpoints
+        .route("/api/v1/sessions", get(admin_list_sessions))
+        .route("/api/v1/sessions/{session_id}/revoke", post(admin_revoke_session))
+        .route("/api/v1/sessions/flush", post(admin_flush_sessions))
+        // Priority 4.2: API key endpoints
+        .route("/api/v1/admin/api-keys", get(admin_list_api_keys).post(admin_create_api_key))
+        .route("/api/v1/admin/api-keys/{id}", delete(admin_revoke_api_key))
+        // Priority 4.5: Emergency Reboot
+        .route("/api/v1/cluster/reboot", post(cluster_reboot))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
         ))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
-        .layer(cors)
-        .with_state(state);
+        .with_state(state)
+}
 
-    let admin_port = std::env::var("VARDHAN_ADMIN_PORT").unwrap_or_else(|_| "8081".to_string());
-    let bind_addr = format!("0.0.0.0:{}", admin_port);
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
-    tracing::info!("Admin / Telemetry API running on http://{}", bind_addr);
-    axum::serve(listener, app).await.unwrap();
+async fn login_handler(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<auth_service::LoginRequest>,
+) -> impl IntoResponse {
+    auth_service::login_handler(State(state.auth_state), headers, Json(req)).await
+}
+
+async fn logout_handler(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    auth_service::logout_handler(State(state.auth_state), headers).await
+}
+
+async fn session_info_handler(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    auth_service::session_info_handler(State(state.auth_state), headers).await
+}
+
+async fn admin_get_profile(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    auth_service::get_profile_handler(State(state.auth_state), headers).await
+}
+
+async fn admin_update_profile(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<auth_service::UpdateProfileRequest>,
+) -> impl IntoResponse {
+    auth_service::update_profile_handler(State(state.auth_state), headers, Json(req)).await
+}
+
+async fn admin_change_password(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<auth_service::ChangePasswordRequest>,
+) -> impl IntoResponse {
+    auth_service::change_password_handler(State(state.auth_state), headers, Json(req)).await
+}
+
+async fn admin_get_settings(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    auth_service::get_settings_handler(State(state.auth_state), headers).await
+}
+
+async fn admin_update_settings(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<auth_service::UpdateSettingsRequest>,
+) -> impl IntoResponse {
+    auth_service::update_settings_handler(State(state.auth_state), headers, Json(req)).await
+}
+
+async fn admin_list_sessions(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    auth_service::list_sessions_handler(State(state.auth_state), headers).await
+}
+
+async fn admin_revoke_session(
+    State(state): State<AdminState>,
+    Path(session_id): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    auth_service::revoke_session_handler(State(state.auth_state), Path(session_id), headers).await
+}
+
+async fn admin_flush_sessions(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    body: Option<Json<auth_service::FlushSessionsRequest>>,
+) -> impl IntoResponse {
+    auth_service::flush_sessions_handler(State(state.auth_state), headers, body).await
+}
+
+async fn admin_list_api_keys(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    auth_service::list_api_keys_handler(State(state.auth_state), headers).await
+}
+
+async fn admin_create_api_key(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<auth_service::CreateApiKeyRequest>,
+) -> impl IntoResponse {
+    auth_service::create_api_key_handler(State(state.auth_state), headers, Json(req)).await
+}
+
+async fn admin_revoke_api_key(
+    State(state): State<AdminState>,
+    Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    auth_service::revoke_api_key_handler(State(state.auth_state), Path(id), headers).await
 }
 
 async fn prometheus_metrics(State(state): State<AdminState>) -> impl IntoResponse {
@@ -588,42 +767,101 @@ async fn raft_status(State(state): State<AdminState>) -> impl IntoResponse {
 
 /// The actual drain wait is handled by DrainController in main.rs on SIGTERM.
 /// This endpoint is a soft-drain signal for orchestrators that prefer HTTP over SIGTERM.
-async fn cluster_drain(State(state): State<AdminState>) -> impl IntoResponse {
+async fn cluster_drain(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let caller = match auth_service::extract_authenticated_user(&state.auth_state, &headers).await {
+        Some(u) => u,
+        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+    };
+
+    let req_id = auth_service::extract_request_id(&headers);
+    let node_id = state.auth_state.node_id.as_deref().unwrap_or("local-node");
+
+    // 1. Authorization check: requires DrainCluster permission (Operator or Admin)
+    if !caller.can(auth_service::authorization::Permission::DrainCluster) {
+        auth_service::emit_admin_audit(
+            state.auth_state.ledger.as_ref(),
+            state.auth_state.identity.as_ref(),
+            node_id,
+            "AdministrativeOperationFailed",
+            &caller.username,
+            "forbidden",
+            req_id.as_deref(),
+            serde_json::json!({ "operation": "ClusterDrain" }),
+        );
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
+            "error": "Forbidden: Operator or Admin privilege required to drain cluster node"
+        })));
+    }
+
     match (&state.cluster, &state.self_node_id) {
         (Some(cluster), Some(self_id)) => {
             let nodes = cluster.all_nodes().await;
             // Find THIS node in the membership table by our stable node_id.
             let self_entry = nodes.iter().find(|n| &n.node_id == self_id);
             match self_entry {
-                Some(node) if matches!(node.state, NodeState::Draining) => (
-                    StatusCode::CONFLICT,
-                    Json(serde_json::json!({
-                        "error": "Node is already draining"
-                    })),
-                ),
-                Some(_) => {
-                    let _ = cluster.mark_draining(self_id).await;
-                    tracing::warn!(node_id = %self_id, "Admin-initiated drain via /cluster/drain");
+                Some(node) if matches!(node.state, NodeState::Dead) => {
+                    auth_service::emit_admin_audit(
+                        state.auth_state.ledger.as_ref(),
+                        state.auth_state.identity.as_ref(),
+                        node_id,
+                        "AdministrativeOperationFailed",
+                        &caller.username,
+                        "invalid_state",
+                        req_id.as_deref(),
+                        serde_json::json!({ "operation": "ClusterDrain", "reason": "node_is_dead" }),
+                    );
                     (
-                        StatusCode::OK,
+                        StatusCode::BAD_REQUEST,
                         Json(serde_json::json!({
-                            "status": "draining",
+                            "error": "Cannot drain a dead node",
                             "node_id": self_id.as_str(),
-                            "message": "Self node marked Draining. Send SIGTERM to complete graceful shutdown."
+                            "status": "dead"
                         })),
                     )
                 }
-                None => {
-                    // Self not yet in the membership table (e.g., before first heartbeat).
-                    // Mark it draining anyway so the accept loop sees the state.
+                Some(node) if matches!(node.state, NodeState::Draining) => (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
+                        "error": "Node is already draining",
+                        "node_id": self_id.as_str(),
+                        "status": "draining"
+                    })),
+                ),
+                Some(_) | None => {
+                    auth_service::emit_admin_audit(
+                        state.auth_state.ledger.as_ref(),
+                        state.auth_state.identity.as_ref(),
+                        node_id,
+                        "ClusterDrainRequested",
+                        &caller.username,
+                        "success",
+                        req_id.as_deref(),
+                        serde_json::json!({ "node_id": self_id.as_str() }),
+                    );
+
                     let _ = cluster.mark_draining(self_id).await;
-                    tracing::warn!(node_id = %self_id, "Admin-initiated drain (self not yet in membership table)");
+                    tracing::warn!(node_id = %self_id, actor = %caller.username, "Admin-initiated drain via /cluster/drain");
+
+                    auth_service::emit_admin_audit(
+                        state.auth_state.ledger.as_ref(),
+                        state.auth_state.identity.as_ref(),
+                        node_id,
+                        "ClusterDrainCompleted",
+                        &caller.username,
+                        "success",
+                        req_id.as_deref(),
+                        serde_json::json!({ "node_id": self_id.as_str(), "status": "draining" }),
+                    );
+
                     (
                         StatusCode::OK,
                         Json(serde_json::json!({
                             "status": "draining",
                             "node_id": self_id.as_str(),
-                            "message": "Self node not yet in membership table — marked Draining anyway."
+                            "message": "Node successfully marked Draining. Active sessions will finish; new sessions will not be accepted."
                         })),
                     )
                 }
@@ -641,5 +879,546 @@ async fn cluster_drain(State(state): State<AdminState>) -> impl IntoResponse {
                 "error": "HA cluster not configured on this node"
             })),
         ),
+    }
+}
+
+#[derive(serde::Deserialize, Default)]
+struct RebootRequest {
+    #[serde(default)]
+    confirm: bool,
+    reason: Option<String>,
+}
+
+async fn cluster_reboot(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+    body: Option<Json<RebootRequest>>,
+) -> impl IntoResponse {
+    let caller = match auth_service::extract_authenticated_user(&state.auth_state, &headers).await {
+        Some(u) => u,
+        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+    };
+
+    let req_id = auth_service::extract_request_id(&headers);
+    let node_id = state.auth_state.node_id.as_deref().unwrap_or("local-node");
+
+    // 1. Authorization: Admin only
+    if !caller.can(auth_service::authorization::Permission::RebootCluster) {
+        auth_service::emit_admin_audit(
+            state.auth_state.ledger.as_ref(),
+            state.auth_state.identity.as_ref(),
+            node_id,
+            "AdministrativeOperationFailed",
+            &caller.username,
+            "forbidden",
+            req_id.as_deref(),
+            serde_json::json!({ "operation": "ClusterReboot" }),
+        );
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
+            "error": "Forbidden: Admin privilege required for emergency reboot"
+        })));
+    }
+
+    // 2. Confirmation check
+    let is_confirmed = body.as_ref().map(|b| b.confirm).unwrap_or(false)
+        || headers.get("x-confirm").and_then(|h| h.to_str().ok()).map(|v| v.eq_ignore_ascii_case("reboot") || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+
+    if !is_confirmed {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "Emergency reboot requires explicit confirmation ({ 'confirm': true } or X-Confirm: reboot)"
+        })));
+    }
+
+    let reason = body.and_then(|b| b.reason.clone()).unwrap_or_else(|| "Operator initiated".to_string());
+
+    // 3. Audit before operation
+    auth_service::emit_admin_audit(
+        state.auth_state.ledger.as_ref(),
+        state.auth_state.identity.as_ref(),
+        node_id,
+        "ClusterRebootRequested",
+        &caller.username,
+        "initiated",
+        req_id.as_deref(),
+        serde_json::json!({ "node_id": node_id, "reason": reason }),
+    );
+
+    // 4. Soft-drain node first if cluster is available
+    if let (Some(cluster), Some(self_id)) = (&state.cluster, &state.self_node_id) {
+        let _ = cluster.mark_draining(self_id).await;
+    }
+
+    // 5. Honest response as required by Priority 4.5
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(serde_json::json!({
+            "status": "draining",
+            "node_id": node_id,
+            "error": "In-process host reboot is disabled for security isolation. Node has been placed in Draining state; please issue host restart via cluster orchestrator.",
+            "orchestrator_guidance": "systemctl restart vardhan-node || kubectl rollout restart daemonset/vardhan-quantum",
+            "audit_status": "ClusterRebootRequested logged to immutable ledger"
+        })),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use tokio::sync::broadcast;
+
+    async fn spawn_test_admin() -> (String, AdminState, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("auth_db");
+        let cred_store = auth_service::store::CredentialStore::open(&db_path).unwrap();
+        let phc = auth_service::credentials::hash_password("admin_pass_12345").unwrap();
+        cred_store.set_phc_sync("admin", &phc).unwrap();
+
+        let identity = Arc::new(QuantumNodeIdentity::generate_node_identity().unwrap());
+        let prometheus = Arc::new(crate::prometheus_metrics::PrometheusMetrics::new().unwrap());
+        let (tx, _rx) = broadcast::channel(16);
+
+        let ledger_path = dir.path().join("test_ledger.jsonl");
+        let ledger_writer = Arc::new(audit_ledger::LedgerWriter::open(&ledger_path, &identity).unwrap());
+
+        let cluster = Arc::new(ClusterMembership::new());
+        let self_id = NodeId::new("test-node-1");
+        cluster.register_self(self_id.clone(), "127.0.0.1:8080".parse().unwrap(), 8081).await;
+
+        let auth_state = auth_service::AuthState {
+            credentials: Arc::new(cred_store),
+            sessions: Arc::new(auth_service::session::SessionStore::new()),
+            rate_limiter: Arc::new(auth_service::rate_limit::RateLimiter::new()),
+            ledger: Some(ledger_writer),
+            identity: Some(identity.clone()),
+            node_id: Some("test-node-1".to_string()),
+            admin_token: Some("test-bootstrap-admin-token".to_string()),
+        };
+
+        let admin_state = AdminState {
+            metrics: Arc::new(RwLock::new(MetricsSnapshot {
+                active_sessions: 0,
+                successful_handshakes: 0,
+                rejected_frames: 0,
+                upstream_failures: 0,
+                requests_per_sec: 0,
+                handshakes_per_sec: 0,
+                latency_p50_us: 0,
+                latency_p95_us: 0,
+                latency_p99_us: 0,
+                kem_entropy: 0.0,
+                nonce_entropy: 0.0,
+                sample_window_size: 1024,
+            })),
+            event_tx: tx,
+            history: Arc::new(RwLock::new(VecDeque::new())),
+            history_wrapped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            admin_token: "test-bootstrap-admin-token".to_string(),
+            identity,
+            ledger_path: Some(ledger_path),
+            prometheus,
+            cluster: Some(cluster),
+            raft_node: None,
+            self_node_id: Some(self_id),
+            auth_state,
+        };
+
+        let app = build_admin_router(admin_state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        (format!("http://{}", addr), admin_state, dir)
+    }
+
+    #[tokio::test]
+    async fn test_admin_auth_via_login_session() {
+        let (base_url, _state, _dir) = spawn_test_admin().await;
+        let client = reqwest::Client::new();
+
+        // 1. Unauthenticated request to metrics is rejected
+        let res = client.get(format!("{}/api/v1/metrics", base_url)).send().await.unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        // 2. Login through /api/v1/auth/login
+        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin_pass_12345"
+            }))
+            .send().await.unwrap();
+        assert_eq!(login_res.status(), reqwest::StatusCode::OK);
+        let login_body: serde_json::Value = login_res.json().await.unwrap();
+        let token = login_body["token"].as_str().unwrap();
+
+        // 3. Authenticated request to /api/v1/metrics with session token succeeds
+        let metrics_res = client.get(format!("{}/api/v1/metrics", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(metrics_res.status(), reqwest::StatusCode::OK);
+
+        // 4. Logout revokes the session
+        let logout_res = client.post(format!("{}/api/v1/auth/logout", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(logout_res.status(), reqwest::StatusCode::OK);
+
+        // 5. Subsequent request with revoked token is rejected
+        let post_logout = client.get(format!("{}/api/v1/metrics", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(post_logout.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_admin_auth_via_bootstrap_admin_token() {
+        let (base_url, state, _dir) = spawn_test_admin().await;
+        let client = reqwest::Client::new();
+
+        let res = client.get(format!("{}/api/v1/metrics", base_url))
+            .header("Authorization", format!("Bearer {}", state.admin_token))
+            .send().await.unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_admin_metrics_prometheus_public() {
+        let (base_url, _state, _dir) = spawn_test_admin().await;
+        let client = reqwest::Client::new();
+
+        let res = client.get(format!("{}/metrics", base_url)).send().await.unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_admin_profile_and_password_lifecycle() {
+        let (base_url, _state, _dir) = spawn_test_admin().await;
+        let client = reqwest::Client::new();
+
+        // 1. Login
+        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin_pass_12345"
+            }))
+            .send().await.unwrap();
+        assert_eq!(login_res.status(), reqwest::StatusCode::OK);
+        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+        // 2. GET Profile
+        let prof_res = client.get(format!("{}/api/v1/admin/profile", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(prof_res.status(), reqwest::StatusCode::OK);
+        let profile: serde_json::Value = prof_res.json().await.unwrap();
+        assert_eq!(profile["username"], "admin");
+        assert_eq!(profile["role"], "ciso_admin");
+
+        // 3. PUT Profile update
+        let update_res = client.put(format!("{}/api/v1/admin/profile", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({
+                "display_name": "Lead Cryptographer",
+                "email": "lead@vardhan.quantum"
+            }))
+            .send().await.unwrap();
+        assert_eq!(update_res.status(), reqwest::StatusCode::OK);
+        let updated_profile: serde_json::Value = update_res.json().await.unwrap();
+        assert_eq!(updated_profile["display_name"], "Lead Cryptographer");
+        assert_eq!(updated_profile["email"], "lead@vardhan.quantum");
+
+        // 4. Change Password
+        let change_pw_res = client.post(format!("{}/api/v1/admin/password", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({
+                "current_password": "admin_pass_12345",
+                "new_password": "quantum_pass_secure_987",
+                "confirm_password": "quantum_pass_secure_987"
+            }))
+            .send().await.unwrap();
+        assert_eq!(change_pw_res.status(), reqwest::StatusCode::OK);
+
+        // 5. Verify old password fails
+        let old_login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin_pass_12345"
+            }))
+            .send().await.unwrap();
+        assert_eq!(old_login_res.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        // 6. Verify new password succeeds
+        let new_login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "quantum_pass_secure_987"
+            }))
+            .send().await.unwrap();
+        assert_eq!(new_login_res.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_admin_settings_get_update_and_immutability() {
+        let (base_url, _state, _dir) = spawn_test_admin().await;
+        let client = reqwest::Client::new();
+
+        // Login
+        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin_pass_12345"
+            }))
+            .send().await.unwrap();
+        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+        // 1. GET Settings
+        let get_res = client.get(format!("{}/api/v1/settings", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(get_res.status(), reqwest::StatusCode::OK);
+        let settings: serde_json::Value = get_res.json().await.unwrap();
+        assert_eq!(settings["cryptographic_identity"]["kem_algorithm"], "ML-KEM-1024");
+        assert_eq!(settings["cryptographic_identity"]["dsa_algorithm"], "ML-DSA-87");
+
+        // 2. PUT valid settings update
+        let update_res = client.put(format!("{}/api/v1/settings", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({
+                "user_settings": {
+                    "theme": "cyberpunk",
+                    "refresh_interval_secs": 15
+                },
+                "system_settings": {
+                    "log_level": "debug"
+                }
+            }))
+            .send().await.unwrap();
+        assert_eq!(update_res.status(), reqwest::StatusCode::OK);
+        let updated: serde_json::Value = update_res.json().await.unwrap();
+        assert_eq!(updated["user_settings"]["theme"], "cyberpunk");
+        assert_eq!(updated["user_settings"]["refresh_interval_secs"], 15);
+        assert_eq!(updated["system_settings"]["log_level"], "debug");
+
+        // 3. PUT illegal modification of immutable cryptographic identity
+        let illegal_res = client.put(format!("{}/api/v1/settings", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({
+                "cryptographic_identity": {
+                    "kem_algorithm": "RSA2048"
+                }
+            }))
+            .send().await.unwrap();
+        assert_eq!(illegal_res.status(), reqwest::StatusCode::BAD_REQUEST);
+        let err_body: serde_json::Value = illegal_res.json().await.unwrap();
+        assert!(err_body["error"].as_str().unwrap().contains("immutable"));
+    }
+
+    #[tokio::test]
+    async fn test_admin_session_management_and_flush() {
+        let (base_url, _state, _dir) = spawn_test_admin().await;
+        let client = reqwest::Client::new();
+
+        // 1. Unauthenticated /api/v1/sessions returns 401
+        let unauth = client.get(format!("{}/api/v1/sessions", base_url)).send().await.unwrap();
+        assert_eq!(unauth.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        // 2. Login as admin (Session A)
+        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin_pass_12345"
+            }))
+            .send().await.unwrap();
+        let token_a = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+        // 3. Login again (Session B)
+        let login_b_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin_pass_12345"
+            }))
+            .send().await.unwrap();
+        let token_b = login_b_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+        // 4. GET /api/v1/sessions — returns 2 sessions with safe metadata
+        let list_res = client.get(format!("{}/api/v1/sessions", base_url))
+            .header("Authorization", format!("Bearer {}", token_a))
+            .send().await.unwrap();
+        assert_eq!(list_res.status(), reqwest::StatusCode::OK);
+        let sessions: Vec<serde_json::Value> = list_res.json().await.unwrap();
+        assert_eq!(sessions.len(), 2);
+        for s in &sessions {
+            assert!(s["session_id"].as_str().unwrap().starts_with("sess_"));
+            assert_eq!(s["session_state"], "active");
+            assert_eq!(s["username"], "admin");
+            // Tokens and passwords MUST NOT be present in safe view
+            assert!(s.get("token").is_none());
+            assert!(s.get("password").is_none());
+        }
+
+        // 5. Revoke Session B by safe session_id
+        let sess_b_id = sessions[0]["session_id"].as_str().unwrap();
+        let revoke_res = client.post(format!("{}/api/v1/sessions/{}/revoke", base_url, sess_b_id))
+            .header("Authorization", format!("Bearer {}", token_a))
+            .send().await.unwrap();
+        assert_eq!(revoke_res.status(), reqwest::StatusCode::OK);
+        let revoke_body: serde_json::Value = revoke_res.json().await.unwrap();
+        assert_eq!(revoke_body["status"], "revoked");
+
+        // Idempotent repeat revocation returns OK
+        let repeat_revoke = client.post(format!("{}/api/v1/sessions/{}/revoke", base_url, sess_b_id))
+            .header("Authorization", format!("Bearer {}", token_a))
+            .send().await.unwrap();
+        assert_eq!(repeat_revoke.status(), reqwest::StatusCode::OK);
+
+        // 6. Test Flush Sessions without confirm -> 400
+        let unconf_flush = client.post(format!("{}/api/v1/sessions/flush", base_url))
+            .header("Authorization", format!("Bearer {}", token_a))
+            .json(&serde_json::json!({ "confirm": false }))
+            .send().await.unwrap();
+        assert_eq!(unconf_flush.status(), reqwest::StatusCode::BAD_REQUEST);
+
+        // 7. Confirmed flush preserves caller Session A
+        let conf_flush = client.post(format!("{}/api/v1/sessions/flush", base_url))
+            .header("Authorization", format!("Bearer {}", token_a))
+            .json(&serde_json::json!({ "confirm": true }))
+            .send().await.unwrap();
+        assert_eq!(conf_flush.status(), reqwest::StatusCode::OK);
+        let flush_body: serde_json::Value = conf_flush.json().await.unwrap();
+        assert_eq!(flush_body["status"], "flushed");
+
+        // Session A is still valid
+        let test_a = client.get(format!("{}/api/v1/settings", base_url))
+            .header("Authorization", format!("Bearer {}", token_a))
+            .send().await.unwrap();
+        assert_eq!(test_a.status(), reqwest::StatusCode::OK);
+
+        // Session B was flushed and is unauthorized
+        let test_b = client.get(format!("{}/api/v1/settings", base_url))
+            .header("Authorization", format!("Bearer {}", token_b))
+            .send().await.unwrap();
+        assert_eq!(test_b.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_admin_api_key_lifecycle() {
+        let (base_url, _state, _dir) = spawn_test_admin().await;
+        let client = reqwest::Client::new();
+
+        // Login as admin
+        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin_pass_12345"
+            }))
+            .send().await.unwrap();
+        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+        // 1. Create API key
+        let create_res = client.post(format!("{}/api/v1/admin/api-keys", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({
+                "name": "Integration-Bot",
+                "expires_in_days": 30
+            }))
+            .send().await.unwrap();
+        assert_eq!(create_res.status(), reqwest::StatusCode::CREATED);
+        let created_key: serde_json::Value = create_res.json().await.unwrap();
+        let key_id = created_key["id"].as_str().unwrap().to_string();
+        let secret = created_key["secret"].as_str().unwrap().to_string();
+        assert!(key_id.starts_with("ak_"));
+        assert!(secret.starts_with("vq_live_"));
+
+        // 2. GET API keys — secret MUST NOT appear in list
+        let list_res = client.get(format!("{}/api/v1/admin/api-keys", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(list_res.status(), reqwest::StatusCode::OK);
+        let keys: Vec<serde_json::Value> = list_res.json().await.unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0]["id"], key_id);
+        assert_eq!(keys[0]["name"], "Integration-Bot");
+        assert!(keys[0].get("secret").is_none());
+        assert!(!keys[0]["revoked"].as_bool().unwrap());
+
+        // 3. Authenticate with the API key secret — succeeds!
+        let api_key_res = client.get(format!("{}/api/v1/settings", base_url))
+            .header("Authorization", format!("Bearer {}", secret))
+            .send().await.unwrap();
+        assert_eq!(api_key_res.status(), reqwest::StatusCode::OK);
+
+        // 4. Revoke API key
+        let delete_res = client.delete(format!("{}/api/v1/admin/api-keys/{}", base_url, key_id))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(delete_res.status(), reqwest::StatusCode::OK);
+        let revoked_key: serde_json::Value = delete_res.json().await.unwrap();
+        assert!(revoked_key["revoked"].as_bool().unwrap());
+
+        // 5. Subsequent authentication with revoked API key is rejected (401)
+        let rejected_res = client.get(format!("{}/api/v1/settings", base_url))
+            .header("Authorization", format!("Bearer {}", secret))
+            .send().await.unwrap();
+        assert_eq!(rejected_res.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_hardened_cluster_drain_and_reboot() {
+        let (base_url, state, _dir) = spawn_test_admin().await;
+        let client = reqwest::Client::new();
+
+        // 1. Unauthenticated drain -> 401
+        let unauth_drain = client.post(format!("{}/api/v1/cluster/drain", base_url))
+            .send().await.unwrap();
+        assert_eq!(unauth_drain.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        // Login as admin
+        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+            .json(&serde_json::json!({
+                "username": "admin",
+                "password": "admin_pass_12345"
+            }))
+            .send().await.unwrap();
+        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+        // 2. First drain -> 200 OK
+        let drain_res = client.post(format!("{}/api/v1/cluster/drain", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(drain_res.status(), reqwest::StatusCode::OK);
+        let drain_body: serde_json::Value = drain_res.json().await.unwrap();
+        assert_eq!(drain_body["status"], "draining");
+
+        // 3. Repeated drain -> 409 CONFLICT ("already draining")
+        let repeat_drain = client.post(format!("{}/api/v1/cluster/drain", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .send().await.unwrap();
+        assert_eq!(repeat_drain.status(), reqwest::StatusCode::CONFLICT);
+
+        // 4. Reboot without confirm -> 400 Bad Request
+        let unconf_reboot = client.post(format!("{}/api/v1/cluster/reboot", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({ "confirm": false }))
+            .send().await.unwrap();
+        assert_eq!(unconf_reboot.status(), reqwest::StatusCode::BAD_REQUEST);
+
+        // 5. Reboot with confirm -> 501 Not Implemented (honest response with guidance)
+        let conf_reboot = client.post(format!("{}/api/v1/cluster/reboot", base_url))
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&serde_json::json!({ "confirm": true, "reason": "Scheduled node maintenance" }))
+            .send().await.unwrap();
+        assert_eq!(conf_reboot.status(), reqwest::StatusCode::NOT_IMPLEMENTED);
+        let reboot_body: serde_json::Value = conf_reboot.json().await.unwrap();
+        assert!(reboot_body["orchestrator_guidance"].as_str().unwrap().contains("systemctl"));
+
+        // 6. Verify audit ledger has durable entries
+        let ledger_path = state.ledger_path.unwrap();
+        let content = std::fs::read_to_string(ledger_path).unwrap();
+        assert!(content.contains("ClusterDrainRequested"));
+        assert!(content.contains("ClusterDrainCompleted"));
+        assert!(content.contains("ClusterRebootRequested"));
     }
 }
