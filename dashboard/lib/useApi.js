@@ -10,7 +10,12 @@ import {
   exportEvidence,
   drainNode,
   fetchPrometheusMetrics,
+  fetchAdminProfile,
+  fetchSettings,
+  fetchSessions,
+  fetchApiKeys,
 } from '@/lib/api';
+
 import { useSSE } from '@/lib/useSSE';
 
 // Re-export useSSE for convenient single-source imports
@@ -59,6 +64,11 @@ export const useClusterPeers = (interval) => useApi(fetchClusterPeers, [fetchClu
 export const useLedgerStatus = (interval) => useApi(fetchLedgerStatus, [fetchLedgerStatus], interval);
 export const useRaftStatus = (interval) => useApi(fetchRaftStatus, [fetchRaftStatus], interval);
 export const usePrometheusMetrics = (interval) => useApi(fetchPrometheusMetrics, [fetchPrometheusMetrics], interval);
+export const useAdminProfile = () => useApi(fetchAdminProfile, [fetchAdminProfile]);
+export const useSettings = () => useApi(fetchSettings, [fetchSettings]);
+export const useSessions = (interval) => useApi(fetchSessions, [fetchSessions], interval);
+export const useApiKeys = () => useApi(fetchApiKeys, [fetchApiKeys]);
+
 
 export async function exportEvidenceBundle() {
   return exportEvidence();
