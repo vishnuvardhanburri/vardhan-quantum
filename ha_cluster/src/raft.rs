@@ -318,27 +318,19 @@ impl RaftNode {
         let mut log = self.log.write().await;
         let index = (log.len() as u64) + 1;
         log.push(entry);
-        // Fire-and-forget persist for crash recovery when persist_on_submit is enabled.
-        // Uses spawn_blocking (not await) to avoid blocking the heartbeat timer.
+        // Persist for crash recovery when persist_on_submit is enabled.
+        // This is safe to .await because submit_entry is called from test
+        // code / admin API, NOT from the heartbeat run loop.
+        // The await ensures the persist file is written before the test
+        // reads it, and prevents the advance_commit_index persist from
+        // being overwritten by a late submit_entry persist.
         if self.config.persist_on_submit {
             let term = *self.current_term.read().await;
             let voted_for = self.voted_for.read().await.clone();
             let log_clone = log.clone();
             let commit_idx = *self.commit_index.read().await;
-            let persist_path = self.persistence_path.clone();
             drop(log);
-            tokio::task::spawn_blocking(move || {
-                let state = RaftPersistentState {
-                    current_term: term,
-                    voted_for,
-                    log: log_clone,
-                    commit_index: commit_idx,
-                };
-                let bytes = match serde_json::to_vec(&state) { Ok(b) => b, Err(_) => return };
-                let tmp_path = persist_path.with_extension("tmp");
-                let _ = std::fs::write(&tmp_path, &bytes);
-                let _ = std::fs::rename(tmp_path, &persist_path);
-            });
+            let _ = self.persist_state_with(term, voted_for, log_clone, commit_idx).await;
         } else {
             drop(log);
         }
@@ -977,24 +969,7 @@ impl RaftNode {
                             self.match_index.read().await.clone();
                         let advanced = self.advance_commit_index(&match_clone).await;
                         if advanced && self.config.persist_on_submit {
-                            // Fire-and-forget persist — do NOT await.
-                            let persist_path = self.persistence_path.clone();
-                            let term = *self.current_term.read().await;
-                            let voted_for = self.voted_for.read().await.clone();
-                            let log_clone = self.log.read().await.clone();
-                            let commit_idx = *self.commit_index.read().await;
-                            tokio::task::spawn_blocking(move || {
-                                let state = RaftPersistentState {
-                                    current_term: term,
-                                    voted_for,
-                                    log: log_clone,
-                                    commit_index: commit_idx,
-                                };
-                                let bytes = match serde_json::to_vec(&state) { Ok(b) => b, Err(_) => return };
-                                let tmp_path = persist_path.with_extension("tmp");
-                                let _ = std::fs::write(&tmp_path, &bytes);
-                                let _ = std::fs::rename(tmp_path, &persist_path);
-                            });
+                            let _ = self.persist_state().await;
                         }
                     }
                 }

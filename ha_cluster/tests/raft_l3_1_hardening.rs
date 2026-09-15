@@ -579,8 +579,7 @@ async fn test_durable_log_recovery() {
     }).await.unwrap();
     assert!(wait_for_commit(&leader, idx2).await, "Entry 2 should commit");
 
-    // Verify log is on disk (wait for fire-and-forget persist to complete)
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Verify log is on disk
     let persist_path = &nodes[leader_idx].persist_path;
     let content = std::fs::read_to_string(persist_path).unwrap();
     let state: RaftPersistentState = serde_json::from_str(&content).unwrap();
@@ -1209,8 +1208,6 @@ async fn test_crash_during_commit() {
     }).await.unwrap();
 
     // Verify the entry is in the persisted log (it was persisted by submit_entry)
-    // Wait for the fire-and-forget persist to complete.
-    tokio::time::sleep(Duration::from_millis(200)).await;
     let persist_content = std::fs::read_to_string(&nodes[leader_idx].persist_path).unwrap();
     let persisted_state: RaftPersistentState = serde_json::from_str(&persist_content).unwrap();
     assert!(persisted_state.log.iter().any(|e| e.data == b"pre-crash-uncommitted"),
