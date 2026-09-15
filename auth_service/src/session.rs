@@ -1,32 +1,38 @@
-//! In-process session store.
+//! In-process thread-safe session store with safe metadata enumeration and revocation.
 //!
 //! Sessions are held in a `DashMap` keyed by opaque session tokens.
-//! They are NOT persisted — a process restart invalidates all sessions.
+//! Safe session identifiers (`session_id`) are separate 16-hex random strings
+//! so that session listing and management never leak the secret session token.
 //!
 //! ## Expiry model
-//!
 //! - Hard expiry: `SESSION_HARD_EXPIRY_SECS` (8 hours) after issuance
 //! - Sliding window: `SESSION_IDLE_TIMEOUT_SECS` (30 minutes) after last activity
 //! - Whichever comes first wins
-//!
-//! ## Token format
-//!
-//! 32 bytes from `OsRng` encoded as lowercase hex (64 characters).
-//! This provides 256 bits of entropy — far beyond brute-force feasibility.
 
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
 use rand::{rngs::OsRng, RngCore};
+use serde::{Deserialize, Serialize};
+
+pub use crate::authorization::{AuthenticatedUser, Permission, Role};
 
 /// Hard session lifetime: 8 hours.
 pub const SESSION_HARD_EXPIRY_SECS: u64 = 8 * 60 * 60;
 /// Inactivity timeout: 30 minutes.
 pub const SESSION_IDLE_TIMEOUT_SECS: u64 = 30 * 60;
 
-/// Opaque session token: 32 random bytes as lowercase hex.
+fn now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+/// Opaque session token: 32 random bytes as lowercase hex (64 characters).
+/// This secret is sent in the Authorization header and MUST NEVER be exposed in metadata APIs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SessionToken(String);
 
@@ -47,24 +53,71 @@ impl SessionToken {
     }
 }
 
-/// A single active session entry.
+/// Internal session entry.
 #[derive(Debug, Clone)]
 pub struct SessionEntry {
+    /// Safe public identifier (e.g. sess_0123456789abcdef) — safe to expose in APIs.
+    pub session_id: String,
     pub username: String,
-    pub issued_at: Instant,
-    pub last_activity: Instant,
-    pub ip: IpAddr,
+    pub created_at_ms: u128,
+    pub last_activity_ms: u128,
+    pub expires_at_ms: u128,
+    pub ip: String,
+    pub node_id: String,
+    pub revoked: bool,
 }
 
 impl SessionEntry {
-    fn is_expired(&self) -> bool {
-        let hard_expired = self.issued_at.elapsed() > Duration::from_secs(SESSION_HARD_EXPIRY_SECS);
-        let idle_expired = self.last_activity.elapsed() > Duration::from_secs(SESSION_IDLE_TIMEOUT_SECS);
+    pub fn is_expired(&self) -> bool {
+        if self.revoked {
+            return true;
+        }
+        let now = now_ms();
+        let hard_expired = now >= self.expires_at_ms;
+        let idle_expired = now.saturating_sub(self.last_activity_ms) >= (SESSION_IDLE_TIMEOUT_SECS as u128 * 1000);
         hard_expired || idle_expired
+    }
+
+    pub fn state_str(&self) -> &'static str {
+        if self.revoked {
+            "revoked"
+        } else if self.is_expired() {
+            "expired"
+        } else {
+            "active"
+        }
+    }
+
+    pub fn to_view(&self) -> SessionView {
+        SessionView {
+            session_id: self.session_id.clone(),
+            username: self.username.clone(),
+            created_at: self.created_at_ms,
+            expires_at: self.expires_at_ms,
+            last_activity: self.last_activity_ms,
+            node_id: self.node_id.clone(),
+            session_state: self.state_str().to_string(),
+            client_ip: self.ip.clone(),
+        }
     }
 }
 
+/// Safe public session metadata returned by `GET /api/v1/sessions`.
+/// Strictly contains no tokens, hashes, or passwords.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionView {
+    pub session_id: String,
+    pub username: String,
+    pub created_at: u128,
+    pub expires_at: u128,
+    pub last_activity: u128,
+    pub node_id: String,
+    pub session_state: String,
+    pub client_ip: String,
+}
+
 /// Non-sensitive session info returned by `GET /api/v1/auth/session`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInfo {
     pub username: String,
     pub issued_at_ms: u64,
@@ -74,51 +127,86 @@ pub struct SessionInfo {
 /// Thread-safe in-memory session store.
 #[derive(Clone)]
 pub struct SessionStore {
+    /// Maps secret `token_str -> SessionEntry`
     inner: Arc<DashMap<String, SessionEntry>>,
+    /// Maps safe `session_id -> token_str` for fast lookup
+    by_id: Arc<DashMap<String, String>>,
+    /// Retains recently revoked sessions for idempotent revocation, status check, and audit
+    revoked: Arc<DashMap<String, SessionView>>,
+}
+
+impl Default for SessionStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SessionStore {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(DashMap::new()),
+            by_id: Arc::new(DashMap::new()),
+            revoked: Arc::new(DashMap::new()),
         }
     }
 
     /// Create a new session for `username` from `ip`.
-    /// Returns the issued `SessionToken`.
+    /// Generates both a secret `SessionToken` and a safe `session_id`.
     pub async fn create(&self, username: &str, ip: IpAddr) -> SessionToken {
+        self.create_with_node(username, ip, "local-node").await
+    }
+
+    /// Create a new session with explicit `node_id`.
+    pub async fn create_with_node(&self, username: &str, ip: IpAddr, node_id: &str) -> SessionToken {
         let token = SessionToken::generate();
+        let mut id_bytes = [0u8; 8];
+        OsRng.fill_bytes(&mut id_bytes);
+        let session_id = format!("sess_{}", hex::encode(id_bytes));
+
+        let now = now_ms();
         let entry = SessionEntry {
+            session_id: session_id.clone(),
             username: username.to_string(),
-            issued_at: Instant::now(),
-            last_activity: Instant::now(),
-            ip,
+            created_at_ms: now,
+            last_activity_ms: now,
+            expires_at_ms: now + (SESSION_HARD_EXPIRY_SECS as u128 * 1000),
+            ip: ip.to_string(),
+            node_id: node_id.to_string(),
+            revoked: false,
         };
+
         self.inner.insert(token.as_str().to_string(), entry);
+        self.by_id.insert(session_id, token.as_str().to_string());
         token
     }
 
     /// Validate a token and update `last_activity`.
     ///
-    /// Returns `Some(username)` if valid, `None` if missing or expired.
-    /// Expired sessions are eagerly removed from the map.
+    /// Returns `Some(username)` if valid, `None` if missing, expired, or revoked.
     pub async fn validate(&self, token: &SessionToken) -> Option<String> {
         if let Some(mut entry) = self.inner.get_mut(token.as_str()) {
             if entry.is_expired() {
+                let session_id = entry.session_id.clone();
                 drop(entry);
                 self.inner.remove(token.as_str());
+                self.by_id.remove(&session_id);
                 return None;
             }
-            entry.last_activity = Instant::now();
+            entry.last_activity_ms = now_ms();
             Some(entry.username.clone())
         } else {
             None
         }
     }
 
-    /// Remove a session (logout). Returns the removed entry if it existed.
+    /// Remove a session (logout).
     pub async fn remove(&self, token: &SessionToken) -> Option<SessionEntry> {
-        self.inner.remove(token.as_str()).map(|(_, v)| v)
+        if let Some((_, entry)) = self.inner.remove(token.as_str()) {
+            self.by_id.remove(&entry.session_id);
+            Some(entry)
+        } else {
+            None
+        }
     }
 
     /// Return non-sensitive session metadata for the info endpoint.
@@ -127,27 +215,89 @@ impl SessionStore {
             if entry.is_expired() {
                 return None;
             }
-            let elapsed = entry.issued_at.elapsed().as_secs();
-            let remaining = SESSION_HARD_EXPIRY_SECS.saturating_sub(elapsed);
-            // issued_at_ms: approximate wall clock ms (Instant is monotonic, not wall clock,
-            // so we compute from now back by elapsed)
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            let issued_at_ms = now_ms.saturating_sub(entry.issued_at.elapsed().as_millis() as u64);
-
+            let now = now_ms();
+            let remaining_ms = entry.expires_at_ms.saturating_sub(now);
             Some(SessionInfo {
                 username: entry.username.clone(),
-                issued_at_ms,
-                expires_in_secs: remaining,
+                issued_at_ms: entry.created_at_ms as u64,
+                expires_in_secs: (remaining_ms / 1000) as u64,
             })
         } else {
             None
         }
     }
 
-    /// Return the number of currently active (non-expired) sessions.
+    /// List all sessions as safe public views (never revealing tokens).
+    pub async fn list_sessions(&self) -> Vec<SessionView> {
+        let mut list: Vec<SessionView> = self.inner
+            .iter()
+            .map(|e| e.value().to_view())
+            .collect();
+        for r in self.revoked.iter() {
+            list.push(r.value().clone());
+        }
+        // Sort newest first
+        list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        list
+    }
+
+    /// Get safe view of a specific session by `session_id`.
+    pub async fn get_session_by_id(&self, session_id: &str) -> Option<SessionView> {
+        if let Some(view) = self.revoked.get(session_id) {
+            return Some(view.clone());
+        }
+        let token = self.by_id.get(session_id)?;
+        self.inner.get(token.as_str()).map(|e| e.to_view())
+    }
+
+    /// Revoke a session by safe `session_id`.
+    ///
+    /// Idempotent: revoking an already revoked session succeeds and returns the view.
+    /// Returns `Some(SessionView)` if found, `None` if not found.
+    pub async fn revoke_by_id(&self, session_id: &str) -> Option<SessionView> {
+        if let Some(view) = self.revoked.get(session_id) {
+            return Some(view.clone());
+        }
+
+        let token_str = self.by_id.get(session_id)?.clone();
+        if let Some((_, mut entry)) = self.inner.remove(&token_str) {
+            entry.revoked = true;
+            let view = entry.to_view();
+            self.revoked.insert(session_id.to_string(), view.clone());
+            Some(view)
+        } else {
+            None
+        }
+    }
+
+    /// Revoke all active sessions EXCEPT the caller's session (to prevent operator lockout).
+    /// Returns the number of sessions revoked.
+    pub async fn flush_except(&self, preserve_token: Option<&str>) -> usize {
+        let mut count = 0;
+        let keys_to_revoke: Vec<(String, String)> = self.inner
+            .iter()
+            .filter(|e| {
+                if let Some(p) = preserve_token {
+                    e.key() != p
+                } else {
+                    true
+                }
+            })
+            .map(|e| (e.key().clone(), e.value().session_id.clone()))
+            .collect();
+
+        for (token_str, session_id) in keys_to_revoke {
+            if let Some((_, mut entry)) = self.inner.remove(&token_str) {
+                entry.revoked = true;
+                self.revoked.insert(session_id, entry.to_view());
+                count += 1;
+            }
+        }
+
+        count
+    }
+
+    /// Return the number of currently active (non-expired, non-revoked) sessions.
     pub fn active_count(&self) -> usize {
         self.inner
             .iter()
@@ -156,17 +306,14 @@ impl SessionStore {
     }
 }
 
-// Needed for axum State
-pub struct AuthenticatedUser {
-    pub username: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::net::Ipv4Addr;
 
-    fn ip() -> IpAddr { IpAddr::V4(Ipv4Addr::LOCALHOST) }
+    fn ip() -> IpAddr {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    }
 
     #[tokio::test]
     async fn test_create_and_validate() {
@@ -211,7 +358,50 @@ mod tests {
         let store = SessionStore::new();
         assert_eq!(store.active_count(), 0);
         let _t1 = store.create("alice", ip()).await;
-        let _t2 = store.create("bob",   ip()).await;
+        let _t2 = store.create("bob", ip()).await;
         assert_eq!(store.active_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_and_revoke_by_id() {
+        let store = SessionStore::new();
+        let t1 = store.create("alice", ip()).await;
+        let t2 = store.create("bob", ip()).await;
+
+        let sessions = store.list_sessions().await;
+        assert_eq!(sessions.len(), 2);
+        let alice_sess = sessions.iter().find(|s| s.username == "alice").unwrap();
+        assert_eq!(alice_sess.session_state, "active");
+        assert!(alice_sess.session_id.starts_with("sess_"));
+
+        // Revoke alice's session by safe session_id
+        let revoked = store.revoke_by_id(&alice_sess.session_id).await;
+        assert!(revoked.is_some());
+        assert_eq!(revoked.unwrap().session_state, "revoked");
+
+        // Alice token is now rejected
+        assert!(store.validate(&t1).await.is_none());
+        // Bob token remains valid
+        assert!(store.validate(&t2).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_flush_except_preserves_caller() {
+        let store = SessionStore::new();
+        let admin_token = store.create("admin", ip()).await;
+        let user1_token = store.create("user1", ip()).await;
+        let user2_token = store.create("user2", ip()).await;
+
+        assert_eq!(store.active_count(), 3);
+
+        // Flush all except admin
+        let flushed = store.flush_except(Some(admin_token.as_str())).await;
+        assert_eq!(flushed, 2);
+
+        // Admin session is preserved
+        assert_eq!(store.validate(&admin_token).await.as_deref(), Some("admin"));
+        // User sessions are gone
+        assert!(store.validate(&user1_token).await.is_none());
+        assert!(store.validate(&user2_token).await.is_none());
     }
 }
