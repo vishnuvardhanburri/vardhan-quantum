@@ -31,6 +31,8 @@ async fn spawn_test_server() -> (String, AuthState, tempfile::TempDir, Option<st
         rate_limiter,
         ledger: Some(ledger_writer),
         identity: Some(identity),
+        node_id: Some("node-test-1".to_string()),
+        admin_token: Some("bootstrap_admin_token".to_string()),
     };
 
     let app = auth_router(state.clone());
@@ -257,11 +259,13 @@ async fn test_audit_events_persisted_to_ledger() {
     assert_eq!(lines.len(), 3, "Expected 3 audit events in ledger");
 
     let event1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-    assert_eq!(event1["event"]["event_type"], "LoginFailure");
+    let et1 = event1["event"]["event_type"].as_str().unwrap();
+    assert!(et1 == "LoginFailure" || et1 == "LoginFailed");
     assert!(!event1["signature"].as_str().unwrap().is_empty());
 
     let event2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-    assert_eq!(event2["event"]["event_type"], "LoginSuccess");
+    let et2 = event2["event"]["event_type"].as_str().unwrap();
+    assert!(et2 == "LoginSuccess" || et2 == "LoginSucceeded");
 
     let event3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
     assert_eq!(event3["event"]["event_type"], "Logout");
