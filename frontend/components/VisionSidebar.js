@@ -4,41 +4,50 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Home,
-  FileText,
-  Layers,
-  ShoppingCart,
+  ShieldCheck,
+  Server,
+  Activity,
+  FileCheck,
+  Cpu,
+  Network,
   Lock,
   ChevronDown,
-  Star,
-  Globe2,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 
 export function VisionSidebar() {
   const pathname = usePathname();
-  const [pagesOpen, setPagesOpen] = useState(true);
+  const [modulesOpen, setModulesOpen] = useState(true);
 
-  const subPages = [
-    { label: 'Profile', href: '/admin' },
-    { label: 'Users', href: '/admin' },
-    { label: 'Account', href: '/admin' },
-    { label: 'Projects', href: '/infrastructure' },
-    { label: 'Pricing Page', href: '/evidence' },
-    { label: 'RTL', href: '/consensus' },
-    { label: 'Widgets', href: '/reliability' },
-    { label: 'Charts', href: '/network' },
-    { label: 'Alerts', href: '/security' },
+  const securityModules = [
+    { label: 'Security Posture', href: '/security' },
+    { label: 'Infrastructure Nodes', href: '/infrastructure' },
+    { label: 'Raft Consensus', href: '/consensus' },
+    { label: 'Wire Network & AEAD', href: '/network' },
+    { label: 'Telemetry & P95', href: '/reliability' },
+    { label: 'Evidence & Merkle Log', href: '/evidence' },
+    { label: 'AI Intelligence', href: '/intelligence' },
+    { label: 'Admin & API Keys', href: '/admin' },
   ];
 
   return (
-    <aside className="w-[250px] shrink-0 h-screen sticky top-0 flex flex-col p-4 bg-[#060B26]/90 border-r border-white/10 select-none overflow-y-auto font-sans z-40">
-      {/* Brand Header */}
-      <div className="flex items-center gap-3 px-3 py-4 mb-4">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#0075FF] to-[#00F5D4] flex items-center justify-center font-bold text-white shadow-lg text-sm tracking-wider">
-          S
+    <aside className="w-[260px] shrink-0 h-screen sticky top-0 flex flex-col p-4 bg-[#060B26]/95 border-r border-white/10 select-none overflow-y-auto font-sans z-40 backdrop-blur-xl">
+      {/* Vardhan Quantum Brand Header */}
+      <div className="flex items-center gap-3 px-3 py-4 mb-3">
+        <div className="relative">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#0075FF] via-[#00F5D4] to-[#8A2BE2] flex items-center justify-center font-black text-black shadow-[0_0_20px_rgba(0,245,212,0.4)] text-sm tracking-wider">
+            V
+          </div>
+          <span className="w-2.5 h-2.5 rounded-full bg-[#00F5D4] absolute -top-0.5 -right-0.5 shadow-[0_0_8px_#00F5D4] ring-2 ring-[#060B26]" />
         </div>
-        <div className="flex items-center gap-1.5 font-bold tracking-wider text-xs text-white">
-          <span>VISION UI PRO</span>
+        <div className="flex flex-col">
+          <span className="font-extrabold tracking-wider text-xs text-white">
+            VARDHAN <span className="text-[#00F5D4]">QUANTUM</span>
+          </span>
+          <span className="text-[10px] font-mono text-slate-400 font-medium">
+            FIPS 203 / 204 DEFENSE
+          </span>
         </div>
       </div>
 
@@ -49,45 +58,49 @@ export function VisionSidebar() {
         {/* Main Dashboard Link */}
         <Link
           href="/"
-          className="flex items-center justify-between px-3.5 py-3 rounded-xl bg-[#0075FF] text-white shadow-[0_10px_20px_rgba(0,117,255,0.3)] transition-all font-medium text-xs"
+          className={`flex items-center justify-between px-3.5 py-3 rounded-xl transition-all font-medium text-xs ${
+            pathname === '/'
+              ? 'bg-[#0075FF] text-white shadow-[0_10px_20px_rgba(0,117,255,0.35)]'
+              : 'text-slate-300 hover:text-white hover:bg-white/5'
+          }`}
         >
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center">
-              <Home className="w-4 h-4 text-white" />
+              <ShieldCheck className="w-4 h-4 text-white" />
             </div>
-            <span>Dashboards</span>
+            <span className="font-semibold tracking-wide">Command Center</span>
           </div>
           <ChevronDown className="w-3.5 h-3.5 text-white/70" />
         </Link>
 
-        {/* Section Label: PAGES */}
+        {/* Section Label: QUANTUM CORE */}
         <div className="pt-4 pb-2 px-3 text-[10px] font-bold tracking-widest text-[#718096] uppercase">
-          PAGES
+          CORE ASSURANCE
         </div>
 
-        {/* Pages Expandable */}
+        {/* Expandable Core Modules */}
         <div>
           <button
-            onClick={() => setPagesOpen(!pagesOpen)}
+            onClick={() => setModulesOpen(!modulesOpen)}
             className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-all text-xs font-medium"
           >
             <div className="flex items-center gap-3">
               <div className="w-7 h-7 rounded-lg bg-[#0F1535] border border-white/5 flex items-center justify-center">
-                <FileText className="w-3.5 h-3.5 text-[#0075FF]" />
+                <Lock className="w-3.5 h-3.5 text-[#00F5D4]" />
               </div>
-              <span>Pages</span>
+              <span className="font-semibold">Security Modules</span>
             </div>
             <ChevronDown
               className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
-                pagesOpen ? 'rotate-180' : ''
+                modulesOpen ? 'rotate-180' : ''
               }`}
             />
           </button>
 
-          {pagesOpen && (
+          {modulesOpen && (
             <div className="ml-7 mt-1.5 pl-3 border-l border-white/10 space-y-1">
-              {subPages.map((sub, idx) => {
-                const isActive = pathname === sub.href && sub.label === 'Profile';
+              {securityModules.map((sub, idx) => {
+                const isActive = pathname === sub.href;
                 return (
                   <Link
                     key={idx}
@@ -100,7 +113,7 @@ export function VisionSidebar() {
                   >
                     <span
                       className={`w-1.5 h-1.5 rounded-full ${
-                        isActive ? 'bg-[#0075FF] shadow-[0_0_8px_#0075FF]' : 'bg-[#4A5568]'
+                        isActive ? 'bg-[#00F5D4] shadow-[0_0_8px_#00F5D4]' : 'bg-[#4A5568]'
                       }`}
                     />
                     <span>{sub.label}</span>
@@ -111,29 +124,29 @@ export function VisionSidebar() {
           )}
         </div>
 
-        {/* Other Sections */}
+        {/* Secondary Navigation */}
         <Link
           href="/infrastructure"
           className="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-all text-xs font-medium"
         >
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg bg-[#0F1535] border border-white/5 flex items-center justify-center">
-              <Layers className="w-3.5 h-3.5 text-[#0075FF]" />
+              <Server className="w-3.5 h-3.5 text-[#0075FF]" />
             </div>
-            <span>Applications</span>
+            <span>Cluster Mesh</span>
           </div>
           <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
         </Link>
 
         <Link
-          href="/reliability"
+          href="/consensus"
           className="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-all text-xs font-medium"
         >
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg bg-[#0F1535] border border-white/5 flex items-center justify-center">
-              <ShoppingCart className="w-3.5 h-3.5 text-[#0075FF]" />
+              <Cpu className="w-3.5 h-3.5 text-[#A855F7]" />
             </div>
-            <span>Ecommerce</span>
+            <span>Raft Consensus</span>
           </div>
           <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
         </Link>
@@ -144,21 +157,23 @@ export function VisionSidebar() {
         >
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg bg-[#0F1535] border border-white/5 flex items-center justify-center">
-              <Lock className="w-3.5 h-3.5 text-[#0075FF]" />
+              <Lock className="w-3.5 h-3.5 text-[#00F5D4]" />
             </div>
-            <span>Authentication</span>
+            <span>Identity & Access</span>
           </div>
           <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
         </Link>
       </nav>
 
-      {/* Need Help? Bottom Card */}
-      <div className="mt-4 p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-[#0075FF] via-[#0F1535] to-[#1F2666] border border-white/10 shadow-lg">
-        <div className="w-7 h-7 rounded-lg bg-white flex items-center justify-center mb-3 shadow-md">
-          <Star className="w-4 h-4 text-[#0075FF] fill-[#0075FF]" />
+      {/* Vardhan Quantum Defense Assurance Card */}
+      <div className="mt-4 p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-[#0075FF]/30 via-[#0F1535] to-[#1F2666]/90 border border-[#00F5D4]/20 shadow-[0_8px_20px_rgba(0,0,0,0.4)]">
+        <div className="w-7 h-7 rounded-lg bg-[#00F5D4]/20 border border-[#00F5D4]/40 flex items-center justify-center mb-2.5 shadow-sm">
+          <Sparkles className="w-4 h-4 text-[#00F5D4]" />
         </div>
-        <h4 className="text-white text-xs font-bold mb-0.5">Need help?</h4>
-        <p className="text-[11px] text-slate-300 font-normal">Please check our docs</p>
+        <h4 className="text-white text-xs font-bold mb-0.5">Post-Quantum Active</h4>
+        <p className="text-[11px] text-[#8F9BBA] font-mono leading-tight">
+          FIPS 203 ML-KEM-1024 <br/>FIPS 204 ML-DSA-87
+        </p>
       </div>
     </aside>
   );
