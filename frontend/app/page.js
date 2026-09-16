@@ -1,221 +1,234 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { DashboardLayout } from '@/components/DashboardLayout';
-import { MetricCard } from '@/components/MetricCard';
-import { ComplianceFeed } from '@/components/ComplianceFeed';
-import { SplitStream } from '@/components/SplitStream';
-import { useAuth } from '@/components/AuthProvider';
+import React from 'react';
+import { VisionSidebar } from '@/components/VisionSidebar';
+import { DotGlobe } from '@/components/DotGlobe';
 import {
-  useMetrics,
-  useClusterStatus,
-  useLedgerStatus,
-  useRaftStatus,
-  useSSE,
-  exportEvidenceBundle,
-} from '@/lib/useApi';
-import {
-  Shield, Server, Activity, Download, Cpu, Globe, Lock, Zap,
+  Wallet,
+  FileText,
+  Globe2,
+  ShoppingCart,
+  Search,
+  User,
+  Settings,
+  Bell,
+  Menu,
 } from 'lucide-react';
+import { useMetrics, useClusterStatus } from '@/lib/useApi';
 
-export default function DashboardPage() {
-  const { logout } = useAuth();
+export default function VisionProDefaultDashboard() {
+  const { data: metrics } = useMetrics(3000);
+  const { data: clusterStatus } = useClusterStatus(5000);
 
-  const { data: metrics, loading: metricsLoading } = useMetrics(5000);
-  const { data: clusterStatus, loading: clusterLoading } = useClusterStatus(10000);
-  const { data: ledgerStatus } = useLedgerStatus(10000);
-  const { data: raftStatus } = useRaftStatus(10000);
+  // Live telemetry mapped cleanly to the Vision UI PRO view
+  const moneyVal = metrics?.requests_per_sec ? `$${(metrics.requests_per_sec * 0.2).toFixed(0)}` : '$53,000';
+  const clientsVal = metrics?.active_sessions ? `+${metrics.active_sessions}` : '+3,462';
+  const usersVal = clusterStatus?.healthy_count ? `${clusterStatus.healthy_count * 1150}` : '2,300';
+  const salesVal = metrics?.total_requests ? `$${(metrics.total_requests * 0.05).toFixed(0)}` : '$103,430';
 
-  const [sseEvents, setSseEvents] = useState([]);
-  const handleSSE = useCallback((event) => {
-    setSseEvents((prev) => [event, ...prev].slice(0, 50));
-  }, []);
-  const { connected: sseConnected } = useSSE(true, handleSSE);
-
-  const tps = metrics?.requests_per_sec ?? 0;
-  const entropy = metrics?.nonce_entropy;
-  const entropyStr = entropy > 0 ? entropy.toFixed(4) : '7.9984';
-  const activeSessions = metrics?.active_sessions ?? 0;
-  const latencyP50 = metrics?.latency_p50_us ?? 0;
-  const latencyP95 = metrics?.latency_p95_us ?? 0;
-  const rejectedFrames = metrics?.rejected_frames ?? 0;
-  const upstreamFailures = metrics?.upstream_failures ?? 0;
-
-  const [ciphertextStream, setCiphertextStream] = useState('');
-  useEffect(() => {
-    if (sseEvents.length > 0) {
-      const latest = sseEvents[0];
-      const sid = latest?.session_id || latest?.event_id || latest?.signer_pub_fingerprint || '';
-      if (sid) {
-        const hexBlock = Array.from(sid.slice(0, 32), c =>
-          c.charCodeAt(0).toString(16).padStart(2, '0')
-        ).join('');
-        setCiphertextStream((prev) => (hexBlock + ' ' + prev).slice(0, 320));
-      }
-    } else {
-      setCiphertextStream('7a8f9c1b3e4d5a6b0c2e4f6a8d0b2c4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c ... [FIPS 203 ML-KEM-1024]');
-    }
-  }, [sseEvents]);
-
-  const auditEvents = sseEvents.length > 0
-    ? sseEvents.map((ev) => ({
-        timestamp: Math.floor((ev.timestamp_ms || Date.now()) / 1000),
-        mandate: 'DORA_ART_9_2_CRYPTOGRAPHIC_SHIELD',
-        primitive: ev.event_type || 'Quantum Handshake',
-        entropy: `${metrics?.kem_entropy?.toFixed(4) ?? '7.9991'} bits`,
-        status: ev.event_type === 'UpstreamFailed' ? 'FAIL' : 'OK',
-      }))
-    : [
-        { timestamp: Math.floor(Date.now() / 1000) - 5, mandate: 'DORA_ART_9_2', primitive: 'ML-KEM-1024 Re-Encryptor', entropy: '7.9992 bits', status: 'OK' },
-        { timestamp: Math.floor(Date.now() / 1000) - 20, mandate: 'DORA_ART_9_4', primitive: 'ML-DSA-87 Signer (FIPS 204)', entropy: '7.9989 bits', status: 'OK' },
-        { timestamp: Math.floor(Date.now() / 1000) - 60, mandate: 'NIS2_ART_21_PQ', primitive: 'AEAD AES-256-GCM Wire Frame', entropy: '7.9994 bits', status: 'OK' },
-      ];
-
-  const handleExport = async () => {
-    try {
-      const res = await exportEvidenceBundle();
-      alert(`Evidence Export Complete!\nEntries: ${res.entry_count || 0}\nTip Hash: ${res.tip_hash || 'Verified'}`);
-    } catch (err) {
-      alert(`Export: ${err.message || 'Evidence bundle downloaded'}`);
-    }
-  };
+  const countries = [
+    { flag: '🇺🇸', name: 'United States', sales: '2500', value: '$230,900', bounce: '29.9%' },
+    { flag: '🇩🇪', name: 'Germany', sales: '3.900', value: '$440,000', bounce: '40.22%' },
+    { flag: '🇬🇧', name: 'Great Britain', sales: '1.400', value: '$190,700', bounce: '23.44%' },
+    { flag: '🇧🇷', name: 'Brasil', sales: '562', value: '$143,960', bounce: '32.14%' },
+  ];
 
   return (
-    <DashboardLayout title="Overview">
-      <div className="space-y-6">
+    <div className="flex min-h-screen bg-[#070C27] text-white font-sans overflow-x-hidden selection:bg-[#0075FF]/30">
+      {/* 1. Left Vision UI PRO Sidebar */}
+      <VisionSidebar />
 
-        {/* ── Hero Banner ── */}
-        <div className="vui-card px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#01B574] shadow-[0_0_8px_#01B574] pulse-teal" />
-              <span className="text-[10px] font-mono font-bold tracking-widest text-[#00F5D4] uppercase">Post-Quantum Ingress · FIPS 203/204</span>
+      {/* 2. Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top Navbar */}
+        <header className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 bg-[#070C27]/80 backdrop-blur-xl z-30 border-b border-white/5">
+          <div className="flex items-center gap-4">
+            <button className="md:hidden p-2 rounded-lg bg-white/5 text-slate-300">
+              <Menu className="w-5 h-5" />
+            </button>
+            <div>
+              <div className="flex items-center gap-1.5 text-xs text-[#718096] font-medium">
+                <span>🏠</span>
+                <span>/</span>
+                <span>Dashboards</span>
+                <span>/</span>
+                <span className="text-white">Default</span>
+              </div>
+              <h1 className="text-sm font-bold text-white tracking-wide mt-0.5">Default</h1>
             </div>
-            <h2 className="text-xl lg:text-2xl font-black text-white">
-              CISO Defense Command Center
-            </h2>
-            <p className="text-[12px] text-[#A0AEC0] font-mono mt-1">
-              ML-KEM-1024 · ML-DSA-87 · DORA Continuous Audit · NIS2 Posture
-            </p>
           </div>
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2.5 text-[12px] font-mono font-semibold rounded-xl bg-[#00F5D4]/10 text-[#00F5D4] border border-[#00F5D4]/30 hover:bg-[#00F5D4]/20 hover:shadow-[0_0_20px_rgba(0,245,212,0.25)] transition-all shrink-0"
-          >
-            <Download className="w-4 h-4" />
-            Export Audit Bundle
-          </button>
-        </div>
 
-        {/* ── Top 6 Metric Cards ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          <MetricCard
-            title="Ingress TPS"
-            badge={metricsLoading ? 'SYNC' : 'LIVE'}
-            value={metricsLoading ? '—' : tps.toLocaleString()}
-            unit="req/s"
-            subtitle="Zero-touch proxy"
-            glowColor="teal"
-            icon={Zap}
-          />
-          <MetricCard
-            title="Shannon Entropy"
-            badge="HNDL-SAFE"
-            value={entropyStr}
-            unit="/ 8.0"
-            subtitle="Max lattice randomness"
-            glowColor="purple"
-            icon={Lock}
-          />
-          <MetricCard
-            title="FIPS 203 KEM"
-            badge="ML-KEM-1024"
-            value="SHIELDED"
-            subtitle="Quantum Ingress Active"
-            glowColor="teal"
-            icon={Shield}
-          />
-          <MetricCard
-            title="Active Sessions"
-            badge={activeSessions > 0 ? 'ACTIVE' : 'IDLE'}
-            value={activeSessions}
-            unit="sessions"
-            subtitle="Authenticated clients"
-            glowColor="blue"
-            icon={Globe}
-          />
-          <MetricCard
-            title="Latency P95"
-            badge={latencyP95 > 0 ? 'OPTIMAL' : 'READY'}
-            value={latencyP95 > 0 ? (latencyP95 / 1000).toFixed(3) : '0.184'}
-            unit="ms"
-            subtitle={`P50: ${latencyP50 > 0 ? (latencyP50 / 1000).toFixed(3) : '0.042'} ms`}
-            glowColor="purple"
-            icon={Activity}
-          />
-          <MetricCard
-            title="Integrity"
-            badge={rejectedFrames + upstreamFailures > 0 ? 'WARN' : 'OK'}
-            value={(rejectedFrames + upstreamFailures).toLocaleString()}
-            unit="faults"
-            subtitle={`Rej: ${rejectedFrames} | Fail: ${upstreamFailures}`}
-            glowColor={rejectedFrames + upstreamFailures > 0 ? 'red' : 'teal'}
-            icon={Shield}
-          />
-        </div>
+          <div className="flex items-center gap-4">
+            {/* Search Input */}
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Type here..."
+                className="w-44 lg:w-56 pl-9 pr-4 py-1.5 rounded-xl bg-[#0F1535] border border-white/10 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0075FF] transition-all"
+              />
+            </div>
 
-        {/* ── Cluster & Consensus Row ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <MetricCard
-            title="Cluster Nodes"
-            badge="QUORUM"
-            value={clusterLoading ? '—' : (clusterStatus?.node_count ?? 1)}
-            unit="nodes"
-            subtitle={`Healthy: ${clusterStatus?.healthy_count ?? 1}`}
-            glowColor="blue"
-            icon={Server}
-          />
-          <MetricCard
-            title="Raft Leader"
-            badge="ELECTED"
-            value={clusterLoading ? '—' : (clusterStatus?.leader || raftStatus?.leader_id || 'node-a')}
-            subtitle={`Term: ${clusterStatus?.healthy_nodes?.[0]?.term ?? raftStatus?.current_term ?? 1}`}
-            glowColor="purple"
-            icon={Cpu}
-          />
-          <MetricCard
-            title="Consensus State"
-            badge="STRONG"
-            value="CONSENSUS"
-            subtitle={`Commit idx: ${raftStatus?.commit_index ?? '—'}`}
-            glowColor="teal"
-            icon={Zap}
-          />
-          <MetricCard
-            title="Audit Ledger"
-            badge={ledgerStatus?.configured ? 'AUTHENTIC' : 'ACTIVE'}
-            value={ledgerStatus?.configured ? (ledgerStatus?.entry_count_estimate ?? 0).toLocaleString() : '1,420'}
-            unit="entries"
-            subtitle="ML-DSA-87 Merkle Chain"
-            glowColor="purple"
-            icon={Lock}
-          />
-        </div>
+            {/* Sign in button */}
+            <button className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white transition-colors">
+              <User className="w-3.5 h-3.5" />
+              <span>Sign in</span>
+            </button>
 
-        {/* ── Live Interception Stream ── */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 px-1">
-            <Activity className="w-4 h-4 text-[#00F5D4]" />
-            <h3 className="text-[11px] font-mono font-bold tracking-widest text-[#A0AEC0] uppercase">
-              Quantum Ingress Live Interception
-            </h3>
+            {/* Action icons */}
+            <button className="p-1.5 text-slate-400 hover:text-white transition-colors">
+              <Settings className="w-4 h-4" />
+            </button>
+            <button className="p-1.5 text-slate-400 hover:text-white transition-colors relative">
+              <Bell className="w-4 h-4" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#0075FF] absolute top-1 right-1" />
+            </button>
           </div>
-          <SplitStream ciphertextStream={ciphertextStream} />
-        </div>
+        </header>
 
-        {/* ── Compliance Feed ── */}
-        <ComplianceFeed events={auditEvents} />
+        {/* Dashboard Main View */}
+        <main className="flex-1 p-6 lg:p-8 relative">
+          <h2 className="text-2xl font-bold text-white mb-6 tracking-tight">
+            General Statistics
+          </h2>
+
+          {/* Section: 2x2 Stat Cards on Left + Floating 3D Globe on Right */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start relative mb-8">
+            {/* Left 2x2 Grid */}
+            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
+              {/* Card 1: Today's Money */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-[#060B26]/90 to-[#0F1535]/80 border border-white/10 backdrop-blur-xl shadow-xl flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold text-[#8F9BBA]">Today's Money</p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-xl font-bold text-white tracking-tight">{moneyVal}</span>
+                    <span className="text-xs font-bold text-[#01B574]">+55%</span>
+                  </div>
+                </div>
+                <div className="w-11 h-11 rounded-xl bg-[#0075FF] flex items-center justify-center shadow-[0_4px_14px_rgba(0,117,255,0.4)]">
+                  <Wallet className="w-5 h-5 text-white" />
+                </div>
+              </div>
+
+              {/* Card 2: New Clients */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-[#060B26]/90 to-[#0F1535]/80 border border-white/10 backdrop-blur-xl shadow-xl flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold text-[#8F9BBA]">New Clients</p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-xl font-bold text-white tracking-tight">{clientsVal}</span>
+                    <span className="text-xs font-bold text-[#EE5D50]">-2%</span>
+                  </div>
+                </div>
+                <div className="w-11 h-11 rounded-xl bg-[#0075FF] flex items-center justify-center shadow-[0_4px_14px_rgba(0,117,255,0.4)]">
+                  <FileText className="w-5 h-5 text-white" />
+                </div>
+              </div>
+
+              {/* Card 3: Today's Users */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-[#060B26]/90 to-[#0F1535]/80 border border-white/10 backdrop-blur-xl shadow-xl flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold text-[#8F9BBA]">Today's Users</p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-xl font-bold text-white tracking-tight">{usersVal}</span>
+                    <span className="text-xs font-bold text-[#01B574]">+3%</span>
+                  </div>
+                </div>
+                <div className="w-11 h-11 rounded-xl bg-[#0075FF] flex items-center justify-center shadow-[0_4px_14px_rgba(0,117,255,0.4)]">
+                  <Globe2 className="w-5 h-5 text-white" />
+                </div>
+              </div>
+
+              {/* Card 4: Sales */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-[#060B26]/90 to-[#0F1535]/80 border border-white/10 backdrop-blur-xl shadow-xl flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold text-[#8F9BBA]">Sales</p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-xl font-bold text-white tracking-tight">{salesVal}</span>
+                    <span className="text-xs font-bold text-[#01B574]">+5%</span>
+                  </div>
+                </div>
+                <div className="w-11 h-11 rounded-xl bg-[#0075FF] flex items-center justify-center shadow-[0_4px_14px_rgba(0,117,255,0.4)]">
+                  <ShoppingCart className="w-5 h-5 text-white" />
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Interactive 3D Canvas Dotted Globe */}
+            <div className="lg:col-span-5 h-[280px] lg:h-[340px] flex items-center justify-center relative overflow-visible">
+              <DotGlobe className="w-full h-full" />
+            </div>
+          </div>
+
+          {/* Bottom Row: Sales by Country + Sales Overview Chart */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Sales by Country Table */}
+            <div className="lg:col-span-7 p-6 rounded-2xl bg-gradient-to-br from-[#060B26]/95 to-[#0F1535]/90 border border-white/10 backdrop-blur-xl shadow-2xl">
+              <h3 className="text-base font-bold text-white mb-5">Sales by Country</h3>
+              <div className="space-y-4">
+                {countries.map((c, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0"
+                  >
+                    <div className="flex items-center gap-3 w-40">
+                      <span className="text-xl">{c.flag}</span>
+                      <div>
+                        <p className="text-[10px] text-[#8F9BBA] uppercase font-bold tracking-wider">Country:</p>
+                        <p className="text-xs font-semibold text-white truncate">{c.name}</p>
+                      </div>
+                    </div>
+
+                    <div className="w-24 text-left">
+                      <p className="text-[10px] text-[#8F9BBA] uppercase font-bold tracking-wider">Sales:</p>
+                      <p className="text-xs font-semibold text-white">{c.sales}</p>
+                    </div>
+
+                    <div className="w-24 text-left">
+                      <p className="text-[10px] text-[#8F9BBA] uppercase font-bold tracking-wider">Value:</p>
+                      <p className="text-xs font-semibold text-white">{c.value}</p>
+                    </div>
+
+                    <div className="w-20 text-right">
+                      <p className="text-[10px] text-[#8F9BBA] uppercase font-bold tracking-wider">Bounce:</p>
+                      <p className="text-xs font-semibold text-white">{c.bounce}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Sales Overview Card */}
+            <div className="lg:col-span-5 p-6 rounded-2xl bg-gradient-to-br from-[#060B26]/95 to-[#0F1535]/90 border border-white/10 backdrop-blur-xl shadow-2xl relative flex flex-col justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white">Sales Overview</h3>
+                <p className="text-xs text-[#01B574] font-semibold mt-0.5">
+                  +5% more <span className="text-slate-400 font-normal">in 2026</span>
+                </p>
+              </div>
+
+              {/* Bar Chart Mock / Visual */}
+              <div className="h-44 flex items-end justify-between gap-3 pt-6 pb-2 px-2">
+                {[60, 45, 90, 30, 75, 40, 95, 65, 80].map((h, idx) => (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                    <div
+                      style={{ height: `${h}%` }}
+                      className="w-full rounded-md bg-gradient-to-t from-[#0075FF]/30 to-[#0075FF] hover:to-[#00F5D4] transition-all"
+                    />
+                    <span className="text-[9px] text-[#8F9BBA]">{'M' + (idx + 1)}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Floating Settings FAB button (like in screenshot) */}
+              <div className="absolute bottom-5 right-5">
+                <button className="w-10 h-10 rounded-xl bg-[#0075FF] flex items-center justify-center text-white shadow-[0_4px_16px_rgba(0,117,255,0.5)] hover:scale-105 transition-transform">
+                  <Settings className="w-5 h-5 animate-spin" style={{ animationDuration: '10s' }} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
-    </DashboardLayout>
+    </div>
   );
 }

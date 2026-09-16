@@ -224,7 +224,7 @@ function SessionsPanel({ sessions, onRefetch }) {
     } finally { setBusy(null); }
   }, [onRefetch]);
 
-  const list = sessions?.sessions ?? [];
+  const list = Array.isArray(sessions?.sessions) ? sessions.sessions : Array.isArray(sessions) ? sessions : [];
 
   return (
     <Box>
@@ -289,7 +289,7 @@ function ApiKeysPanel({ apiKeys, onRefetch }) {
     } finally { setBusy(null); }
   }, [onRefetch]);
 
-  const keys = apiKeys?.keys ?? [];
+  const keys = Array.isArray(apiKeys?.keys) ? apiKeys.keys : Array.isArray(apiKeys) ? apiKeys : [];
 
   return (
     <Box>
