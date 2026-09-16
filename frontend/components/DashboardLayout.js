@@ -2,12 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { SidebarProvider, useSidebar } from '@/components/SidebarContext';
+import { SidebarProvider } from '@/components/SidebarContext';
 import { PersonaProvider, usePersona } from '@/components/PersonaContext';
-import { Sidebar } from '@/components/Sidebar';
-import { TopBar } from '@/components/TopBar';
+import { VisionSidebar } from '@/components/VisionSidebar';
+import { VisionTopBar } from '@/components/VisionTopBar';
 import { useClusterStatus, useRaftStatus, useMetrics } from '@/lib/useApi';
-import { useSSE } from '@/lib/useSSE';
 import { useAuth } from '@/components/AuthProvider';
 import { Terminal, X } from 'lucide-react';
 
@@ -23,7 +22,7 @@ function TechnicalDiagnosticsHUD() {
       <div className="flex items-center justify-between border-b border-[#00F5D4]/30 pb-2.5 mb-3">
         <div className="flex items-center gap-2">
           <Terminal className="w-4 h-4 text-[#00F5D4]" />
-          <span className="font-bold tracking-wider uppercase text-white">ENGINE TECHNICAL APERTURE</span>
+          <span className="font-bold tracking-wider uppercase text-white">VARDHAN QUANTUM HUD</span>
         </div>
         <button
           onClick={toggleTechMode}
@@ -41,14 +40,6 @@ function TechnicalDiagnosticsHUD() {
         <div>
           <span className="text-slate-500 block">Consensus Role:</span>
           <span className="text-[#00F5D4] font-bold uppercase">{raftStatus?.role || 'LEADER'}</span>
-        </div>
-        <div>
-          <span className="text-slate-500 block">Commit Index:</span>
-          <span className="text-[#8A2BE2] font-bold">{raftStatus?.commit_index ?? 0}</span>
-        </div>
-        <div>
-          <span className="text-slate-500 block">Last Log Index:</span>
-          <span className="text-white font-bold">{raftStatus?.last_log_index ?? 0}</span>
         </div>
         <div>
           <span className="text-slate-500 block">Inbound Cipher:</span>
@@ -74,14 +65,7 @@ function TechnicalDiagnosticsHUD() {
 function DashboardLayoutInner({ children, title }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { data: clusterStatus, refetch: refetchCluster } = useClusterStatus();
-  const [sseConnected, setSseConnected] = useState(false);
   const { isAuthenticated, isReady } = useAuth();
-
-  const { connected } = useSSE(true, () => {});
-  useEffect(() => {
-    setSseConnected(connected);
-  }, [connected]);
 
   useEffect(() => {
     if (isReady && !isAuthenticated && pathname !== '/login') {
@@ -89,21 +73,15 @@ function DashboardLayoutInner({ children, title }) {
     }
   }, [isReady, isAuthenticated, pathname, router]);
 
-  const handleRefresh = () => {
-    refetchCluster?.();
-  };
-
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: 'linear-gradient(135deg, #050B1E 0%, #0B0F2A 40%, #0D0527 100%)' }}>
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <TopBar
-          title={title}
-          clusterStatus={clusterStatus}
-          sseConnected={sseConnected}
-          onRefresh={handleRefresh}
-        />
-        <main className="flex-1 overflow-y-auto bg-grid-pattern p-5 lg:p-7">
+    <div className="flex min-h-screen bg-[#070C27] text-white font-sans overflow-x-hidden selection:bg-[#0075FF]/30">
+      {/* Consistent Vision Sidebar across ALL pages */}
+      <VisionSidebar />
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <VisionTopBar title={title} />
+        <main className="flex-1 p-6 lg:p-8">
           <div className="max-w-7xl mx-auto space-y-6">
             {children}
           </div>
@@ -112,7 +90,6 @@ function DashboardLayoutInner({ children, title }) {
       <TechnicalDiagnosticsHUD />
     </div>
   );
-
 }
 
 export function DashboardLayout({ children, title }) {
