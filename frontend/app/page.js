@@ -14,28 +14,24 @@ import {
   useSSE,
   exportEvidenceBundle,
 } from '@/lib/useApi';
-import { Shield, Server, FileText, Download, Activity } from 'lucide-react';
+import {
+  Shield, Server, Activity, Download, Cpu, Globe, Lock, Zap,
+} from 'lucide-react';
 
 export default function DashboardPage() {
   const { logout } = useAuth();
 
-  // Real live backend telemetry (polled + SSE)
   const { data: metrics, loading: metricsLoading } = useMetrics(5000);
   const { data: clusterStatus, loading: clusterLoading } = useClusterStatus(10000);
   const { data: ledgerStatus } = useLedgerStatus(10000);
   const { data: raftStatus } = useRaftStatus(10000);
 
-  // Real SSE live events from /api/v1/events
   const [sseEvents, setSseEvents] = useState([]);
   const handleSSE = useCallback((event) => {
-    setSseEvents((prev) => {
-      const next = [event, ...prev];
-      return next.slice(0, 50);
-    });
+    setSseEvents((prev) => [event, ...prev].slice(0, 50));
   }, []);
   const { connected: sseConnected } = useSSE(true, handleSSE);
 
-  // Live telemetry display values
   const tps = metrics?.requests_per_sec ?? 0;
   const entropy = metrics?.nonce_entropy;
   const entropyStr = entropy > 0 ? entropy.toFixed(4) : '7.9984';
@@ -45,7 +41,6 @@ export default function DashboardPage() {
   const rejectedFrames = metrics?.rejected_frames ?? 0;
   const upstreamFailures = metrics?.upstream_failures ?? 0;
 
-  // Real-time ciphertext stream from SSE
   const [ciphertextStream, setCiphertextStream] = useState('');
   useEffect(() => {
     if (sseEvents.length > 0) {
@@ -58,44 +53,22 @@ export default function DashboardPage() {
         setCiphertextStream((prev) => (hexBlock + ' ' + prev).slice(0, 320));
       }
     } else {
-      setCiphertextStream('7a8f9c1b3e4d5a6b0c2e4f6a8d0b2c4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c ... [FIPS 203 ML-KEM-1024 / AES-256-GCM]');
+      setCiphertextStream('7a8f9c1b3e4d5a6b0c2e4f6a8d0b2c4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c ... [FIPS 203 ML-KEM-1024]');
     }
   }, [sseEvents]);
 
-  // Build continuous compliance events from live SSE stream
   const auditEvents = sseEvents.length > 0
-    ? sseEvents.map((ev) => {
-        const isError = ev.event_type === 'UpstreamFailed';
-        return {
-          timestamp: Math.floor((ev.timestamp_ms || Date.now()) / 1000),
-          mandate: 'DORA_ART_9_2_CRYPTOGRAPHIC_SHIELD',
-          primitive: ev.event_type || 'Quantum Handshake',
-          entropy: `${metrics?.kem_entropy?.toFixed(4) ?? '7.9991'} bits`,
-          status: isError ? 'FAIL' : 'OK',
-        };
-      })
+    ? sseEvents.map((ev) => ({
+        timestamp: Math.floor((ev.timestamp_ms || Date.now()) / 1000),
+        mandate: 'DORA_ART_9_2_CRYPTOGRAPHIC_SHIELD',
+        primitive: ev.event_type || 'Quantum Handshake',
+        entropy: `${metrics?.kem_entropy?.toFixed(4) ?? '7.9991'} bits`,
+        status: ev.event_type === 'UpstreamFailed' ? 'FAIL' : 'OK',
+      }))
     : [
-        {
-          timestamp: Math.floor(Date.now() / 1000) - 5,
-          mandate: 'DORA_ART_9_2_CRYPTOGRAPHIC_SHIELD',
-          primitive: 'ML-KEM-1024 Re-Encryptor',
-          entropy: '7.9992 bits',
-          status: 'OK',
-        },
-        {
-          timestamp: Math.floor(Date.now() / 1000) - 20,
-          mandate: 'DORA_ART_9_4_LATTICE_ENVELOPE',
-          primitive: 'ML-DSA-87 Signer (FIPS 204)',
-          entropy: '7.9989 bits',
-          status: 'OK',
-        },
-        {
-          timestamp: Math.floor(Date.now() / 1000) - 60,
-          mandate: 'NIS2_DIRECTIVE_ART_21_POST_QUANTUM',
-          primitive: 'AEAD AES-256-GCM Wire Frame',
-          entropy: '7.9994 bits',
-          status: 'OK',
-        },
+        { timestamp: Math.floor(Date.now() / 1000) - 5, mandate: 'DORA_ART_9_2', primitive: 'ML-KEM-1024 Re-Encryptor', entropy: '7.9992 bits', status: 'OK' },
+        { timestamp: Math.floor(Date.now() / 1000) - 20, mandate: 'DORA_ART_9_4', primitive: 'ML-DSA-87 Signer (FIPS 204)', entropy: '7.9989 bits', status: 'OK' },
+        { timestamp: Math.floor(Date.now() / 1000) - 60, mandate: 'NIS2_ART_21_PQ', primitive: 'AEAD AES-256-GCM Wire Frame', entropy: '7.9994 bits', status: 'OK' },
       ];
 
   const handleExport = async () => {
@@ -109,56 +82,58 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout title="Overview">
-      <div className="space-y-8">
-        {/* Top Control Plane Banner */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-gradient-to-r from-[#0075FF]/20 via-[#0B1437]/80 to-[#8A2BE2]/20 border border-white/10 backdrop-blur-xl shadow-2xl">
+      <div className="space-y-6">
+
+        {/* ── Hero Banner ── */}
+        <div className="vui-card px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#00F5D4] shadow-[0_0_10px_#00F5D4]"></span>
-              <span className="text-xs font-mono font-bold tracking-widest text-[#00F5D4] uppercase">Post-Quantum Ingress Interceptor</span>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="w-2 h-2 rounded-full bg-[#01B574] shadow-[0_0_8px_#01B574] pulse-teal" />
+              <span className="text-[10px] font-mono font-bold tracking-widest text-[#00F5D4] uppercase">Post-Quantum Ingress · FIPS 203/204</span>
             </div>
-            <h2 className="text-xl lg:text-2xl font-black text-white font-mono">
-              CISO DEFENSE COMMAND CENTER
+            <h2 className="text-xl lg:text-2xl font-black text-white">
+              CISO Defense Command Center
             </h2>
-            <p className="text-xs text-slate-400 font-mono mt-1">
-              Real-time FIPS 203 / 204 Lattice Encryption • DORA Continuous Audit Feed
+            <p className="text-[12px] text-[#A0AEC0] font-mono mt-1">
+              ML-KEM-1024 · ML-DSA-87 · DORA Continuous Audit · NIS2 Posture
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-mono font-semibold rounded-xl bg-[#00F5D4]/10 text-[#00F5D4] border border-[#00F5D4]/40 hover:bg-[#00F5D4]/20 hover:shadow-[0_0_20px_rgba(0,245,212,0.3)] transition-all"
-            >
-              <Download className="w-4 h-4" />
-              <span>Export Audit Bundle</span>
-            </button>
-          </div>
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 py-2.5 text-[12px] font-mono font-semibold rounded-xl bg-[#00F5D4]/10 text-[#00F5D4] border border-[#00F5D4]/30 hover:bg-[#00F5D4]/20 hover:shadow-[0_0_20px_rgba(0,245,212,0.25)] transition-all shrink-0"
+          >
+            <Download className="w-4 h-4" />
+            Export Audit Bundle
+          </button>
         </div>
 
-        {/* Hero 6 Metric Cards */}
+        {/* ── Top 6 Metric Cards ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <MetricCard
             title="Ingress TPS"
-            badge={metricsLoading ? 'SYNCING' : 'LIVE'}
+            badge={metricsLoading ? 'SYNC' : 'LIVE'}
             value={metricsLoading ? '—' : tps.toLocaleString()}
             unit="req/s"
-            subtitle="Zero-touch proxy throughput"
+            subtitle="Zero-touch proxy"
             glowColor="teal"
+            icon={Zap}
           />
           <MetricCard
             title="Shannon Entropy"
-            badge="HNDL SAFE"
+            badge="HNDL-SAFE"
             value={entropyStr}
             unit="/ 8.0"
-            subtitle="Maximum lattice randomness"
+            subtitle="Max lattice randomness"
             glowColor="purple"
+            icon={Lock}
           />
           <MetricCard
-            title="FIPS 203 ML-KEM"
+            title="FIPS 203 KEM"
             badge="ML-KEM-1024"
             value="SHIELDED"
             subtitle="Quantum Ingress Active"
             glowColor="teal"
+            icon={Shield}
           />
           <MetricCard
             title="Active Sessions"
@@ -167,6 +142,7 @@ export default function DashboardPage() {
             unit="sessions"
             subtitle="Authenticated clients"
             glowColor="blue"
+            icon={Globe}
           />
           <MetricCard
             title="Latency P95"
@@ -175,19 +151,21 @@ export default function DashboardPage() {
             unit="ms"
             subtitle={`P50: ${latencyP50 > 0 ? (latencyP50 / 1000).toFixed(3) : '0.042'} ms`}
             glowColor="purple"
+            icon={Activity}
           />
           <MetricCard
             title="Integrity"
-            badge={rejectedFrames + upstreamFailures > 0 ? 'WARN' : 'VERIFIED'}
+            badge={rejectedFrames + upstreamFailures > 0 ? 'WARN' : 'OK'}
             value={(rejectedFrames + upstreamFailures).toLocaleString()}
             unit="faults"
             subtitle={`Rej: ${rejectedFrames} | Fail: ${upstreamFailures}`}
             glowColor={rejectedFrames + upstreamFailures > 0 ? 'red' : 'teal'}
+            icon={Shield}
           />
         </div>
 
-        {/* Cluster & Consensus Row */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* ── Cluster & Consensus Row ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title="Cluster Nodes"
             badge="QUORUM"
@@ -195,43 +173,47 @@ export default function DashboardPage() {
             unit="nodes"
             subtitle={`Healthy: ${clusterStatus?.healthy_count ?? 1}`}
             glowColor="blue"
+            icon={Server}
           />
           <MetricCard
             title="Raft Leader"
-            badge="LEADER"
+            badge="ELECTED"
             value={clusterLoading ? '—' : (clusterStatus?.leader || raftStatus?.leader_id || 'node-a')}
             subtitle={`Term: ${clusterStatus?.healthy_nodes?.[0]?.term ?? raftStatus?.current_term ?? 1}`}
             glowColor="purple"
+            icon={Cpu}
           />
           <MetricCard
             title="Consensus State"
             badge="STRONG"
             value="CONSENSUS"
-            subtitle={`Commit Index: ${raftStatus?.commit_index ?? 'Active'}`}
+            subtitle={`Commit idx: ${raftStatus?.commit_index ?? '—'}`}
             glowColor="teal"
+            icon={Zap}
           />
           <MetricCard
             title="Audit Ledger"
             badge={ledgerStatus?.configured ? 'AUTHENTIC' : 'ACTIVE'}
             value={ledgerStatus?.configured ? (ledgerStatus?.entry_count_estimate ?? 0).toLocaleString() : '1,420'}
             unit="entries"
-            subtitle="ML-DSA-87 Merkle Hash Chain"
+            subtitle="ML-DSA-87 Merkle Chain"
             glowColor="purple"
+            icon={Lock}
           />
         </div>
 
-        {/* Live Interception Stream: Plaintext vs FIPS 203 ML-KEM */}
+        {/* ── Live Interception Stream ── */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 px-1">
             <Activity className="w-4 h-4 text-[#00F5D4]" />
-            <h3 className="text-xs font-mono font-bold tracking-widest text-slate-300 uppercase">
-              Quantum Ingress Live Interception Analysis
+            <h3 className="text-[11px] font-mono font-bold tracking-widest text-[#A0AEC0] uppercase">
+              Quantum Ingress Live Interception
             </h3>
           </div>
           <SplitStream ciphertextStream={ciphertextStream} />
         </div>
 
-        {/* Continuous DORA / NIS2 Compliance Feed */}
+        {/* ── Compliance Feed ── */}
         <ComplianceFeed events={auditEvents} />
       </div>
     </DashboardLayout>

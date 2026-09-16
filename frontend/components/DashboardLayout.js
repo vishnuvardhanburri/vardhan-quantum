@@ -94,17 +94,17 @@ function DashboardLayoutInner({ children, title }) {
   };
 
   return (
-    <div className="flex h-screen bg-[#05060A] text-white overflow-hidden font-sans">
+    <div className="flex h-screen overflow-hidden" style={{ background: 'linear-gradient(135deg, #050B1E 0%, #0B0F2A 40%, #0D0527 100%)' }}>
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#05060A]">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <TopBar
           title={title}
           clusterStatus={clusterStatus}
           sseConnected={sseConnected}
           onRefresh={handleRefresh}
         />
-        <main className="flex-1 overflow-y-auto bg-grid-pattern bg-[#05060A] p-4 lg:p-8">
-          <div className="max-w-7xl mx-auto space-y-8">
+        <main className="flex-1 overflow-y-auto bg-grid-pattern p-5 lg:p-7">
+          <div className="max-w-7xl mx-auto space-y-6">
             {children}
           </div>
         </main>
@@ -112,6 +112,7 @@ function DashboardLayoutInner({ children, title }) {
       <TechnicalDiagnosticsHUD />
     </div>
   );
+
 }
 
 export function DashboardLayout({ children, title }) {

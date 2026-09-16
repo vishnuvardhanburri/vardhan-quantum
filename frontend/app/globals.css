@@ -5,84 +5,100 @@
 @tailwind utilities;
 
 :root {
-  --bg-space: #05060A;
-  --surface-elev: #0A0C14;
+  --bg-space: #0B0F2A;
+  --surface-elev: #111432;
   --surface-card: #0D0F17;
-  --border: rgba(255, 255, 255, 0.06);
-  --border-hover: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.15);
   --text-primary: #F0F2F5;
-  --text-secondary: #9BA0B5;
+  --text-secondary: #A0AEC0;
   --text-tertiary: #5A5F73;
   --accent-teal: #00F5D4;
   --accent-indigo: #8A2BE2;
   --accent-crimson: #FF0055;
   --amber: #FFB703;
-
-  --status-healthy: #22C55E;
-  --status-degraded: #F59E0B;
+  --status-healthy: #01B574;
+  --status-degraded: #FFB547;
   --status-draining: #F97316;
-  --status-dead: #EF4444;
+  --status-dead: #EE5D50;
   --status-pending: #8B5CF6;
-
   --chart-teal: rgba(0, 245, 212, 0.8);
   --chart-indigo: rgba(138, 43, 226, 0.8);
+  --sidebar-bg: linear-gradient(159.02deg, #0F123B 14.25%, #090D2E 56.45%, #020515 86.14%);
+  --card-bg: linear-gradient(127.09deg, rgba(6,11,40,0.94) 19.41%, rgba(10,14,35,0.49) 76.65%);
 }
 
-* {
-  @media (prefers-reduced-motion: reduce) {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+* { box-sizing: border-box; }
 
 body {
   font-family: 'Inter', sans-serif;
-  background-color: var(--bg-space);
+  background: linear-gradient(135deg, #050B1E 0%, #0B0F2A 40%, #0D0527 100%);
+  min-height: 100vh;
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-.font-mono {
-  font-family: 'JetBrains Mono', monospace;
+/* ── Vision UI PRO Glass Card ── */
+.vui-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(120px);
+  -webkit-backdrop-filter: blur(120px);
+  border-radius: 20px;
+  border: 1px solid rgba(226,232,240,0.08);
+  box-shadow: 0 8px 32px 0 rgba(0,0,0,0.36);
 }
 
-/* ── Surface helpers ── */
-.bg-surface { background-color: var(--bg-space); }
-.bg-surface-elev { background-color: var(--surface-elev); }
-.bg-surface-card { background-color: var(--surface-card); }
-.border-panel { border-color: var(--border); }
-.border-panel-hover { border-color: var(--border-hover); }
+/* ── Sidebar ── */
+.sidebar-bg {
+  background: linear-gradient(159.02deg, #0F123B 14.25%, #090D2E 56.45%, #020515 86.14%);
+}
 
-/* ── Glass panel treatment ── */
-.panel {
-  background: linear-gradient(180deg, rgba(13, 15, 23, 0.9), rgba(13, 15, 23, 0.95));
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border);
+/* ── Active nav item Vision UI PRO style ── */
+.nav-active {
+  background: linear-gradient(127.09deg, rgba(6,11,40,0.94) 19.41%, rgba(10,14,35,0.49) 76.65%);
+  backdrop-filter: blur(60px);
+  -webkit-backdrop-filter: blur(60px);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px 0 rgba(0,0,0,0.3);
+}
+
+/* ── Icon boxes (Vision UI PRO gradient icon containers) ── */
+.icon-box-teal {
+  background: linear-gradient(126.97deg, rgba(6,11,40,0.74) 28.26%, rgba(10,14,35,0.71) 91.2%);
+  box-shadow: inset 0 0 0 1px rgba(0,245,212,0.15);
+}
+.icon-box-indigo {
+  background: linear-gradient(126.97deg, #313860 28.26%, #151928 91.2%);
+}
+.icon-box-purple {
+  background: linear-gradient(126.97deg, rgba(138,43,226,0.3) 28.26%, rgba(50,10,80,0.5) 91.2%);
+  box-shadow: inset 0 0 0 1px rgba(138,43,226,0.2);
+}
+
+/* ── TopBar ── */
+.topbar-bg {
+  background: linear-gradient(127.09deg, rgba(6,11,40,0.94) 19.41%, rgba(10,14,35,0.49) 76.65%);
+  backdrop-filter: blur(120px);
+  -webkit-backdrop-filter: blur(120px);
 }
 
 /* ── Custom Scrollbar ── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track { background: var(--bg-space); }
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
-}
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-teal); }
 
 /* ── Subtle grid mesh ── */
 .bg-grid-pattern {
-  background-size: 32px 32px;
+  background-size: 40px 40px;
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255,255,255,0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.015) 1px, transparent 1px);
 }
 
-/* ── Status indicators ── */
+/* ── Status dots ── */
 .status-dot {
   display: inline-block;
   width: 0.5rem;
@@ -91,13 +107,34 @@ body {
 }
 .status-healthy { color: var(--status-healthy); }
 .status-degraded { color: var(--status-degraded); }
-.status-draining { color: var(--status-draining); }
 .status-dead { color: var(--status-dead); }
-.status-pending { color: var(--status-pending); }
 
-/* ── Transitions ── */
+/* ── Glow pulse ── */
+@keyframes pulse-teal {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,245,212,0.35); }
+  50% { box-shadow: 0 0 12px 4px rgba(0,245,212,0.15); }
+}
+.pulse-teal { animation: pulse-teal 2s ease-in-out infinite; }
+
+/* ── Surface helpers ── */
+.bg-surface { background-color: var(--bg-space); }
+.bg-surface-elev { background-color: var(--surface-elev); }
+.bg-surface-card { background-color: var(--surface-card); }
+.border-panel { border-color: var(--border); }
+.border-panel-hover { border-color: var(--border-hover); }
+.text-accent { color: var(--accent-teal); }
+.text-secondary-vui { color: var(--text-secondary); }
+
+/* ── Transition helpers ── */
 .transition-panel {
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.text-accent { color: var(--accent-teal); }
+/* ── Vision UI separator ── */
+.vui-separator {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  height: 1px;
+  width: 100%;
+  border: none;
+}
+

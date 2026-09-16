@@ -6,7 +6,7 @@ export const SplitStream = ({ ciphertextStream }) => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* LEFT: Unshielded Ingress */}
-      <div className="relative rounded-2xl bg-[#05060A]/90 border border-red-500/20 p-5 font-mono text-xs overflow-hidden shadow-2xl flex flex-col h-64">
+      <div className="vui-card p-5 font-mono text-xs overflow-hidden flex flex-col h-64 border-[#EE5D50]/20">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%)] bg-[length:100%_4px] z-10 opacity-30"></div>
         <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/5 text-slate-400 text-xs">
           <div className="flex items-center space-x-2">
@@ -30,7 +30,7 @@ export const SplitStream = ({ ciphertextStream }) => {
       </div>
 
       {/* RIGHT: Post-Quantum Ciphertext */}
-      <div className="relative rounded-2xl bg-[#05060A]/90 border border-[#00F5D4]/40 p-5 font-mono text-xs overflow-hidden shadow-[0_0_30px_rgba(0,245,212,0.1)] flex flex-col h-64">
+      <div className="vui-card p-5 font-mono text-xs overflow-hidden flex flex-col h-64 border-[#00F5D4]/25">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%)] bg-[length:100%_4px] z-10 opacity-30"></div>
         <div className="flex items-center justify-between pb-3 mb-3 border-b border-[#00F5D4]/20 text-[#00F5D4] text-xs">
           <div className="flex items-center space-x-2">

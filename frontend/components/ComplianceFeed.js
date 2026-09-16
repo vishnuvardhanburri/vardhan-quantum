@@ -4,7 +4,7 @@ import React from 'react';
 
 export const ComplianceFeed = ({ events = [] }) => {
   return (
-    <div className="relative rounded-2xl bg-gradient-to-b from-[#0B1437]/90 to-[#0A0E27]/80 backdrop-blur-2xl border border-white/10 p-6 font-mono text-xs overflow-hidden shadow-2xl">
+    <div className="vui-card p-6 font-mono text-xs overflow-hidden">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%)] bg-[length:100%_4px] z-10 opacity-30"></div>
       
       <div className="flex items-center justify-between pb-3 mb-4 border-b border-white/10 text-slate-400 text-xs relative z-20">
