@@ -7,8 +7,8 @@ export default {
   hostApi,
   portApi,
   baseURLApi,
-  proxyIngressUrl: "http://127.0.0.1:8080",
-  adminApiUrl: "http://127.0.0.1:8081",
+  proxyIngressUrl: process.env.VARDHAN_INGRESS_URL || "http://127.0.0.1:8080",
+  adminApiUrl: process.env.VARDHAN_BACKEND_URL || "http://127.0.0.1:8081",
   remote: `${hostApi}/api`,
   isBackend: true,
   app: {

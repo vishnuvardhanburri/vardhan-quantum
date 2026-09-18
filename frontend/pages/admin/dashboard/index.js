@@ -13,6 +13,10 @@ function CommandCenter({ currentUser }) {
   const [drainInProgress, setDrainInProgress] = useState(false);
   const [drainResult, setDrainResult] = useState(null);
 
+  // MOCK DATA — fallback telemetry used before first API fetch completes.
+  // Live data is fetched from /api/v1/metrics, /api/v1/raft/status,
+  // /api/v1/sessions, /api/v1/ledger/export, and /api/v1/ledger/verify.
+  // These values should be replaced by API responses in useEffect.
   const [telemetry, setTelemetry] = useState({
     status: { state: "HEALTHY", pqc_suite: "ML-KEM-1024 + ML-DSA-87 (Post-Quantum)", uptime_secs: 14280, node_id: "vq-node-01-lhr" },
     raft: { term: 4, state: "Leader", leader_id: "vq-node-01-lhr", commit_index: 84092, peers: ["vq-node-02-fra", "vq-node-03-iad"] },
