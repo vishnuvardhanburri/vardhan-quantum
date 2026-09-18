@@ -4,3 +4,6 @@
 # next
 .next/
 .idea/
+# NEVER commit local environment — contains secrets
+.env.local
+.env*.local

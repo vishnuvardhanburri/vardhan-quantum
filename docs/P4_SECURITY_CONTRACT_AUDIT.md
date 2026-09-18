@@ -86,7 +86,7 @@ For each matched call, verify the JSON schema of requests and responses:
 
 The Express proxy (`server.js`) holds `ADMIN_TOKEN` as a server-side env var:
 
-- [ ] `grep -r "RETRACTED-STAGING-TOKEN" .next/` → should return nothing
+- [ ] `grep -r "<rotated-token>" .next/` → should return nothing
 - [ ] `grep -r "process.env.ADMIN_TOKEN" .next/static/` → should return nothing
 - [ ] Verify `ADMIN_TOKEN` is not exposed via any API route in Next.js
 - [ ] Verify SSE proxy (`proxySse`) does not log or echo the token

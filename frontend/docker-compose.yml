@@ -13,7 +13,7 @@ services:
       # Use host.docker.internal to reach pq_shield running on the host
       - VARDHAN_BACKEND_URL=http://host.docker.internal:8081
       - VARDHAN_INGRESS_URL=http://host.docker.internal:8080
-      - ADMIN_TOKEN=RETRACTED-STAGING-TOKEN
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
     depends_on: []
     restart: unless-stopped
     healthcheck:

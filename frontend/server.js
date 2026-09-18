@@ -10,7 +10,8 @@ const app = next({ dev })
 const handle = app.getRequestHandler()
 
 const PQ_SHIELD_BACKEND = process.env.VARDHAN_BACKEND_URL || 'http://127.0.0.1:8081'
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'RETRACTED-STAGING-TOKEN'
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN
+if (!ADMIN_TOKEN) { console.error('FATAL: ADMIN_TOKEN environment variable required'); process.exit(1) }
 
 console.log(`> pq_shield backend: ${PQ_SHIELD_BACKEND}`)
 

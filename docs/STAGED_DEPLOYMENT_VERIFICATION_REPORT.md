@@ -55,14 +55,14 @@ through pq_shield, SSE events are captured through the proxy, all 31 Raft tests 
 |---|---|---|
 | `VARDHAN_BACKEND_URL` | `http://127.0.0.1:8081` | pq_shield admin API endpoint |
 | `VARDHAN_INGRESS_URL` | `http://127.0.0.1:8080` | pq_shield proxy ingress |
-| `ADMIN_TOKEN` | `RETRACTED-STAGING-TOKEN` | Bearer token for pq_shield auth |
+| `ADMIN_TOKEN` | `<rotated-token>` | Bearer token for pq_shield auth |
 | `PORT` | `3000` | Frontend server port |
 
 ### Environment Variables (pq_shield)
 
 | Variable | Value |
 |---|---|
-| `VARDHAN_ADMIN_TOKEN` | `RETRACTED-STAGING-TOKEN` |
+| `VARDHAN_ADMIN_TOKEN` | `<rotated-token>` |
 | `VARDHAN_ADMIN_CORS_ORIGIN` | `http://localhost:3000` |
 | `VARDHAN_ADMIN_PORT` | `8081` |
 | `VARDHAN_PORT` | `8080` |
@@ -94,7 +94,7 @@ yarn build  (NODE_OPTIONS=--openssl-legacy-provider)
 ```
 NODE_ENV=production NODE_OPTIONS=--openssl-legacy-provider \
   VARDHAN_BACKEND_URL=http://127.0.0.1:8081 \
-  ADMIN_TOKEN=RETRACTED-STAGING-TOKEN \
+  ADMIN_TOKEN=<rotated-token> \
   PORT=3000 node server.js
 ```
 
@@ -292,7 +292,7 @@ cargo test -p ha_cluster --test raft_l3_failure test_old_leader_returns_fencing
 | File | Change |
 |---|---|
 | `server.js` | Added Express proxy for `/api/v1/*` → pq_shield (port 8081) with JWT→admin token swap, path rewrites for endpoint mismatches, dedicated SSE streaming proxy using raw Node.js http module |
-| `.env.local` | Fixed `ADMIN_TOKEN` from `test-secret-token` to `RETRACTED-STAGING-TOKEN` |
+| `.env.local` | Fixed `ADMIN_TOKEN` from `test-secret-token` to `<rotated-token>` |
 | `pages/admin/dashboard/index.js` | Fixed `/api/v1/raft/state` → `/api/v1/raft/status` |
 | `pages/topology/index.js` | Fixed `/api/v1/cluster/nodes` → `/api/v1/cluster/peers` |
 
@@ -334,7 +334,7 @@ cargo test -p ha_cluster --test raft_l3_failure test_old_leader_returns_fencing
    `/api/v1/events` that properly streams SSE events to the browser.
 
 6. **Wrong ADMIN_TOKEN in `.env.local`** — Was `test-secret-token`, not the real
-   pq_shield token. Fixed to `RETRACTED-STAGING-TOKEN`.
+   pq_shield token. Fixed to `<rotated-token>`.
 
 7. **No Dockerfile** — Created multi-stage Docker build for the redesigned frontend.
 
