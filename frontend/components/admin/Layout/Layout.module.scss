@@ -1,0 +1,73 @@
+@import "../../../styles/app";
+
+.root {
+  height: 100%;
+  position: relative;
+  left: 0;
+  overflow-x: hidden;
+  background-color: #F8FAFC;
+}
+
+.wrap {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  margin-left: $sidebar-width-open;
+  width: calc(100% - #{$sidebar-width-open});
+  max-width: calc(100% - #{$sidebar-width-open});
+  left: 0;
+  transition: margin-left $sidebar-transition-time cubic-bezier(0.16, 1, 0.3, 1),
+    width $sidebar-transition-time cubic-bezier(0.16, 1, 0.3, 1),
+    max-width $sidebar-transition-time cubic-bezier(0.16, 1, 0.3, 1);
+
+  @media (max-width: breakpoint-max(md)) {
+    margin-left: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+.sidebarClose div.wrap,
+.sidebarClose .wrap {
+  margin-left: $sidebar-width-closed;
+  width: calc(100% - #{$sidebar-width-closed});
+  max-width: calc(100% - #{$sidebar-width-closed});
+  left: 0;
+
+  @media (max-width: breakpoint-max(md)) {
+    margin-left: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+.sidebarStatic .wrap {
+  left: 0;
+  margin-left: $sidebar-width-open;
+  width: calc(100% - #{$sidebar-width-open});
+  max-width: calc(100% - #{$sidebar-width-open});
+}
+
+.content {
+  position: relative;
+  flex-grow: 1;
+  // 20px for footer height
+  padding: $content-padding $content-padding ($content-padding + 20px);
+  background-color: $body-bg;
+
+  @media (max-width: breakpoint-max(sm)) {
+    padding: 20px $content-padding-sm ($content-padding + 30px);
+  }
+
+  // hammers disallows text selection, allowing it for large screens
+  @media (min-width: breakpoint-min(sm)) {
+    user-select: auto !important;
+  }
+}
+
+.contentFooter {
+  position: absolute;
+  bottom: 15px;
+  color: $text-muted;
+}

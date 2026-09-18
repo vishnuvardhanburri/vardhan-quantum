@@ -171,6 +171,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
         // P2: ledger endpoints
         .route("/api/v1/ledger/status", get(ledger_status))
         .route("/api/v1/ledger/export", get(ledger_export))
+        .route("/api/v1/ledger/verify", get(ledger_verify).post(ledger_verify))
         // P3.4: cluster endpoints
         .route("/api/v1/cluster/peers", get(cluster_peers))
         .route("/api/v1/cluster/status", get(cluster_status))
@@ -376,6 +377,102 @@ async fn ledger_status(State(state): State<AdminState>) -> impl IntoResponse {
             })
         }
     }
+}
+
+// ── P2: Ledger verify endpoint ──────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct LedgerVerification {
+    chain_valid: bool,
+    blocks_verified: u64,
+    root_hash: String,
+    signer_pub_fingerprint: String,
+}
+
+async fn ledger_verify(State(state): State<AdminState>) -> impl IntoResponse {
+    let Some(ledger_path) = &state.ledger_path else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "chain_valid": false,
+                "blocks_verified": 0,
+                "root_hash": "0".repeat(64),
+                "error": "Durable ledger not configured. Set VARDHAN_LEDGER_PATH and restart."
+            })),
+        ).into_response();
+    };
+
+    let content = match std::fs::read_to_string(ledger_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "chain_valid": false,
+                    "blocks_verified": 0,
+                    "root_hash": "0".repeat(64),
+                    "error": format!("Cannot read ledger: {e}")
+                })),
+            ).into_response();
+        }
+    };
+
+    let mut chain_valid = true;
+    let mut blocks_verified: u64 = 0;
+    let mut prev_hash = [0u8; 32];
+    let mut tip_hash = [0u8; 32];
+    let mut signer_fp = String::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let entry: LedgerEntry = match serde_json::from_str(line) {
+            Ok(e) => e,
+            Err(_) => { chain_valid = false; continue; }
+        };
+
+        blocks_verified += 1;
+        if blocks_verified == 1 {
+            signer_fp = entry.signer_pub_fingerprint.clone();
+        }
+
+        // Verify chain linkage: prev_hash must match BLAKE3 of previous entry
+        let expected_prev = hex::encode(prev_hash);
+        if entry.prev_hash != expected_prev {
+            chain_valid = false;
+        }
+
+        // Recompute canonical hash for next iteration
+        let prev_hash_bytes = match hex::decode(&expected_prev) {
+            Ok(b) if b.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&b);
+                arr
+            },
+            _ => [0u8; 32],
+        };
+        let canonical = audit_ledger::canonical_hash(
+            entry.seq,
+            entry.timestamp_ms,
+            &serde_json::to_string(&entry.event).unwrap_or_default(),
+            &prev_hash_bytes,
+        );
+        prev_hash = canonical;
+        tip_hash = canonical;
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "chain_valid": chain_valid,
+            "blocks_verified": blocks_verified,
+            "root_hash": hex::encode(tip_hash),
+            "signer_pub_fingerprint": signer_fp,
+        })),
+    ).into_response()
 }
 
 // ── P2: Evidence export endpoint ────────────────────────────────────────────

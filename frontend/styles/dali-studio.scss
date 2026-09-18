@@ -1,0 +1,1593 @@
+/* ==========================================================================
+   Dali Agency / Northstar Studio Design System for Vardhan Quantum
+   Minimalist Swiss Architectural Typography · Hairline Grids · #F5F5F5 Canvas
+   ========================================================================== */
+
+:root {
+  --dali-bg: #F5F5F5;
+  --dali-card-bg: #FFFFFF;
+  --dali-border: rgba(0, 0, 0, 0.12);
+  --dali-border-subtle: rgba(0, 0, 0, 0.08);
+  --dali-text-main: #0A0A0A;
+  --dali-text-muted: #71717A;
+  --dali-text-sub: #3F3F46;
+  --dali-accent: #2563EB;
+  --dali-font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  --dali-mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
+
+html {
+  overflow-x: clip !important;
+}
+
+body {
+  background-color: var(--dali-bg) !important;
+  color: var(--dali-text-main) !important;
+  font-family: var(--dali-font) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+  overflow-x: clip !important;
+  min-height: 100%;
+}
+
+/* ── Dali Editorial Navigation Bar with Smart Roll-In / Roll-Out ─────────── */
+.dali-nav {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: 1000;
+  background-color: rgba(245, 245, 245, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--dali-border);
+  height: 62px;
+  transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease;
+  will-change: transform;
+}
+
+.dali-nav.nav-hidden {
+  transform: translateY(-100%);
+}
+
+.dali-nav.nav-visible {
+  transform: translateY(0);
+}
+
+.dali-nav-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+}
+
+.dali-nav-brand {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.dali-nav-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 0 16px;
+}
+
+@media (max-width: 1080px) {
+  .dali-nav-center {
+    display: none;
+  }
+}
+
+.dali-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.dali-nav-links {
+  display: flex;
+  align-items: center;
+  list-style: none;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+}
+
+.dali-nav-item {
+  border-left: none;
+  padding: 0;
+  margin: 0;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.dali-nav-link {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dali-text-main);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.dali-nav-link:hover {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #0A0A0A;
+  text-decoration: none;
+}
+
+.dali-nav-num {
+  font-family: var(--dali-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #2563EB;
+  letter-spacing: 0.02em;
+}
+
+.dali-nav-slash {
+  color: rgba(0, 0, 0, 0.25);
+  margin: 0 1px;
+  font-weight: 400;
+}
+
+/* ── Listing Type Nav Link with Text Roll In / Roll Out ───────────────────── */
+.dali-nav-roll {
+  display: inline-flex;
+  flex-direction: column;
+  height: 15px;
+  overflow: hidden;
+  position: relative;
+  vertical-align: middle;
+}
+
+.dali-nav-roll-inner {
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dali-nav-link:hover .dali-nav-roll-inner {
+  transform: translateY(-50%);
+}
+
+.dali-nav-roll-item {
+  display: block;
+  height: 15px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+/* ── List Directory Trigger Button ────────────────────────────────────────── */
+.dali-nav-list-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dali-nav-list-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: #FFFFFF;
+  color: #0A0A0A;
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+
+  &:hover {
+    background: #0A0A0A;
+    color: #FFFFFF;
+    border-color: #0A0A0A;
+
+    .dali-nav-list-badge {
+      background: rgba(255, 255, 255, 0.2);
+      color: #FFFFFF;
+    }
+  }
+
+  &.active {
+    background: #2563EB;
+    color: #FFFFFF;
+    border-color: #2563EB;
+
+    .dali-nav-list-badge {
+      background: rgba(255, 255, 255, 0.25);
+      color: #FFFFFF;
+    }
+  }
+}
+
+.dali-nav-list-badge {
+  font-family: var(--dali-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563EB;
+  transition: all 0.2s ease;
+}
+
+/* ── Mobile & Editorial Drawer Listing Menu (Rolls In from top) ───────────── */
+.dali-mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: rgba(245, 245, 245, 0.98);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  z-index: 999;
+  padding: 78px 24px 36px 24px;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.1);
+}
+
+.dali-mobile-drawer.open {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dali-drawer-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.dali-drawer-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.dali-drawer-title-kicker {
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  color: #71717A;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+.dali-drawer-close-btn {
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  cursor: pointer;
+  color: #0A0A0A;
+  font-weight: 600;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: #0A0A0A;
+    color: #FFFFFF;
+  }
+}
+
+.dali-drawer-listing {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dali-drawer-link {
+  display: grid;
+  grid-template-columns: 36px 1fr auto auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  text-decoration: none;
+  color: #0A0A0A;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+
+  &:hover {
+    background: #FFFFFF;
+    border-color: rgba(37, 99, 235, 0.35);
+    transform: translateX(4px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+
+    .dali-drawer-link-title {
+      color: #2563EB;
+    }
+
+    .dali-drawer-link-arrow {
+      color: #2563EB;
+      transform: translate(2px, -2px);
+    }
+  }
+}
+
+.dali-drawer-link-num {
+  font-family: var(--dali-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: #2563EB;
+}
+
+.dali-drawer-link-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dali-drawer-link-title {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #0A0A0A;
+  transition: color 0.15s ease;
+}
+
+.dali-drawer-link-desc {
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  color: #71717A;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.dali-drawer-link-tag {
+  font-family: var(--dali-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  color: #52525B;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.dali-drawer-link-arrow {
+  font-size: 16px;
+  color: rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.dali-logo {
+  font-family: "Montserrat", -apple-system, sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+  color: #0A0A0A;
+  text-decoration: none;
+}
+
+.dali-cta-btn {
+  background-color: #0A0A0A;
+  color: #FFFFFF !important;
+  border: 1px solid #0A0A0A;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dali-cta-btn:hover {
+  background-color: #2563EB;
+  border-color: #2563EB;
+  color: #FFFFFF !important;
+  text-decoration: none;
+}
+
+.dali-menu-btn {
+  background-color: transparent;
+  color: #0A0A0A;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-family: var(--dali-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  &:hover {
+    background-color: #0A0A0A;
+    color: #FFFFFF;
+    border-color: #0A0A0A;
+  }
+}
+
+.dali-menu-btn-slash {
+  color: #2563EB;
+  font-weight: 700;
+}
+
+/* ── Section Labels (Dali 01 / Format) ───────────────────────────────────── */
+.dali-section-label {
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: rgba(0, 0, 0, 0.45);
+  margin-bottom: 24px;
+}
+
+/* ── Hairline Grid (01 / Projects Style) ──────────────────────────────────── */
+.dali-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-left: 1px solid var(--dali-border);
+  border-top: 1px solid var(--dali-border);
+  background: #FFFFFF;
+}
+
+@media (max-width: 992px) {
+  .dali-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 576px) {
+  .dali-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dali-grid-cell {
+  border-right: 1px solid var(--dali-border);
+  border-bottom: 1px solid var(--dali-border);
+  padding: 24px;
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-decoration: none;
+  color: var(--dali-text-main);
+  background: #FFFFFF;
+  transition: background-color 0.25s ease;
+  position: relative;
+}
+
+.dali-grid-cell:hover {
+  background-color: #F8FAFC;
+  text-decoration: none;
+  color: var(--dali-text-main);
+}
+
+.dali-cell-num {
+  font-family: var(--dali-mono);
+  font-size: 12px;
+  color: #A1A1AA;
+}
+
+.dali-cell-arrow {
+  font-size: 16px;
+  color: rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s ease;
+}
+
+.dali-grid-cell:hover .dali-cell-arrow {
+  transform: translate(2px, -2px);
+  color: #0A0A0A;
+}
+
+.dali-cell-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin-bottom: 6px;
+  color: #0A0A0A;
+}
+
+.dali-cell-desc {
+  font-size: 12px;
+  color: var(--dali-text-muted);
+  line-height: 1.45;
+}
+
+/* ── Solutions Showcase (Apple Vision Pro Magic Spatial Showcase) ─────────── */
+.dali-solutions-track {
+  position: relative;
+  min-height: 380vh;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: #F8FAFC;
+  overflow: visible;
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-track {
+    min-height: auto;
+  }
+}
+
+/* Apple Vision Pro Ambient Spatial Mesh & Floating Aurora Orbs */
+.dali-vision-ambient-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.dali-vision-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.dali-vision-orb-1 {
+  width: 750px;
+  height: 750px;
+  top: 15%;
+  right: -120px;
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.1) 0%, rgba(56, 189, 248, 0.05) 45%, transparent 70%);
+  filter: blur(90px);
+  animation: visionOrbFloat1 16s ease-in-out infinite alternate;
+}
+
+.dali-vision-orb-2 {
+  width: 650px;
+  height: 650px;
+  bottom: 12%;
+  left: -100px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.09) 0%, rgba(37, 99, 235, 0.05) 50%, transparent 70%);
+  filter: blur(85px);
+  animation: visionOrbFloat2 20s ease-in-out infinite alternate-reverse;
+}
+
+.dali-vision-grid-lines {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(37, 99, 235, 0.07) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: 0.65;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 50%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 50%, transparent 100%);
+}
+
+@keyframes visionOrbFloat1 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-40px, 30px) scale(1.08); }
+  100% { transform: translate(30px, -40px) scale(0.96); }
+}
+
+@keyframes visionOrbFloat2 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, -35px) scale(1.06); }
+  100% { transform: translate(-30px, 30px) scale(0.95); }
+}
+
+.dali-solutions-sticky-stage {
+  position: sticky;
+  top: 72px;
+  height: calc(100vh - 84px);
+  max-height: 860px;
+  min-height: 580px;
+  padding: 12px 0 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-sticky-stage {
+    position: static;
+    height: auto;
+    max-height: none;
+    min-height: auto;
+    padding: 40px 0;
+  }
+}
+
+.dali-solutions-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dali-vision-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--dali-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #2563EB;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.06em;
+  backdrop-filter: blur(8px);
+}
+
+.dali-vision-lens-icon {
+  font-size: 11px;
+  animation: visionLensPulse 2.2s infinite ease-in-out;
+}
+
+@keyframes visionLensPulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.25); opacity: 1; color: #38BDF8; }
+}
+
+.dali-solutions-showcase {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.32fr) minmax(0, 1fr);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(36px) saturate(190%);
+  -webkit-backdrop-filter: blur(36px) saturate(190%);
+  border-radius: 24px;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  box-shadow:
+    0 30px 70px -15px rgba(0, 0, 0, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.95),
+    inset 0 1px 2px #FFFFFF,
+    0 0 40px -8px rgba(37, 99, 235, 0.08);
+  position: relative;
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-showcase {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+.dali-solutions-sidebar {
+  position: relative;
+  border-right: 1px solid rgba(0, 0, 0, 0.07);
+  background: rgba(248, 250, 252, 0.65);
+  backdrop-filter: blur(24px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px 20px;
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-sidebar {
+    border-right: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+    padding: 14px 16px;
+  }
+}
+
+.dali-solutions-sidebar-inner {
+  position: static;
+  padding: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.dali-solutions-sidebar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding-top: 14px;
+  margin-top: 16px;
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-sidebar-footer {
+    display: none;
+  }
+}
+
+.dali-solutions-sidebar-kicker {
+  font-family: var(--dali-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #71717A;
+  margin: 0 0 16px 0;
+  user-select: none;
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-sidebar-kicker {
+    display: none;
+  }
+}
+
+.dali-solutions-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-sidebar-nav {
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+  }
+}
+
+/* ── Editorial List-Type Solution Navigation Item ─────── */
+.dali-solutions-sidebar-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: none;
+  padding: 12px 14px;
+  border-left: 3px solid transparent;
+  color: #52525B;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 0 8px 8px 0;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-sidebar-link {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 8px;
+    padding: 10px 14px;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+}
+
+.dali-solutions-sidebar-link:hover {
+  color: #0A0A0A;
+  background-color: rgba(0, 0, 0, 0.03);
+  transform: translateX(4px);
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-sidebar-link:hover {
+    transform: none;
+  }
+}
+
+.dali-solutions-sidebar-link.active {
+  border-left-color: #2563EB;
+  color: #0A0A0A;
+  background: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  transform: translateX(6px);
+}
+
+@media (max-width: 992px) {
+  .dali-solutions-sidebar-link.active {
+    border-left-color: transparent;
+    border-bottom-color: #2563EB;
+    transform: none;
+  }
+}
+
+.dali-solutions-link-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dali-solutions-sidebar-link-num {
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  color: #A1A1AA;
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.dali-solutions-sidebar-link.active .dali-solutions-sidebar-link-num {
+  color: #2563EB;
+  font-weight: 700;
+}
+
+.dali-solutions-link-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dali-solutions-sidebar-link-text {
+  font-size: 13px;
+  line-height: 1.3;
+  color: #18181B;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dali-solutions-sidebar-link-kicker {
+  font-family: var(--dali-mono);
+  font-size: 9px;
+  color: #71717A;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.dali-solutions-sidebar-link-arrow {
+  opacity: 0;
+  color: #2563EB;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.dali-solutions-sidebar-link:hover .dali-solutions-sidebar-link-arrow {
+  opacity: 0.5;
+  transform: translateX(0);
+}
+
+.dali-solutions-sidebar-link.active .dali-solutions-sidebar-link-arrow {
+  opacity: 1;
+  color: #2563EB;
+  transform: translateX(3px);
+}
+
+/* ── Solutions Single View (Apple Vision Pro 3D Spatial Window) ──────────── */
+.dali-solutions-single-view {
+  min-width: 0;
+  background: transparent;
+  padding: clamp(20px, 2.6vw, 36px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  perspective: 1400px;
+}
+
+.dali-solution-card-active {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  position: relative;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  padding: clamp(20px, 2.4vw, 32px);
+  box-shadow:
+    0 24px 50px -12px rgba(0, 0, 0, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.8),
+    inset 0 1px 2px #FFFFFF;
+  transform: perspective(1400px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transform-style: preserve-3d;
+  transition: transform 0.12s ease-out, box-shadow 0.25s ease;
+  animation: visionSpatialMorph 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  overflow: hidden;
+}
+
+.dali-solution-card-active:not(:hover) {
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+}
+
+.dali-solution-card-active:hover {
+  box-shadow:
+    0 35px 80px -15px rgba(37, 99, 235, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 1),
+    inset 0 1px 3px #FFFFFF,
+    0 0 30px rgba(37, 99, 235, 0.08);
+}
+
+/* 3D Spatial Entrance Animation (Apple Vision Pro Window Materialize) */
+@keyframes visionSpatialMorph {
+  0% {
+    opacity: 0;
+    transform: perspective(1400px) translateZ(-60px) rotateX(5deg) scale(0.96);
+    filter: blur(10px);
+  }
+  60% {
+    transform: perspective(1400px) translateZ(10px) rotateX(-1deg) scale(1.008);
+    filter: blur(0px);
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1400px) translateZ(0) rotateX(0deg) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Vision Pro Specular Glass Shimmer across Card on Morph */
+.dali-vision-glass-shimmer {
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.dali-vision-glass-shimmer::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  bottom: -50%;
+  left: -100%;
+  width: 100%;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(37, 99, 235, 0.12) 45%,
+    rgba(56, 189, 248, 0.25) 50%,
+    rgba(255, 255, 255, 0.75) 55%,
+    transparent 70%
+  );
+  transform: rotate(20deg);
+  animation: visionIrisSweep 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes visionIrisSweep {
+  0% { transform: translateX(0) rotate(20deg); opacity: 0; }
+  25% { opacity: 1; }
+  100% { transform: translateX(260%) rotate(20deg); opacity: 0; }
+}
+
+/* Dynamic Vision Pro Specular Glare following Cursor */
+.dali-vision-specular-glare {
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  pointer-events: none;
+  background: radial-gradient(
+    circle 440px at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255, 255, 255, 0.5),
+    rgba(255, 255, 255, 0.1) 40%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: 6;
+}
+
+.dali-solution-card-active:hover .dali-vision-specular-glare {
+  opacity: 1;
+}
+
+/* 3D Spatial Depth Layers */
+.dali-vision-spatial-content {
+  transform-style: preserve-3d;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  position: relative;
+  z-index: 2;
+}
+
+.dali-solutions-panel-header {
+  margin-bottom: 24px;
+}
+
+.dali-solutions-panel-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+  transform: translateZ(26px);
+}
+
+.dali-solutions-panel-kicker {
+  font-family: var(--dali-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #2563EB;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  padding: 3px 8px;
+  border-radius: 4px;
+  backdrop-filter: blur(8px);
+}
+
+.dali-vision-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--dali-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #059669;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  padding: 3px 8px;
+  border-radius: 4px;
+  backdrop-filter: blur(8px);
+}
+
+.dali-vision-radar {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 8px #10B981;
+  animation: visionRadarPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes visionRadarPing {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.dali-solutions-panel-link {
+  font-size: 11px;
+  font-weight: 600;
+  color: #0A0A0A;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  transition: all 0.15s ease;
+}
+
+.dali-solutions-panel-link:hover {
+  background: #0A0A0A;
+  color: #FFFFFF;
+  text-decoration: none;
+  border-color: #0A0A0A;
+}
+
+.dali-solutions-panel-headline {
+  font-size: clamp(26px, 2.8vw, 40px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: #0A0A0A;
+  margin: 12px 0 14px 0;
+  line-height: 1.15;
+  transform: translateZ(36px);
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+
+.dali-solutions-panel-summary {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #52525B;
+  max-width: 44rem;
+  margin: 0 0 20px 0;
+  transform: translateZ(22px);
+}
+
+.dali-solutions-overview-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 44rem;
+  transform: translateZ(26px);
+}
+
+.dali-solutions-overview-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: #27272A;
+  line-height: 1.5;
+}
+
+.dali-solutions-point-dot {
+  color: #2563EB;
+  font-size: 10px;
+  margin-top: 3px;
+}
+
+/* ── Solutions Visual Stage (visionOS Frosted Floating Glass Card) ─────────── */
+.dali-solutions-visual-stage {
+  margin-top: 28px;
+  min-height: 340px;
+  background: rgba(250, 250, 252, 0.85);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow:
+    0 16px 36px -8px rgba(0, 0, 0, 0.07),
+    inset 0 1px 0 #FFFFFF;
+  transform: translateZ(42px);
+  transform-style: preserve-3d;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+}
+
+.dali-solutions-visual-stage:hover {
+  box-shadow:
+    0 24px 50px -10px rgba(37, 99, 235, 0.12),
+    inset 0 1px 0 #FFFFFF;
+  transform: translateZ(48px) translateY(-3px);
+}
+
+.stage-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(244, 244, 245, 0.8);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  font-family: var(--dali-mono);
+  font-size: 11px;
+}
+
+.stage-body {
+  padding: 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3D CONTAINER SCROLL ANIMATION (Exact Aceternity / Dali Agency implementation)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hero-scroll-track {
+  position: relative;
+  height: 160vh;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .hero-scroll-track {
+    height: 170vh;
+  }
+}
+
+.hero-scroll-sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  min-height: 36rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 16px;
+  background-color: var(--dali-bg);
+}
+
+@media (min-width: 768px) {
+  .hero-scroll-sticky {
+    padding: 0 32px;
+  }
+}
+
+.hero-scroll-content {
+  position: relative;
+  z-index: 10;
+  margin: 0 auto;
+  display: flex;
+  height: 100%;
+  width: 100%;
+  max-width: 72rem;
+  flex-direction: column;
+  align-items: center;
+  padding-top: min(4svh, 1.25rem);
+}
+
+@media (min-width: 768px) {
+  .hero-scroll-content {
+    padding-top: min(5svh, 1.75rem);
+  }
+}
+
+.hero-title-layer {
+  position: relative;
+  z-index: 10;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 4.5rem;
+  width: 100%;
+  max-width: 64rem;
+  flex-shrink: 0;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  text-align: center;
+  will-change: transform, opacity;
+}
+
+@media (min-width: 768px) {
+  .hero-title-layer {
+    margin-top: 5rem;
+  }
+}
+
+.hero-perspective-wrap {
+  width: 100%;
+  max-width: 64rem;
+  position: relative;
+  z-index: 20;
+  flex-shrink: 0;
+}
+
+.hero-card-layer {
+  position: relative;
+  z-index: 20;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 1.5rem;
+  height: 28rem;
+  width: 100%;
+  max-width: 64rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 1.5rem;
+  background: #FFFFFF;
+  border: 1px solid rgba(17, 19, 18, 0.12);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.08), 0 2px 10px rgba(15, 23, 42, 0.04);
+  will-change: transform;
+}
+
+@media (min-width: 768px) {
+  .hero-card-layer {
+    margin-top: 2rem;
+    height: 38rem;
+  }
+}
+
+/* ── Hero Product Mockup UI (Live macOS Window) ─────────────────────────── */
+.mock-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  background: linear-gradient(180deg, #FAFAFB, #F4F4F6);
+  border-bottom: 1px solid rgba(17, 19, 18, 0.1);
+  padding: 0 14px;
+  user-select: none;
+}
+
+.mock-traffic-lights {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mock-traffic-light {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: block;
+}
+.mock-traffic-light.red { background-color: #FF5F57; }
+.mock-traffic-light.amber { background-color: #FEBC2E; }
+.mock-traffic-light.green { background-color: #28C840; }
+
+.mock-chrome-title {
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: #71717A;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mock-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: #E6F8F1;
+  border: 1px solid rgba(11, 159, 110, 0.25);
+  border-radius: 999px;
+  font-family: var(--dali-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #087F58;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mock-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0B9F6E;
+  box-shadow: 0 0 0 0 rgba(11, 159, 110, 0.4);
+  animation: mockPulse 1.8s infinite;
+}
+
+@keyframes mockPulse {
+  0% { box-shadow: 0 0 0 0 rgba(11, 159, 110, 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(11, 159, 110, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(11, 159, 110, 0); }
+}
+
+/* ── Product Interior Layout (Sidebar + Stage) ───────────────────────────── */
+.mock-app-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: calc(100% - 38px);
+  background: #FFFFFF;
+}
+
+@media (max-width: 860px) {
+  .mock-app-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mock-sidebar {
+  background: #FAFAFB;
+  border-right: 1px solid rgba(17, 19, 18, 0.08);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 860px) {
+  .mock-sidebar {
+    display: none;
+  }
+}
+
+.mock-workspace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 10px;
+  border-bottom: 1px solid rgba(17, 19, 18, 0.06);
+  margin-bottom: 4px;
+}
+
+.mock-workspace-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: #0A0A0A;
+  color: #FFFFFF;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+}
+
+.mock-workspace-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0A0A0A;
+}
+
+.mock-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #52525B;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.mock-nav-item:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: #0A0A0A;
+}
+
+.mock-nav-item.active {
+  background: #EEF2FF;
+  color: #2563EB;
+  font-weight: 700;
+}
+
+.mock-stage-main {
+  display: flex;
+  flex-direction: column;
+  background: #FFFFFF;
+  overflow: hidden;
+}
+
+.mock-stage-toolbar {
+  height: 38px;
+  border-bottom: 1px solid rgba(17, 19, 18, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.mock-toolbar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mock-tab-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #71717A;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mock-tab-btn.active {
+  background: #F4F4F5;
+  color: #0A0A0A;
+  font-weight: 700;
+}
+
+.mock-stage-content {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-y: auto;
+  background: #FAFAFB;
+}
+
+/* ── Topology Flow / Interactive Nodes ───────────────────────────────────── */
+.mock-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 768px) {
+  .mock-flow-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.mock-flow-node {
+  background: #FFFFFF;
+  border: 1px solid rgba(17, 19, 18, 0.1);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+  transition: all 0.2s ease;
+}
+
+.mock-flow-node.active {
+  border-color: #2563EB;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12), 0 4px 14px rgba(37, 99, 235, 0.08);
+}
+
+.mock-node-kicker {
+  font-family: var(--dali-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #71717A;
+  margin-bottom: 4px;
+}
+
+.mock-node-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0A0A0A;
+  margin-bottom: 4px;
+}
+
+.mock-node-metric {
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  color: #2563EB;
+  font-weight: 600;
+}
+
+/* ── Telemetry Output Window inside Mock ─────────────────────────────────── */
+.mock-terminal-window {
+  background: #0A0A0A;
+  color: #E4E4E7;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: var(--dali-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.mock-terminal-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mock-tag-ingress { color: #60A5FA; font-weight: 600; }
+.mock-tag-entropy { color: #34D399; font-weight: 600; }
+.mock-tag-decaps  { color: #F472B6; font-weight: 600; }
+.mock-tag-ledger  { color: #FBBF24; font-weight: 600; }
+
+/* ── Floating Project Cursor Follower ────────────────────────────────────── */
+.project-cursor-follower {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 320px;
+  background: #FFFFFF;
+  border: 1px solid rgba(17, 19, 18, 0.14);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.16);
+  pointer-events: none;
+  z-index: 1000;
+  will-change: transform;
+  transition: opacity 0.2s ease, transform 0.05s linear;
+}

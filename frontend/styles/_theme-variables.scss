@@ -1,0 +1,27 @@
+#root {
+  --sidebar-item-active-color: #2563EB;
+  --sidebar-item-default-color: #888888;
+  --important-notification-color: #2563EB;
+  --badge-item: #111111;
+  --update-notification-color: #2563EB;
+  --primary-color: #2563EB;
+
+  .sing-dashboard,
+  .dashboard-light,
+  .dashboard-dark,
+  .dashboard-sea,
+  .dashboard-sky {
+    --logo-color: #111111;
+    --sidebar-bg-color: #111111;
+    --sidebar-color: #FFFFFF;
+    --sidebar-action-bg: #1A1A1A;
+    --sidebar-item-active-color: #2563EB;
+    --sidebar-item-default-color: #AAAAAA;
+    --sidebar-nav-title-color: #888888;
+
+    --widget-shadow-color: 0, 0, 0;
+
+    --navbar-bg: #FFFFFF;
+    --navbar-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+  }
+}
