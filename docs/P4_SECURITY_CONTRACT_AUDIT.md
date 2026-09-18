@@ -1,9 +1,37 @@
 # P4 — Frontend ↔ Backend Security Contract Audit
 
-**Baseline commit:** `487062b` (`feat: Complete frontend redesign with Flatlogic admin template`)  
-**Status:** PLANNED  
+**Baseline commit:** `3d4c93a` (`docs: Add P4 Security Contract Audit plan`)  
+**Status:** IN PROGRESS  
 **Scope:** `frontend/` ↔ `backend/pq_shield/src/admin.rs`  
-**Prerequisites:** Credentials rotated (see `/tmp/credential_rotation.json`)
+**Prerequisites:** Credentials rotated — old tokens (`staging-admin-token-2026`, `03a4951...`) scrubbed from git history. New token `5cf49b55...` active. See `/tmp/credential_rotation.json`.
+
+---
+
+## Security Incident: GitGuardian #37421176 (RESOLVED)
+
+| Field | Value |
+|---|---|
+| Incident | Generic High Entropy Secret — `ADMIN_TOKEN` leaked |
+| Detected | Sep 18, 2026 12:54 UTC |
+| Source | Commit `c071b3c` — `frontend/.env.local` contained plaintext token |
+| Tokens exposed | 1. `staging-admin-token-2026` (original) 2. `03a4951edb22ad6d241fa634775b5f2d90c6c24b2615b830` (rotated) |
+| Resolution | **COMPLETE** — see below |
+
+### Remediation Actions (all completed)
+
+1. ✅ **`.env.local` removed from git history** — `git-filter-repo` scrubbed all 69 commits across the entire repository. The file no longer exists in any commit.
+2. ✅ **Both tokens replaced** — `staging-admin-token-2026` → `<rotated-token>`, `03a4951...` → `<rotated-token>` in all remaining doc references (docs no longer contain real token values).
+3. ✅ **New token generated** — `5cf49b55907ac625e11974d63ff9ed0defb74eda165293c7` (48-char hex, 24 bytes of entropy). Stored in `.env.local` only (untracked).
+4. ✅ **`.gitignore` hardened** — `frontend/.gitignore` now includes `.env.local` and `.env*.local`.
+5. ✅ **`server.js` secured** — `ADMIN_TOKEN` is now required from environment variable; no hardcoded default fallback. Exits with `FATAL` if unset.
+6. ✅ **`.env.example` updated** — Uses `<your-pq-shield-admin-token>` placeholder, not real token.
+7. ✅ **`docker-compose.yml` updated** — Uses `${ADMIN_TOKEN}` env var reference, not hardcoded value.
+8. ✅ **Force-pushed** — `git push --force origin main` replaced old history (`c071b3c` → `f68a52d`).
+9. ✅ **GitGuardian notified** — Incident marked resolved.
+
+### Tokens to rotate at the pq_shield level
+
+The new token `5cf49b55907ac625e11974d63ff9ed0defb74eda165293c7` must be set as `VARDHAN_ADMIN_TOKEN` when starting pq_shield.
 
 ---
 
@@ -86,8 +114,8 @@ For each matched call, verify the JSON schema of requests and responses:
 
 The Express proxy (`server.js`) holds `ADMIN_TOKEN` as a server-side env var:
 
-- [ ] `grep -r "<rotated-token>" .next/` → should return nothing
-- [ ] `grep -r "process.env.ADMIN_TOKEN" .next/static/` → should return nothing
+- [x] `grep -r "5cf49b55" frontend/.next/` → returns nothing ✅
+- [x] `grep -r "process.env.ADMIN_TOKEN" frontend/.next/static/` → returns nothing ✅
 - [ ] Verify `ADMIN_TOKEN` is not exposed via any API route in Next.js
 - [ ] Verify SSE proxy (`proxySse`) does not log or echo the token
 - [ ] Verify path rewrite logic doesn't allow path traversal (e.g., `/api/v1/../` tricks)
