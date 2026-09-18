@@ -56,6 +56,12 @@ function proxySse(backendUrl, token, req, res) {
             'Connection': 'keep-alive',
             'X-PQ-Proxied': 'true',
         })
+        // Force-flush headers for SSE (Node.js buffers them until first write)
+        if (typeof res.flushHeaders === 'function') {
+            res.flushHeaders()
+        }
+        // Send initial SSE comment to establish the connection
+        res.write(': connected\n\n')
         backendRes.pipe(res)
     })
 
