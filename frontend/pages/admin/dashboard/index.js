@@ -14,7 +14,7 @@ function CommandCenter({ currentUser }) {
   const [drainResult, setDrainResult] = useState(null);
 
   const [telemetry, setTelemetry] = useState({
-    status: { state: "HEALTHY", pqc_suite: "ML-KEM-1024 + ML-DSA-87", uptime_secs: 14280, node_id: "vq-node-01-lhr" },
+    status: { state: "HEALTHY", pqc_suite: "ML-KEM-1024 + ML-DSA-87 (Post-Quantum)", uptime_secs: 14280, node_id: "vq-node-01-lhr" },
     raft: { term: 4, state: "Leader", leader_id: "vq-node-01-lhr", commit_index: 84092, peers: ["vq-node-02-fra", "vq-node-03-iad"] },
     sessions: [
       { session_id: "sess_7f8a9b0c1d2e3f4a", username: "admin@vardhan-quantum.com", role: "CISO", created_at: "2026-09-16T15:00:00Z" },
@@ -321,7 +321,7 @@ function CommandCenter({ currentUser }) {
           <Row>
             <Col lg={6} className="mb-4">
               <div className="vq-glass-card p-4 h-100">
-                <h5 className="font-weight-bold mb-3" style={{ color: "#0F172A" }}>Enforced Post-Quantum Cryptographic Parameters</h5>
+                <h5 className="font-weight-bold mb-3" style={{ color: "#0F172A" }}>Enforced Cryptographic Parameters</h5>
                 <Table borderless responsive className="mb-0" style={{ color: "#0F172A" }}>
                   <tbody>
                     <tr style={{ borderBottom: "1px solid #E2E8F0" }}>
