@@ -7,18 +7,16 @@
 #   OR: docker compose up --build
 
 # ── Stage 1: Builder ──────────────────────────────────────────────────
-FROM node:16-alpine AS builder
+# Node 18+ required for --openssl-legacy-provider (Node 16 doesn't support it)
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install yarn
-RUN npm install -g yarn
+# Install yarn via corepack (ships with Node 16+)
+RUN corepack enable 2>/dev/null || npm install -g yarn@1.22.22
 
 # Copy lockfile + package.json for dependency caching
 COPY yarn.lock package.json ./
-
-# Node 16 needs this for old webpack (Next.js 10)
-ENV NODE_OPTIONS=--openssl-legacy-provider
 
 # Install dependencies
 RUN yarn install --frozen-lockfile --network-timeout 60000
@@ -26,11 +24,11 @@ RUN yarn install --frozen-lockfile --network-timeout 60000
 # Copy source code
 COPY . .
 
-# Build Next.js app
-RUN yarn build
+# Build Next.js app (openssl-legacy-provider only needed for build, not install)
+RUN NODE_OPTIONS=--openssl-legacy-provider yarn build
 
 # ── Stage 2: Runner ───────────────────────────────────────────────────
-FROM node:16-alpine AS runner
+FROM node:18-alpine AS runner
 
 WORKDIR /app
 
