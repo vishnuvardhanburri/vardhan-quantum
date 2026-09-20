@@ -446,7 +446,7 @@ impl Checkpoint {
         }
 
         let cluster_id_bytes = self.cluster_id.as_bytes();
-        let mut buf = Vec::with_capacity(8 + cluster_id_bytes.len() + 64 + 64);
+        let mut buf = Vec::with_capacity(8 + cluster_id_bytes.len() + 64 + 64 + 32);
         buf.extend_from_slice(&(cluster_id_bytes.len() as u32).to_be_bytes());
         buf.extend_from_slice(cluster_id_bytes);
         buf.extend_from_slice(&self.config_epoch.to_be_bytes());
@@ -457,6 +457,10 @@ impl Checkpoint {
         buf.extend_from_slice(&self.ledger_entry_count.to_be_bytes());
         buf.extend_from_slice(&merkle_root_bytes);
         buf.extend_from_slice(&prev_hash_bytes);
+        // P8-004 fix: signer_pub_fingerprint is now part of the signed
+        // canonical bytes, cryptographically binding the claimed identity
+        // to the checkpoint content.
+        buf.extend_from_slice(self.signer_pub_fingerprint.as_bytes());
         buf.extend_from_slice(&(self.timestamp_ms as u64).to_be_bytes());
         buf.extend_from_slice(&self.version.to_be_bytes());
         Ok(buf)
