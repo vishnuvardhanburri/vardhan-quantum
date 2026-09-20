@@ -1179,6 +1179,8 @@ async fn test_persistence_torn_write() {
         voted_for: Some(NodeId::new("node-b")),
         log: Vec::new(),
         commit_index: 0,
+        cluster_id: "test-cluster".to_string(),
+        config_epoch: 1,
     };
     let bytes = serde_json::to_vec(&state).unwrap();
     std::fs::write(&persist_path, &bytes).unwrap();

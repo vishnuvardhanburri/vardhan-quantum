@@ -286,6 +286,32 @@ impl MerkleLedger {
         self.chain.read().await.get(index).cloned()
     }
 
+    /// Append a pre-verified block to the chain.
+    ///
+    /// Enforces only invariants 1 and 2 (sequential index, chain continuity).
+    /// Signature verification is assumed to have already been performed by the
+    /// caller (e.g., in a `spawn_blocking` task) to avoid blocking the
+    /// single-threaded async runtime with CPU-bound ML-DSA verification.
+    pub async fn append_verified_block(
+        &self,
+        block: LedgerBlock,
+    ) -> Result<(), LedgerError> {
+        let mut write = self.chain.write().await;
+
+        let expected_index = write.len() as u64;
+        if block.index != expected_index {
+            return Err(LedgerError::InvalidBlockHash(block.index));
+        }
+
+        let expected_prev = write.last().map(|b| b.block_hash).unwrap_or([0u8; 32]);
+        if block.prev_hash != expected_prev {
+            return Err(LedgerError::ChainBroken(block.index));
+        }
+
+        write.push(block);
+        Ok(())
+    }
+
     /// Append a verified block to the chain.
     ///
     /// Enforces all three chain invariants before inserting. Returns an

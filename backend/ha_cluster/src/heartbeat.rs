@@ -13,7 +13,6 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::time::{interval, Duration};
-use tracing::{debug, info, warn};
 
 /// Wire format of a UDP heartbeat datagram.
 #[derive(Serialize, Deserialize, Debug)]

@@ -6,13 +6,13 @@ use ha_cluster::{
     drain::{ActiveSessionCounter, DrainController},
     heartbeat::{start_heartbeat, HeartbeatConfig},
     raft::RaftNode,
-    ClusterMembership, NodeId, RaftNetworkListener, RaftPeerManager,
+    ClusterMembership, LedgerApplier, CheckpointWriter, NodeId, RaftNetworkListener, RaftPeerManager,
 };
 use pq_shield::IngressShield;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::warn;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -220,9 +220,88 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&raft_node),
     );
 
+    // P7.3: Set up ledger applier with MerkleLedger + CheckpointWriter for
+    // Raft-committed signed ledger checkpoints.
+    let checkpoint_path_str = std::env::var("VARDHAN_CHECKPOINT_PATH")
+        .unwrap_or_else(|_| "checkpoints.jsonl".to_string());
+    let checkpoint_interval_secs: u64 = std::env::var("VARDHAN_CHECKPOINT_INTERVAL_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+    let checkpoint_entry_threshold: u64 = std::env::var("VARDHAN_CHECKPOINT_ENTRY_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(256);
+
+    let merkle_ledger = Arc::new(ledger_sync::MerkleLedger::new());
+    let checkpoint_writer = match CheckpointWriter::open(std::path::Path::new(&checkpoint_path_str)) {
+        Ok(w) => {
+            println!("[P7.3] Checkpoint writer opened at {}", checkpoint_path_str);
+            Some(Arc::new(w))
+        }
+        Err(e) => {
+            eprintln!("[P7.3] Failed to open checkpoint writer (checkpoints disabled): {}", e);
+            None
+        }
+    };
+
+    let ledger_applier = Arc::new(
+        ha_cluster::LedgerApplier::new(
+            Arc::clone(&raft_node),
+            merkle_ledger,
+            Arc::clone(&identity),
+        )
+        .with_checkpoint_writer(checkpoint_writer.unwrap_or_else(|| {
+            // If checkpoint writer failed to open, we still create the applier
+            // but without checkpoint persistence (tests may use NoneCheckpointWriter)
+            // This shouldn't happen in production.
+            panic!("FATAL: CheckpointWriter must be openable at {}", checkpoint_path_str);
+        })),
+    );
+
+    // Periodic apply_committed_entries task (runs on all nodes)
+    let applier_for_apply = Arc::clone(&ledger_applier);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
+        loop {
+            interval.tick().await;
+            if let Err(e) = applier_for_apply.apply_committed_entries().await {
+                eprintln!("[P7.3] apply_committed_entries error: {}", e);
+            }
+        }
+    });
+
+    // Periodic checkpoint generation task (leader only, dual-trigger: time + entry-count)
+    let applier_for_checkpoint = Arc::clone(&ledger_applier);
+    tokio::spawn(async move {
+        let mut timer = tokio::time::interval(tokio::time::Duration::from_secs(checkpoint_interval_secs));
+        loop {
+            timer.tick().await;
+            if applier_for_checkpoint.raft_node.is_leader().await {
+                match applier_for_checkpoint
+                    .generate_and_submit_checkpoint(checkpoint_entry_threshold, true)
+                    .await
+                {
+                    Ok(Some(cp)) => {
+                        println!(
+                            "[P7.3] Checkpoint generated & submitted (term={}, raft_index={}, range={}..{}, entries={})",
+                            cp.raft_term, cp.raft_log_index,
+                            cp.ledger_first_seq, cp.ledger_last_seq, cp.ledger_entry_count
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        eprintln!("[P7.3] Checkpoint generation failed: {}", e);
+                    }
+                }
+            }
+        }
+    });
+
     let raft_run_node = Arc::clone(&raft_node);
     let membership_for_peers = Arc::clone(&membership);
     let self_id_for_peers = self_node_id.clone();
+    println!("P3.8: Raft node {} spawning run loop ({} peers to discover)", self_node_id, 0);
     tokio::spawn(async move {
         // Brief warmup so heartbeats propagate peer raft_port before run() reads them.
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -234,18 +313,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .filter(|n| n.raft_port > 0)
             .map(|n| n.node_id.clone())
             .collect();
-        let count = peers.len();
-        info!(
-            "P3.8: Raft node {} starting with {} peers",
-            self_id_for_peers, count
-        );
         raft_run_node.run(peers).await;
     });
 
     let raft_l = raft_listener;
     tokio::spawn(async move {
         if let Err(e) = raft_l.run().await {
-            error!(err = %e, "Raft network listener fatal error");
+            eprintln!("Raft network listener fatal error: {}", e);
         }
     });
 

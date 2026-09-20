@@ -20,10 +20,13 @@
 //!   1 = FAIL (cryptographic failure or structural violation)
 //!   2 = Usage / IO error
 
-use audit_ledger::{canonical_hash, LedgerEntry};
+use audit_ledger::{
+    canonical_hash, merkle_root_from_hashes, CommittedCheckpoint, LedgerEntry,
+};
 use clap::Parser;
 use core_crypto::QuantumNodeIdentity;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use std::io::BufRead;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -52,6 +55,11 @@ struct VerificationReport {
     first_seq: Option<u64>,
     last_seq: Option<u64>,
     tip_hash: String,
+    checkpoints_verified: u64,
+    checkpoint_chain_integrity: &'static str,
+    checkpoint_signature_integrity: &'static str,
+    checkpoint_merkle_root: &'static str,
+    checkpoint_raft_binding: &'static str,
     failures: Vec<String>,
 }
 
@@ -83,6 +91,11 @@ fn run_verification(args: &Args) -> VerificationReport {
                 first_seq: None,
                 last_seq: None,
                 tip_hash: String::new(),
+                checkpoints_verified: 0,
+                checkpoint_chain_integrity: "UNKNOWN",
+                checkpoint_signature_integrity: "UNKNOWN",
+                checkpoint_merkle_root: "UNKNOWN",
+                checkpoint_raft_binding: "UNKNOWN",
                 failures: vec![format!("Cannot load public key: {e}")],
             };
         }
@@ -105,6 +118,11 @@ fn run_verification(args: &Args) -> VerificationReport {
                 first_seq: None,
                 last_seq: None,
                 tip_hash: String::new(),
+                checkpoints_verified: 0,
+                checkpoint_chain_integrity: "UNKNOWN",
+                checkpoint_signature_integrity: "UNKNOWN",
+                checkpoint_merkle_root: "UNKNOWN",
+                checkpoint_raft_binding: "UNKNOWN",
                 failures: vec![format!("Cannot read ledger.jsonl: {e}")],
             };
         }
@@ -208,15 +226,26 @@ fn run_verification(args: &Args) -> VerificationReport {
         entries_verified += 1;
     }
 
-    let verdict = if failures.is_empty() && entries_verified > 0 {
+    // ─── Determine verdict ───────────────────────────────────────────────────
+    let has_evidence = entries_verified > 0 || checkpoints_verified > 0;
+    if !has_evidence && failures.is_empty() {
+        failures.push("No ledger entries and no checkpoints found".to_string());
+    }
+    let verdict = if failures.is_empty() && has_evidence {
         "PASS"
-    } else if entries_verified == 0 && failures.is_empty() {
-        // Empty ledger — not a cryptographic failure, but not evidence of anything
-        failures.push("Ledger contains no entries".to_string());
-        "FAIL"
     } else {
         "FAIL"
     };
+
+    // ─── Verify checkpoints (P7.3) ───────────────────────────────────────────
+    let checkpoint_path = args.evidence_dir.join("checkpoints.jsonl");
+    let (cp_verified, cp_chain_ok, cp_sig_ok, cp_merkle_ok, cp_raft_ok) =
+        verify_checkpoints(
+            &checkpoint_path,
+            &ledger_path,
+            &pub_key_bytes,
+            &mut failures,
+        );
 
     VerificationReport {
         verdict,
@@ -227,8 +256,224 @@ fn run_verification(args: &Args) -> VerificationReport {
         first_seq: if entries_verified > 0 { Some(0) } else { None },
         last_seq,
         tip_hash,
+        checkpoints_verified: cp_verified,
+        checkpoint_chain_integrity: if cp_chain_ok { "PASS" } else { "FAIL" },
+        checkpoint_signature_integrity: if cp_sig_ok { "PASS" } else { "FAIL" },
+        checkpoint_merkle_root: if cp_merkle_ok { "PASS" } else { "FAIL" },
+        checkpoint_raft_binding: if cp_raft_ok { "PASS" } else { "FAIL" },
         failures,
     }
+}
+
+/// Verify the checkpoint chain against the ledger.
+///
+/// Checks performed for each checkpoint:
+/// 1. ML-DSA-87 signature validity
+/// 2. Canonical encoding round-trip (recompute hash)
+/// 3. Checkpoint hash (BLAKE3 of canonical || signature)
+/// 4. Previous checkpoint hash linkage (chain integrity)
+/// 5. Ledger sequence range coverage (first_seq..=last_seq is contiguous)
+/// 6. Merkle root matches ledger entries in the covered range
+/// 7. Raft term/index binding (term and index are monotonically increasing,
+///    and index > entry count proves the checkpoint was committed after the
+///    ledger entries)
+///
+/// Returns: (checkpoints_verified, chain_ok, sig_ok, merkle_ok, raft_ok)
+fn verify_checkpoints(
+    checkpoint_path: &std::path::Path,
+    ledger_path: &std::path::Path,
+    pub_key_bytes: &[u8],
+    failures: &mut Vec<String>,
+) -> (u64, bool, bool, bool, bool) {
+    let content = match std::fs::read_to_string(checkpoint_path) {
+        Ok(c) => c,
+        Err(_) => {
+            // No checkpoints file — not a failure, just no checkpoints to verify
+            return (0, true, true, true, true);
+        }
+    };
+
+    // Load all ledger entries for Merkle root verification
+    let ledger_hashes: Vec<Vec<u8>> = {
+        let file = match std::fs::File::open(ledger_path) {
+            Ok(f) => f,
+            Err(e) => {
+                failures.push(format!("Cannot open ledger for checkpoint Merkle verification: {e}"));
+                return (0, false, false, false, false);
+            }
+        };
+        let reader = std::io::BufReader::new(file);
+        let mut hashes = Vec::new();
+        for line_res in reader.lines() {
+            let line = line_res.unwrap_or_default();
+            if line.trim().is_empty() { continue; }
+            let entry: LedgerEntry = match serde_json::from_str(&line) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            // Deterministic hash: BLAKE3(seq || event_json) — matches
+            // the merkle_hashes used by LedgerApplier in raft.rs.
+            let event_json = serde_json::to_string(&entry.event).unwrap_or_default();
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(&entry.seq.to_le_bytes());
+            hasher.update(event_json.as_bytes());
+            hashes.push(hasher.finalize().as_bytes().to_vec());
+        }
+        hashes
+    };
+
+    let mut prev_checkpoint_hash = [0u8; 32];
+    let mut checkpoints_verified: u64 = 0;
+    let mut chain_ok = true;
+    let mut sig_ok = true;
+    let mut merkle_ok = true;
+    let mut raft_ok = true;
+    let mut last_raft_term: u64 = 0;
+    let mut last_raft_index: u64 = 0;
+
+    for (line_no, line) in content.lines().enumerate() {
+        if line.trim().is_empty() { continue; }
+
+        let cp: CommittedCheckpoint = match serde_json::from_str(line) {
+            Ok(c) => c,
+            Err(e) => {
+                failures.push(format!("Checkpoint line {line_no}: JSON parse error: {e}"));
+                chain_ok = false;
+                sig_ok = false;
+                merkle_ok = false;
+                raft_ok = false;
+                continue;
+            }
+        };
+
+        // 1. Verify previous checkpoint hash linkage (chain integrity)
+        let expected_prev = hex::encode(prev_checkpoint_hash);
+        if cp.checkpoint.previous_checkpoint_hash != expected_prev {
+            failures.push(format!(
+                "Checkpoint line {line_no}: chain break — expected prev={}, got={}",
+                expected_prev, cp.checkpoint.previous_checkpoint_hash
+            ));
+            chain_ok = false;
+        }
+
+        // 2. Verify ML-DSA-87 signature
+        let canonical = match cp.checkpoint.canonical_hash() {
+            Ok(h) => h,
+            Err(e) => {
+                failures.push(format!("Checkpoint line {line_no}: canonical hash computation failed: {e}"));
+                sig_ok = false;
+                continue;
+            }
+        };
+        let sig_bytes = match hex::decode(&cp.checkpoint.signature) {
+            Ok(b) => b,
+            Err(e) => {
+                failures.push(format!("Checkpoint line {line_no}: invalid signature hex: {e}"));
+                sig_ok = false;
+                continue;
+            }
+        };
+        if !QuantumNodeIdentity::verify_signature(pub_key_bytes, &canonical, &sig_bytes) {
+            failures.push(format!("Checkpoint line {line_no}: ML-DSA-87 signature INVALID"));
+            sig_ok = false;
+        }
+
+        // 3. Verify signer fingerprint
+        let expected_fp = hex::encode(QuantumNodeIdentity::hash_ledger_block(pub_key_bytes));
+        if cp.checkpoint.signer_pub_fingerprint != expected_fp {
+            failures.push(format!(
+                "Checkpoint line {line_no}: signer fingerprint mismatch — expected {}, got {}",
+                expected_fp, cp.checkpoint.signer_pub_fingerprint
+            ));
+            sig_ok = false;
+        }
+
+        // 4. Verify checkpoint hash (BLAKE3 of canonical || signature)
+        let expected_cp_hash = match cp.checkpoint.checkpoint_hash() {
+            Ok(h) => h,
+            Err(e) => {
+                failures.push(format!("Checkpoint line {line_no}: checkpoint hash computation failed: {e}"));
+                chain_ok = false;
+                continue;
+            }
+        };
+
+        // 5. Verify Merkle root matches ledger entries in the covered range
+        let first = cp.checkpoint.ledger_first_seq as usize;
+        let last = cp.checkpoint.ledger_last_seq as usize;
+        let count = cp.checkpoint.ledger_entry_count;
+        if last >= ledger_hashes.len() {
+            failures.push(format!(
+                "Checkpoint line {line_no}: ledger range [{}, {}] exceeds ledger entries ({})",
+                first, last, ledger_hashes.len()
+            ));
+            merkle_ok = false;
+        } else if count != (last.saturating_sub(first).saturating_add(1)) as u64 {
+            failures.push(format!(
+                "Checkpoint line {line_no}: ledger_entry_count ({}) != range size ({})",
+                count, last.saturating_sub(first).saturating_add(1)
+            ));
+            merkle_ok = false;
+        } else if first > last {
+            failures.push(format!(
+                "Checkpoint line {line_no}: invalid ledger range [{}, {}]",
+                first, last
+            ));
+            merkle_ok = false;
+        } else {
+            let range_hashes: Vec<Vec<u8>> = ledger_hashes[first..=last].to_vec();
+            let computed_merkle = merkle_root_from_hashes(&range_hashes);
+            let stored_merkle = match hex::decode(&cp.checkpoint.merkle_root) {
+                Ok(b) => b,
+                Err(e) => {
+                    failures.push(format!("Checkpoint line {line_no}: invalid merkle_root hex: {e}"));
+                    merkle_ok = false;
+                    continue;
+                }
+            };
+            if computed_merkle.as_slice() != stored_merkle.as_slice() {
+                failures.push(format!(
+                    "Checkpoint line {line_no}: Merkle root mismatch — computed={:x?}, stored={:x?}",
+                    computed_merkle, stored_merkle
+                ));
+                merkle_ok = false;
+            }
+        }
+
+        // 6. Verify Raft term/index binding
+        if cp.checkpoint.raft_term < last_raft_term {
+            failures.push(format!(
+                "Checkpoint line {line_no}: Raft term regression — prev={}, current={}",
+                last_raft_term, cp.checkpoint.raft_term
+            ));
+            raft_ok = false;
+        }
+        if cp.checkpoint.raft_log_index < last_raft_index {
+            failures.push(format!(
+                "Checkpoint line {line_no}: Raft log index regression — prev={}, current={}",
+                last_raft_index, cp.checkpoint.raft_log_index
+            ));
+            raft_ok = false;
+        }
+        // Raft commit index must be >= ledger entry count at the time of checkpoint
+        // (the checkpoint was submitted as a Raft log entry AFTER the ledger entries)
+        let ledger_len = ledger_hashes.len() as u64;
+        if cp.checkpoint.raft_log_index < ledger_len {
+            failures.push(format!(
+                "Checkpoint line {line_no}: Raft log index ({}) < ledger entry count ({}) — checkpoint committed before ledger entries it covers",
+                cp.checkpoint.raft_log_index, ledger_len
+            ));
+            raft_ok = false;
+        }
+        last_raft_term = cp.checkpoint.raft_term;
+        last_raft_index = cp.checkpoint.raft_log_index;
+
+        // Advance chain state
+        prev_checkpoint_hash = expected_cp_hash;
+        checkpoints_verified += 1;
+    }
+
+    (checkpoints_verified, chain_ok, sig_ok, merkle_ok, raft_ok)
 }
 
 fn load_public_key(path: &std::path::Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {

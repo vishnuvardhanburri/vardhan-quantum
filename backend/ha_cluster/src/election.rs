@@ -9,7 +9,6 @@
 
 use crate::{ClusterMembership, NodeId};
 use std::sync::Arc;
-use tracing::info;
 
 /// Compute the current leader node_id from the cluster membership.
 ///

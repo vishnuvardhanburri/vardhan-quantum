@@ -8,7 +8,6 @@ use proxy_engine::transport::AeadTransport;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
-use tracing::{error, info, warn};
 
 pub struct RaftNetworkListener {
     listen_addr: std::net::SocketAddr,

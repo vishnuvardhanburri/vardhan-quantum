@@ -13,8 +13,11 @@ uuid = { version = "1.26.0", features = ["v4", "fast-rng"] }
 core_crypto = { path = "../core_crypto" }
 ledger_sync = { path = "../ledger_sync" }
 proxy_engine = { path = "../proxy_engine" }
+audit_ledger = { path = "../audit_ledger" }
+hex = "0.4"
 rand = "0.8"
 futures = "0.3"
+blake3 = "1.5"
 
 [dev-dependencies]
 tracing-subscriber = "0.3"

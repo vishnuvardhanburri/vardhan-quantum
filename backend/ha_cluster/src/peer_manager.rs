@@ -13,7 +13,6 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::{timeout, Duration};
-use tracing::{error, info, warn};
 
 /// A request to be sent by the PeerWorker.
 pub enum PeerRequest {
@@ -170,7 +169,7 @@ impl RaftRpcClient for RaftPeerManager {
             tx.send(req)
                 .await
                 .map_err(|_| "Peer worker closed".to_string())?;
-            let resp_bytes = timeout(Duration::from_secs(2), response_rx)
+            let resp_bytes = timeout(Duration::from_millis(500), response_rx)
                 .await
                 .map_err(|_| "RPC timeout".to_string())?
                 .map_err(|_| "Response channel closed".to_string())?;
@@ -201,7 +200,7 @@ impl RaftRpcClient for RaftPeerManager {
             tx.send(req)
                 .await
                 .map_err(|_| "Peer worker closed".to_string())?;
-            let resp_bytes = timeout(Duration::from_secs(2), response_rx)
+            let resp_bytes = timeout(Duration::from_millis(500), response_rx)
                 .await
                 .map_err(|_| "RPC timeout".to_string())?
                 .map_err(|_| "Response channel closed".to_string())?;
@@ -224,7 +223,7 @@ async fn run_peer_worker(
     loop {
         info!(peer = %to_id, addr = %addr, "Attempting TCP connect");
         // 1. Connect and Handshake
-        let connect_res = timeout(Duration::from_secs(5), TcpStream::connect(addr)).await;
+        let connect_res = timeout(Duration::from_secs(1), TcpStream::connect(addr)).await;
         let mut stream = match connect_res {
             Ok(Ok(s)) => {
                 info!(peer = %to_id, "TCP connected");

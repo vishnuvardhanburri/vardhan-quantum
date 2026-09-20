@@ -15,7 +15,6 @@ use std::sync::{
     Arc,
 };
 use tokio::time::{sleep, timeout, Duration};
-use tracing::{info, warn};
 
 /// Tracks the count of active sessions on this node.
 ///

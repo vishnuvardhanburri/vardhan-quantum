@@ -162,6 +162,24 @@ Granular role assignments (`Role::Admin`, `Role::Operator`, `Role::User`) backed
 - Every entry contains a sequence counter, timestamp, event payload, and the BLAKE3 hash of the preceding block.
 - Each block is mathematically signed with the node's **ML-DSA-87** post-quantum keypair.
 
+### 6. High-Availability Raft Consensus
+- 3-node Raft consensus cluster with heartbeat-based peer discovery.
+- **Split-brain prevention (SEC-RAFT-SPLITBRAIN-004):** Atomic re-check of term and
+  role before `LEADER_TRANSITION` in `start_election()`. Verified by 20-iteration
+  adversarial TCP election-race test (0 split-brain events). ✅
+- **Stale leader fencing (SEC-RAFT-SAFETY-003):** Followers step down on receiving
+  higher-term AppendEntries. Verified by Rust L3 test `test_old_leader_returns_fencing`. ✅
+- **Write-path fencing (SEC-AUTH-RELAYOUT-003 / SEC-RAFT-SAFETY-002):** P7.1
+  implementation: `pq_shield` accept loop checks `RaftRole::Leader` before forwarding
+  connections. Non-leader nodes return HTTP 503 with `X-Raft-Not-Leader` and
+  `X-Raft-Leader-Id` headers. Verified by 12-test adversarial TCP matrix (W1-W12). ✅
+- **Ledger quorum replication & signed checkpoints:** COMPLETE (P7.3 / SEC-EVIDENCE-002).
+  Ledger checkpoints are signed with ML-DSA-87, committed via Raft quorum, and
+  cross-verified by `pq_verify`. 27/27 adversarial + regression tests pass;
+  62/62 total P7+L3 tests pass. See `docs/P7.3_EVIDENCE.md` for full details. ✅
+- See `docs/P6_DISTRIBUTED_SECURITY_RESULTS.md` for the distributed security evidence package.
+  See `docs/P7.3_EVIDENCE.md` for the checkpoint evidence package.
+
 ---
 
 ## 📡 Administrative API Surface

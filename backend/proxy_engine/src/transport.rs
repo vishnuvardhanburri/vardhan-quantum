@@ -9,7 +9,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use zeroize::Zeroize;
 
-const MAX_FRAME_SIZE: usize = 65_536;
+/// Maximum AEAD frame size. Raft AppendEntries messages carrying checkpoint
+/// entries (ML-DSA-87 signatures ~4627 bytes + ledger Merkle data) can exceed
+/// 64 KB. Bump to 256 KB to accommodate checkpoint-carrying AppendEntries.
+const MAX_FRAME_SIZE: usize = 256 * 1024;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

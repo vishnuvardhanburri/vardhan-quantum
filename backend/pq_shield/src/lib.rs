@@ -19,7 +19,7 @@ use crate::prometheus_metrics::PrometheusMetrics;
 use crate::telemetry::{InternalMsg, TelemetryEngine};
 use audit_ledger::LedgerWriter;
 use core_crypto::QuantumNodeIdentity;
-use ha_cluster::{drain::ActiveSessionCounter, ClusterMembership, NodeId, NodeState, RaftNode};
+use ha_cluster::{drain::ActiveSessionCounter, ClusterMembership, NodeId, NodeState, RaftNode, RaftRole};
 use proxy_engine::run_responder;
 use proxy_engine::transport::AeadTransport;
 
@@ -52,6 +52,15 @@ fn get_idle_timeout() -> u64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(IDLE_TIMEOUT_SECS)
+}
+
+/// P7.1: Convert RaftRole to a display string for HTTP headers / redirects.
+fn role_as_str(role: RaftRole) -> &'static str {
+    match role {
+        RaftRole::Leader => "Leader",
+        RaftRole::Follower => "Follower",
+        RaftRole::Candidate => "Candidate",
+    }
 }
 
 pub struct IngressShield {
@@ -248,6 +257,61 @@ impl IngressShield {
                     Some(NodeState::Draining) | Some(NodeState::Dead)
                 ) {
                     warn!(peer = %peer_addr, "Node is Draining — rejecting new connection");
+                    let _ = client_stream.shutdown().await;
+                    continue;
+                }
+            }
+
+            // P7.1: Write-path fencing — only the Raft Leader may proxy
+            // authoritative client writes. A follower or candidate MUST
+            // reject the connection rather than silently proxying upstream.
+            if let Some(ref raft_node) = self.raft_node {
+                if !raft_node.is_leader().await {
+                    let role = raft_node.role_snapshot().await;
+                    let role_str = role_as_str(role);
+                    // Find the current known leader for a redirect hint.
+                    let known_leader = if let Some(ref cluster) = self.cluster {
+                        let nodes = cluster.all_nodes().await;
+                        if let Some(ref self_id) = self.self_node_id {
+                            nodes.iter()
+                                .find(|n| n.node_id != *self_id)
+                                .map(|n| n.node_id.as_str().to_string())
+                        } else {
+                            nodes.iter().find(|n| n.state == NodeState::Healthy)
+                                .map(|n| n.node_id.as_str().to_string())
+                        }
+                    } else {
+                        None
+                    };
+
+                    warn!(
+                        peer = %peer_addr,
+                        role = ?role,
+                        "P7.1: Write-path fence — non-leader rejecting client connection"
+                    );
+                    let leader_json = match &known_leader {
+                        Some(l) => format!("\"{}\"", l),
+                        None => "null".to_string(),
+                    };
+                    let body = format!(
+                        "{{\"error\":\"not_leader\",\"role\":\"{}\",\"leader_id\":{}}}\n",
+                        role_str, leader_json
+                    );
+                    let _ = client_stream.write_all(format!(
+                        "HTTP/1.1 503 Service Unavailable\r\n\
+                         X-Raft-Not-Leader: {}\r\n\
+                         X-Raft-Leader-Id: {}\r\n\
+                         Content-Type: application/json\r\n\
+                         Content-Length: {}\r\n\
+                         Connection: close\r\n\
+                         \r\n\
+                         {}",
+                        role_str,
+                        known_leader.as_deref().unwrap_or("unknown"),
+                        body.len(),
+                        body
+                    ).as_bytes()).await;
+                    let _ = client_stream.shutdown().await;
                     continue;
                 }
             }
@@ -276,6 +340,11 @@ impl IngressShield {
             let session_counter = self.session_counter.clone();
             let handshake_timeout = self.handshake_timeout_secs;
             let idle_timeout = self.idle_timeout_secs;
+            // P7.2: Re-check leadership after handshake to close the
+            // check→step-down→write race window.
+            let raft_replica = self.raft_node.clone();
+            let cluster_for_leader_hint = self.cluster.clone();
+            let self_node_id_clone = self.self_node_id.clone();
 
             tokio::spawn(async move {
                 // P3.4: Track active session for drain coordination.
@@ -348,6 +417,57 @@ impl IngressShield {
                         }
                     }
                 };
+
+                // P7.2: Leadership re-check after PQ handshake.
+                // The initial is_leader() check at accept time is necessary but
+                // not sufficient — between that check and the handshake completion,
+                // the node may have received a higher-term AppendEntries and stepped
+                // down. Re-validate leadership before forwarding to upstream.
+                if let Some(ref raft) = raft_replica {
+                    if !raft.is_leader().await {
+                        let role = raft.role_snapshot().await;
+                        warn!(
+                            session.id = %sid,
+                            role = ?role,
+                            peer = %peer_addr,
+                            "P7.2: Leadership lost after handshake — rejecting forwarded request"
+                        );
+                        let leader_hint = if let Some(ref cluster) = cluster_for_leader_hint {
+                            let nodes = cluster.all_nodes().await;
+                            let self_id = self_node_id_clone.as_ref().map(|n| n.clone());
+                            nodes.iter()
+                                .find(|n| Some(&n.node_id) != self_id.as_ref())
+                                .map(|n| n.node_id.as_str().to_string())
+                        } else {
+                            None
+                        };
+                        let body = format!(
+                            "{{\"error\":\"not_leader_post_handshake\",\"role\":\"{}\",\"leader_id\":{:?}}}\n",
+                            role_as_str(role), leader_hint
+                        );
+                        let leader_json = match &leader_hint {
+                            Some(l) => format!("\"{}\"", l),
+                            None => "null".to_string(),
+                        };
+                        let _ = client_stream.write_all(format!(
+                            "HTTP/1.1 503 Service Unavailable\r\n\
+                             X-Raft-Not-Leader: {}\r\n\
+                             X-Raft-Leader-Id: {}\r\n\
+                             Content-Type: application/json\r\n\
+                             Content-Length: {}\r\n\
+                             Connection: close\r\n\
+                             \r\n\
+                             {}",
+                            role_as_str(role),
+                            leader_hint.as_deref().unwrap_or("unknown"),
+                            body.len(),
+                            body
+                        ).as_bytes()).await;
+                        let _ = client_stream.shutdown().await;
+                        let _ = tx.try_send(InternalMsg::FrameRejected);
+                        return;
+                    }
+                }
 
                 let upstream_future = TcpStream::connect(upstream_addr);
                 let mut upstream_stream =
