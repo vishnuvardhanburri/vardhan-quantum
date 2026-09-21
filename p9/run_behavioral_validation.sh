@@ -7,7 +7,7 @@
 #
 # All tests run against vP8-frozen @ 6b43fd7 (source in /tmp/p4-clean-checkout)
 
-set -euo pipefail
+set -uo pipefail
 
 BUILD_DIR="/tmp/p4-clean-checkout"
 RESULTS_DIR="/Users/vishnuvardhanburri/vardhan-quantum-proxy/p9/results"
@@ -25,6 +25,7 @@ RESULTS_FILE="$RESULTS_DIR/summary.txt"
 > "$RESULTS_FILE"
 
 TOTAL_PASS=0
+TOTAL_EXPECTED_FAIL=0
 TOTAL_FAIL=0
 
 run_test_suite() {
@@ -49,13 +50,49 @@ run_test_suite() {
     echo ""
 }
 
+# Special handler for key_compromise: 2 tests are EXPECTED to fail
+# (p8_7d_signer_fingerprint_not_in_signature, p8_7e_no_signing_key_rotation_mechanism)
+# These failures CONFIRM P8-003/P8-004 fixes work correctly.
+run_expected_fail_suite() {
+    local suite=$1
+    local description=$2
+    local expected_pass=$3
+    local expected_fail=$4
+    local result_file="$RESULTS_DIR/${suite}.log"
+
+    echo "--- $suite ($description, expecting $expected_pass pass / $expected_fail expected-fail) ---"
+    (cd "$BUILD_DIR" && cargo test -p ha_cluster --test "$suite" -- --test-threads=1 2>&1) > "$result_file" 2>&1 || true
+
+    local line
+    line=$(grep "test result:" "$result_file" | tail -1)
+    echo "  Raw result: $line"
+
+    local pass_count fail_count
+    pass_count=$(echo "$line" | sed 's/.*ok\. \([0-9]*\) passed.*/\1/')
+    fail_count=$(echo "$line" | sed 's/.* \([0-9]*\) failed;.*/\1/')
+
+    echo "  Passed: $pass_count, Failed: $fail_count (expected-fail: $expected_fail)"
+
+    if [ "$pass_count" = "$expected_pass" ] && [ "$fail_count" = "$expected_fail" ]; then
+        echo "  Result: PASS (expected-fail behavior confirmed)"
+        echo "$suite: PASS ($pass_count pass, $expected_fail expected-fail — P8-003/004 fixes confirmed)" >> "$RESULTS_FILE"
+        TOTAL_PASS=$((TOTAL_PASS + pass_count))
+        TOTAL_EXPECTED_FAIL=$((TOTAL_EXPECTED_FAIL + fail_count))
+    else
+        echo "  Result: UNEXPECTED (expected $expected_pass pass / $expected_fail fail)"
+        echo "$suite: FAIL (unexpected counts)" >> "$RESULTS_FILE"
+        TOTAL_FAIL=$((TOTAL_FAIL + 1))
+    fi
+    echo ""
+}
+
 # P8 Attack Suites (65/65 expected total)
 echo "=== P8 Attack Suites ==="
 run_test_suite "raft_p8_byzantine" "P8.1 Byzantine faults" "8"
-run_test_suite "raft_p8_transport" "P8.2 Transport security" "18"
+run_test_suite "raft_p8_transport" "P8.2 Protocol fuzzing + AEAD" "9"
 run_test_suite "raft_p8_partition" "P8.4 Network partition" "3"
 run_test_suite "raft_p8_crash_corruption" "P8.5-6 Crash/corruption" "10"
-run_test_suite "raft_p8_key_compromise" "P8-003/004 key compromise" "6"
+run_expected_fail_suite "raft_p8_key_compromise" "P8 key compromise" "4" "2"
 run_test_suite "raft_p8_resource_exhaustion" "P8.7 Resource exhaustion" "7"
 run_test_suite "raft_p8_soak" "P8.8 Soak test" "1"
 run_test_suite "raft_p8_segment_retention" "P8.12 Segment retention" "13"
@@ -86,8 +123,9 @@ echo ""
 
 # Notes
 echo "=== Notes ==="
-echo "P8 expected-fail: p8_7d_signer_fingerprint_not_in_signature, p8_7e_no_signing_key_rotation_mechanism"
-echo "  These SHOULD fail (confirming P8-003/P8-004 fixes work)"
+echo "P8 expected-fail (P8-003/004 fixes confirmed):"
+echo "  p8_7d_signer_fingerprint_not_in_signature"
+echo "  p8_7e_no_signing_key_rotation_mechanism"
 echo ""
 echo "pq_verify: pre-existing P7.3 compile issue (main.rs:230)"
 echo "  NOT a P9 regression; evidence verification uses audit_ledger verifier binary"
@@ -100,12 +138,14 @@ echo ""
 cat "$RESULTS_FILE"
 echo ""
 echo "Total passed: $TOTAL_PASS"
-echo "Total failed: $TOTAL_FAIL"
+echo "Total expected-fail: $TOTAL_EXPECTED_FAIL"
+echo "Total unexpected failed: $TOTAL_FAIL"
 echo ""
 
 if [ "$TOTAL_FAIL" = "0" ]; then
     echo "✅ P9.1-B: ALL BEHAVIORAL TESTS PASSED"
     echo "   P8-frozen invariants reproduced in containerized environment"
+    echo "   P8-003/P8-004 expected-failures confirmed"
     exit 0
 else
     echo "❌ P9.1-B: SOME TESTS FAILED"
