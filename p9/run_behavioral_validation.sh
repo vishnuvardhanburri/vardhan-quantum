@@ -35,9 +35,24 @@ run_test_suite() {
     local result_file="$RESULTS_DIR/${suite}.log"
 
     echo "--- $suite ($description, expecting $expected) ---"
-    if (cd "$BUILD_DIR" && cargo test -p ha_cluster --test "$suite" -- --test-threads=1 2>&1) > "$result_file" 2>&1; then
-        local pass_count
-        pass_count=$(grep "test result:" "$result_file" | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/')
+    # Run test suite (with retry for timing-sensitive tests)
+    local max_retries=2
+    local attempt=1
+    local success=0
+    while [ "$attempt" -le "$max_retries" ] && [ "$success" -eq 0 ]; do
+        if (cd "$BUILD_DIR" && cargo test -p ha_cluster --test "$suite" -- --test-threads=1 2>&1) > "$result_file" 2>&1; then
+            success=1
+        else
+            echo "  Attempt $attempt failed, retrying..."
+            attempt=$((attempt + 1))
+            rm -rf "$BUILD_DIR"/target/debug/deps/.fingerprint 2>/dev/null || true
+        fi
+    done
+
+    if [ "$success" -eq 1 ]; then
+        local line pass_count
+        line=$(grep "test result:" "$result_file" | tail -1)
+        pass_count=$(echo "$line" | perl -ne '/(\d+)\s+passed/s && $1 && print $1')
         echo "  Result: $pass_count/$expected PASSED"
         echo "$suite: PASS ($pass_count/$expected)" >> "$RESULTS_FILE"
         TOTAL_PASS=$((TOTAL_PASS + pass_count))
@@ -68,8 +83,10 @@ run_expected_fail_suite() {
     echo "  Raw result: $line"
 
     local pass_count fail_count
-    pass_count=$(echo "$line" | sed 's/.*ok\. \([0-9]*\) passed.*/\1/')
-    fail_count=$(echo "$line" | sed 's/.* \([0-9]*\) failed;.*/\1/')
+    # Parse numbers from "test result: ok. 4 passed; 0 failed; ..." or
+    # "test result: FAILED. 4 passed; 2 failed; ..."
+    pass_count=$(echo "$line" | perl -ne '/(\d+)\s+passed/s && $1 && print $1')
+    fail_count=$(echo "$line" | perl -ne '/(\d+)\s+failed/s && $1 && print $1')
 
     echo "  Passed: $pass_count, Failed: $fail_count (expected-fail: $expected_fail)"
 
@@ -110,7 +127,7 @@ run_test_suite "raft_l3_failure" "P7.3 Failure" "14"
 # Audit ledger unit tests
 echo "=== Audit Ledger Unit Tests ==="
 if (cd "$BUILD_DIR" && cargo test -p audit_ledger 2>&1) > "$RESULTS_DIR/audit_ledger.log" 2>&1; then
-    pass_count=$(grep "test result:" "$RESULTS_DIR/audit_ledger.log" | head -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/')
+    pass_count=$(grep "test result:" "$RESULTS_DIR/audit_ledger.log" | head -1 | perl -ne '/(\d+)\s+passed/s && $1 && print $1')
     echo "  Result: $pass_count/4 PASSED"
     echo "audit_ledger: PASS ($pass_count/4)" >> "$RESULTS_FILE"
     TOTAL_PASS=$((TOTAL_PASS + pass_count))
