@@ -7,7 +7,7 @@ pub mod avx512;
 
 pub mod vault;
 
-use crate::vault::{EncryptedEnvelope, KeyProtector};
+use crate::vault::{EncryptedEnvelope, KeyProtector, VaultError};
 use fips204::ml_dsa_87;
 use fips204::traits::{SerDes, Signer, Verifier};
 use ml_kem::kem::{Decapsulate, Encapsulate};

@@ -10,7 +10,7 @@
 //! Run: cargo test -p ha_cluster --test raft_p8_regression_p8003 -- --test-threads=1
 
 use core_crypto::{KeyTransitionRecord, KeyTransitionPayload, QuantumNodeIdentity};
-use core_crypto::vault::{KeyProtector, VaultError};
+use core_crypto::vault::{EncryptedEnvelope, KeyProtector, VaultError};
 use core_crypto::serde_cbor;
 
 /// Mock protector for testing — wraps/unwraps using a simple XOR-like scheme.
