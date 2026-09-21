@@ -18,6 +18,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroize;
 
+pub use serde_cbor;
+
 /// ML-KEM-1024 encapsulation key byte length (1568 bytes).
 pub const ENCAP_KEY_LEN: usize = 1568;
 
@@ -167,6 +169,132 @@ impl QuantumNodeIdentity {
         }
         Ok(())
     }
+
+    /// Rotate the ML-DSA-87 signing key while preserving the ML-KEM-1024
+    /// key-encapsulation identity.
+    ///
+    /// This addresses the P8-003 finding: `rotate_key_protector` only
+    /// re-wraps the existing key at rest — it does NOT generate a new
+    /// signing key. If the signing key is compromised, there is no way
+    /// to rotate it.
+    ///
+    /// Lifecycle:
+    /// 1. Generate a new ML-DSA-87 keypair (FIPS 204).
+    /// 2. Sign the new public key with the OLD private key — producing a
+    ///    `KeyTransitionRecord` that serves as proof of continuity:
+    ///    `OldKey signs NewPubKey → verifiable by anyone who trusts OldPubKey`.
+    /// 3. Persist the new identity to the vault (re-encrypting with the
+    ///    same key protector).
+    /// 4. Return the transition record so it can be published to the
+    ///    ledger / audit log for verifiers to follow key history.
+    ///
+    /// The old private key is zeroized immediately after signing the
+    /// transition record, ensuring the node cannot sign new forged entries
+    /// with the old identity going forward.
+    pub fn rotate_signing_key<P: KeyProtector>(
+        &mut self,
+        vault_path: &Path,
+        protector: &P,
+    ) -> Result<KeyTransitionRecord, Box<dyn std::error::Error>> {
+        // 1. Generate a new ML-DSA-87 keypair (FIPS 204)
+        let (new_dsa_pk, new_dsa_sk) = ml_dsa_87::try_keygen()
+            .map_err(|e| format!("Failed to generate new ML-DSA-87 keypair: {e}"))?;
+
+        // 2. Sign the new public key with the OLD private key (proof of continuity)
+        let new_pk_bytes = {
+            let pk_arr: [u8; ml_dsa_87::PK_LEN] = new_dsa_pk.clone().into_bytes();
+            pk_arr.to_vec()
+        };
+
+        let transition_payload = KeyTransitionPayload {
+            old_pubkey_fingerprint: self.signer_pub_fingerprint(),
+            new_pubkey_fingerprint: QuantumNodeIdentity::hash_ledger_block(&new_pk_bytes),
+            old_pubkey_bytes: self.dsa_public_key_bytes(),
+            new_pubkey_bytes: new_pk_bytes.clone(),
+        };
+
+        let transition_payload_bytes = serde_cbor::to_vec(&transition_payload)
+            .map_err(|e| format!("Failed to serialize transition payload: {e}"))?;
+
+        let old_sig = self.sign_payload(&transition_payload_bytes)?;
+        let old_sk_bytes = self.dsa_private_key_bytes.to_vec();
+
+        // Record the transition BEFORE replacing the key
+        let transition = KeyTransitionRecord {
+            old_pubkey_fingerprint: transition_payload.old_pubkey_fingerprint,
+            new_pubkey_fingerprint: transition_payload.new_pubkey_fingerprint,
+            old_pubkey_bytes: transition_payload.old_pubkey_bytes,
+            new_pubkey_bytes: transition_payload.new_pubkey_bytes,
+            transition_sig_bytes: old_sig.clone(),
+            transition_timestamp_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)?
+                .as_millis() as u128,
+        };
+
+        // 3. Replace the signing key, zeroizing the old private key
+        self.dsa_public_key = new_dsa_pk;
+        self.dsa_private_key_bytes = zeroize::Zeroizing::new(new_dsa_sk.into_bytes());
+        drop(old_sk_bytes); // old private key bytes go out of scope
+
+        // 4. Persist the updated identity to the vault (re-wrap with same protector)
+        let stored = StoredIdentity {
+            kem_encap_key_bytes: self.kem_encap_key.as_bytes().to_vec(),
+            kem_decap_key_bytes: self.kem_decap_key_bytes.to_vec(),
+            dsa_public_key_bytes: self.dsa_public_key_bytes(),
+            dsa_private_key_bytes: self.dsa_private_key_bytes.to_vec(),
+        };
+
+        let pt = serde_json::to_vec(&stored)?;
+        let env = vault::wrap_envelope(protector, &pt)?;
+        let env_json = serde_json::to_string_pretty(&env)?;
+
+        // Atomic write: write to temp file then rename
+        let tmp_path = vault_path.with_extension("vault.tmp");
+        std::fs::write(&tmp_path, env_json)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&tmp_path)?.permissions();
+            perms.set_mode(0o600);
+            std::fs::set_permissions(&tmp_path, perms)?;
+        }
+        std::fs::rename(&tmp_path, vault_path)?;
+
+        Ok(transition)
+    }
+
+    /// Compute the BLAKE3 fingerprint of this node's ML-DSA-87 public key.
+    ///
+    /// This is the "signer identity" that appears in checkpoints and is
+    /// used by `pq_verify` to identify which key signed an artifact.
+    pub fn signer_pub_fingerprint(&self) -> [u8; 32] {
+        Self::hash_ledger_block(&self.dsa_public_key_bytes())
+    }
+}
+
+/// Payload signed during a key rotation transition.
+///
+/// `OldKey signs NewPubKey → verifiable by anyone who trusts OldPubKey`.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct KeyTransitionPayload {
+    pub old_pubkey_fingerprint: [u8; 32],
+    pub new_pubkey_fingerprint: [u8; 32],
+    pub old_pubkey_bytes: Vec<u8>,
+    pub new_pubkey_bytes: Vec<u8>,
+}
+
+/// Auditable record of a signing-key rotation event.
+///
+/// Published to the ledger / checkpoint metadata so verifiers can follow
+/// the key history and reject signatures from retired keys.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct KeyTransitionRecord {
+    pub old_pubkey_fingerprint: [u8; 32],
+    pub new_pubkey_fingerprint: [u8; 32],
+    pub old_pubkey_bytes: Vec<u8>,
+    pub new_pubkey_bytes: Vec<u8>,
+    pub transition_sig_bytes: Vec<u8>,
+    pub transition_timestamp_ms: u128,
 }
 
 #[derive(Serialize, Deserialize, Zeroize)]

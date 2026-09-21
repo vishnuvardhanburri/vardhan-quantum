@@ -1450,16 +1450,18 @@ impl LedgerApplier {
         };
 
         // Sign the canonical hash with ML-DSA-87
+        // P8-004: signer_pub_fingerprint must be set BEFORE computing the
+        // canonical hash, since it is now included in canonical_bytes().
+        let pub_key = self.identity.dsa_public_key_bytes();
+        let signer_fp = hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key));
+        cp.signer_pub_fingerprint = signer_fp;
+
         let canonical = cp.canonical_hash()
             .map_err(|e| format!("Checkpoint canonical hash failed: {e}"))?;
         let sig_bytes = self.identity.sign_payload(&canonical)
             .map_err(|e| format!("ML-DSA-87 signing failed: {e}"))?;
 
-        let pub_key = self.identity.dsa_public_key_bytes();
-        let signer_fp = hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key));
-
         cp.signature = hex::encode(&sig_bytes);
-        cp.signer_pub_fingerprint = signer_fp;
 
         // Serialize and submit as Raft log entry
         let data = serde_json::to_vec(&cp)

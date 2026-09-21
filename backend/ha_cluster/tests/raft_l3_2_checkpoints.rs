@@ -672,10 +672,12 @@ async fn test_c8_deletion_detection() {
         signature: String::new(),
         signer_pub_fingerprint: String::new(),
     };
+    // P8-004: signer_pub_fingerprint must be set BEFORE computing canonical_hash
+    let signer_fp = hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key));
+    fake_cp.signer_pub_fingerprint = signer_fp;
     let canonical = fake_cp.canonical_hash().unwrap();
     let sig = leader_node.identity.sign_payload(&canonical).unwrap();
     fake_cp.signature = hex::encode(&sig);
-    fake_cp.signer_pub_fingerprint = hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key));
 
     let committed = CommittedCheckpoint {
         checkpoint: fake_cp.clone(),

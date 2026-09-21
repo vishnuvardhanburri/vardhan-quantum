@@ -97,18 +97,38 @@ impl LedgerWriter {
     ///
     /// If the file already exists, scans to find the last entry's seq and hash
     /// so the chain continues correctly across restarts.
+    ///
+    /// For the first (genesis) segment, use this method. For continuation
+    /// segments, use `open_with_start`.
     pub fn open(
         path: &Path,
         identity: &QuantumNodeIdentity,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::open_with_start(path, identity, [0u8; 32], 0)
+    }
+
+    /// Open (or create) a ledger segment file with a non-genesis starting point.
+    ///
+    /// `initial_prev_hash` is the hash of the last entry in the previous
+    /// segment (or `[0u8; 32]` for the first segment). `expected_start_seq`
+    /// is the global sequence number of the first entry in this segment.
+    ///
+    /// Used by `SegmentedLedgerWriter` to resume segments that continue
+    /// the chain from a previous segment.
+    pub fn open_with_start(
+        path: &Path,
+        identity: &QuantumNodeIdentity,
+        initial_prev_hash: [u8; 32],
+        expected_start_seq: u64,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let pub_key_bytes = identity.dsa_public_key_bytes();
         let signer_pub_fingerprint =
             hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key_bytes));
 
         let (next_seq, prev_hash) = if path.exists() {
-            scan_existing_ledger(path)?
+            scan_ledger_segment(path, initial_prev_hash, expected_start_seq)?
         } else {
-            (0, [0u8; 32])
+            (expected_start_seq, initial_prev_hash)
         };
 
         let file = OpenOptions::new().create(true).append(true).open(path)?;
@@ -181,6 +201,25 @@ impl LedgerWriter {
         let inner = self.inner.lock().unwrap();
         (inner.next_seq, inner.prev_hash)
     }
+
+    /// Set the starting sequence number for this writer.
+    ///
+    /// Used by `SegmentedLedgerWriter` to maintain global sequence continuity
+    /// across segment boundaries. When a new segment is created, the writer
+    /// must start at the global sequence offset, not 0.
+    ///
+    /// Also accepts the expected `prev_hash` so the new segment starts with
+    /// the correct chain linkage from the end of the previous segment.
+    pub fn set_sequence_start(
+        &self,
+        next_seq: u64,
+        prev_hash: [u8; 32],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.next_seq = next_seq;
+        inner.prev_hash = prev_hash;
+        Ok(())
+    }
 }
 
 /// Compute the Merkle root over all entries in a `ledger.jsonl` file.
@@ -207,19 +246,32 @@ pub fn merkle_root_from_ledger_file(path: &Path) -> Result<[u8; 32], Box<dyn std
 
 use std::io::{BufRead, BufReader};
 
-/// Scan an existing ledger file to resume the chain.
-///
-/// Reads all entries to validate the chain, then returns (next_seq, last_entry_hash).
-/// If a torn write (incomplete JSON) is detected at the very end of the file, it safely truncates the file.
-/// Returns an error if the chain is broken (refuses to append to a corrupt ledger).
+/// Backward-compatible wrapper for `scan_ledger_segment` with
+/// genesis (all-zero) initial prev_hash and seq=0.
+#[allow(dead_code)]
 fn scan_existing_ledger(path: &Path) -> Result<(u64, [u8; 32]), Box<dyn std::error::Error>> {
+    scan_ledger_segment(path, [0u8; 32], 0)
+}
+
+/// Scan a ledger segment with a custom starting prev_hash and sequence.
+///
+/// Used by `SegmentedLedgerWriter` to verify segments that continue
+/// the chain from a previous segment. The `initial_prev_hash` is the
+/// hash of the last entry in the previous segment (or `[0u8;32]` for
+/// the first segment). The `expected_start_seq` is the global sequence
+/// number of the first entry in this segment.
+pub fn scan_ledger_segment(
+    path: &Path,
+    initial_prev_hash: [u8; 32],
+    expected_start_seq: u64,
+) -> Result<(u64, [u8; 32]), Box<dyn std::error::Error>> {
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open(path)?;
     let mut reader = BufReader::new(&file);
 
-    let mut prev_hash = [0u8; 32];
+    let mut prev_hash = initial_prev_hash;
     let mut last_seq: Option<u64> = None;
     let mut valid_bytes = 0u64;
     let mut line = String::new();
@@ -260,11 +312,12 @@ fn scan_existing_ledger(path: &Path) -> Result<(u64, [u8; 32]), Box<dyn std::err
             .into());
         }
 
-        // Verify monotonic sequence
+        // Verify sequence: first entry must match expected_start_seq,
+        // subsequent entries must be monotonically increasing
         match last_seq {
-            None if entry.seq != 0 => {
+            None if entry.seq != expected_start_seq => {
                 return Err(
-                    format!("Ledger does not start at seq=0, got seq={}", entry.seq).into(),
+                    format!("Ledger does not start at seq={}, got seq={}", expected_start_seq, entry.seq).into(),
                 );
             }
             Some(s) if entry.seq <= s => {
@@ -292,7 +345,7 @@ fn scan_existing_ledger(path: &Path) -> Result<(u64, [u8; 32]), Box<dyn std::err
     }
 
     match last_seq {
-        None => Ok((0, [0u8; 32])),        // Empty file — start fresh
+        None => Ok((expected_start_seq, initial_prev_hash)),        // Empty file — start fresh
         Some(s) => Ok((s + 1, prev_hash)), // Resume after last entry
     }
 }
@@ -446,7 +499,7 @@ impl Checkpoint {
         }
 
         let cluster_id_bytes = self.cluster_id.as_bytes();
-        let mut buf = Vec::with_capacity(8 + cluster_id_bytes.len() + 64 + 64);
+        let mut buf = Vec::with_capacity(8 + cluster_id_bytes.len() + 64 + 64 + 32);
         buf.extend_from_slice(&(cluster_id_bytes.len() as u32).to_be_bytes());
         buf.extend_from_slice(cluster_id_bytes);
         buf.extend_from_slice(&self.config_epoch.to_be_bytes());
@@ -457,6 +510,10 @@ impl Checkpoint {
         buf.extend_from_slice(&self.ledger_entry_count.to_be_bytes());
         buf.extend_from_slice(&merkle_root_bytes);
         buf.extend_from_slice(&prev_hash_bytes);
+        // P8-004 fix: signer_pub_fingerprint is now part of the signed
+        // canonical bytes, cryptographically binding the claimed identity
+        // to the checkpoint content.
+        buf.extend_from_slice(self.signer_pub_fingerprint.as_bytes());
         buf.extend_from_slice(&(self.timestamp_ms as u64).to_be_bytes());
         buf.extend_from_slice(&self.version.to_be_bytes());
         Ok(buf)
@@ -644,6 +701,790 @@ fn scan_existing_checkpoints(path: &Path) -> Result<(u64, [u8; 32], u64), Box<dy
     }
 
     Ok((next_idx, prev_hash, last_ledger_last_seq))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P8.12: Ledger Segment Rotation & Evidence Retention
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Default maximum entries per segment file before rotation.
+pub const DEFAULT_SEGMENT_MAX_ENTRIES: u64 = 10_000;
+
+/// Default maximum bytes per segment file before rotation.
+pub const DEFAULT_SEGMENT_MAX_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+
+/// Metadata for a single ledger segment file.
+///
+/// Each segment is an immutable JSONL file bounded by `max_entries` or
+/// `max_bytes`. The `prev_segment_hash` field chains segments together
+/// using the canonical hash of the last entry in the previous segment.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SegmentRecord {
+    /// Zero-based segment index (segment_0.jsonl, segment_1.jsonl, ...)
+    pub segment_index: u64,
+    /// File name relative to the ledger directory
+    pub file_name: String,
+    /// Sequence number of the first entry in this segment
+    pub first_seq: u64,
+    /// Sequence number of the last entry in this segment (exclusive)
+    pub last_seq: u64,
+    /// BLAKE3 hash of the last entry's canonical bytes (chain linkage)
+    pub last_entry_hash: String,
+    /// BLAKE3 hash of the previous segment's last entry (cross-segment chain)
+    pub prev_segment_hash: String,
+    /// Merkle root over all entries in this segment
+    pub merkle_root: String,
+    /// Epoch timestamp when the segment was sealed (0 if not yet sealed)
+    pub sealed_at_unix: u64,
+    /// Whether this segment has been sealed (fsync'd + metadata recorded)
+    pub sealed: bool,
+    /// Whether this segment has been archived to cold storage
+    pub archived: bool,
+    /// Whether this segment has been authorized for deletion
+    /// (only valid if `archived` is true)
+    pub deleted: bool,
+    /// Byte size of the segment file when sealed
+    pub file_size_bytes: u64,
+}
+
+/// Manifest tracking all ledger segments.
+///
+/// Stored as `ledger_manifest.json` alongside the segment files.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct SegmentManifest {
+    pub segments: Vec<SegmentRecord>,
+    /// Maximum entries per segment before rotation
+    pub segment_max_entries: u64,
+    /// Maximum bytes per segment before rotation
+    pub segment_max_bytes: u64,
+    /// Cluster ID for identity binding
+    pub cluster_id: String,
+}
+
+impl SegmentManifest {
+    pub fn new(cluster_id: &str, max_entries: u64, max_bytes: u64) -> Self {
+        Self {
+            segments: Vec::new(),
+            segment_max_entries: max_entries,
+            segment_max_bytes: max_bytes,
+            cluster_id: cluster_id.to_string(),
+        }
+    }
+
+    /// The total number of entries across all non-deleted segments.
+    /// For sealed segments, uses the recorded last_seq. For unsealed (active)
+    /// segments, this returns the recorded start (0 entries if empty).
+    pub fn total_entries(&self) -> u64 {
+        self.segments
+            .iter()
+            .filter(|s| !s.deleted)
+            .map(|s| s.last_seq.saturating_sub(s.first_seq))
+            .sum()
+    }
+
+    /// The active segment is the last segment in the manifest that is not deleted.
+    /// It may be sealed (fully rotated) or unsealed (currently being written to).
+    pub fn active_segment(&self) -> Option<&SegmentRecord> {
+        self.segments.iter().rev().find(|s| !s.deleted)
+    }
+
+    /// Find a segment by index.
+    pub fn segment(&self, idx: u64) -> Option<&SegmentRecord> {
+        self.segments.iter().find(|s| s.segment_index == idx && !s.deleted)
+    }
+
+    /// Returns true if the active segment has reached its size limit.
+    pub fn should_rotate(&self, current_entry_count: u64, current_bytes: u64) -> bool {
+        let Some(active) = self.active_segment() else { return false };
+        let entries_in_segment = current_entry_count - active.first_seq;
+        entries_in_segment >= self.segment_max_entries
+            || current_bytes >= self.segment_max_bytes
+    }
+}
+
+/// Error type for ledger segment operations.
+#[derive(Debug, thiserror::Error)]
+pub enum SegmentError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    #[error("Ledger chain broken: {0}")]
+    ChainBroken(String),
+    #[error("Segment not found: {0}")]
+    SegmentNotFound(u64),
+    #[error("Disk full: cannot append to ledger")]
+    DiskFull,
+    #[error("Rotation policy violation: {0}")]
+    PolicyViolation(String),
+    #[error("Segment not yet sealed — retention deletion requires a checkpoint covering this segment")]
+    NotSealed,
+}
+
+/// Segmented ledger writer with rotation and retention governance.
+///
+/// Wraps `LedgerWriter` and automatically rotates to a new segment file
+/// when the active segment reaches `max_entries` or `max_bytes`.
+///
+/// The invariant enforced is:
+/// **Resource limits must not silently invalidate previously committed evidence.**
+///
+/// Segments are sealed (fsync'd) before becoming inactive, and the manifest
+/// is written atomically (write-to-temp + rename) so crash recovery always
+/// produces a consistent state.
+pub struct SegmentedLedgerWriter {
+    inner: Mutex<SegmentedLedgerInner>,
+}
+
+struct SegmentedLedgerInner {
+    /// Ledger directory path
+    ledger_dir: PathBuf,
+    /// Current manifest
+    manifest: SegmentManifest,
+    /// Current active LedgerWriter (writes to the active segment file)
+    active_writer: Option<LedgerWriter>,
+    /// Path to the active segment file
+    active_segment_path: Option<PathBuf>,
+    /// Running byte count of the active segment
+    active_bytes: u64,
+    /// Current total entry count (across all segments)
+    total_entries: u64,
+    /// First seq of the current active segment
+    active_segment_first_seq: u64,
+    /// Max entries in active segment before rotation
+    active_segment_entry_count: u64,
+}
+
+impl SegmentedLedgerWriter {
+    /// Create a new segmented ledger at `ledger_dir`.
+    ///
+    /// If a manifest already exists, resumes from it. Otherwise creates a new
+    /// ledger with segment_0.
+    pub fn new(
+        ledger_dir: &Path,
+        identity: &QuantumNodeIdentity,
+        cluster_id: &str,
+    ) -> Result<Self, SegmentError> {
+        Self::with_limits(ledger_dir, identity, cluster_id,
+            DEFAULT_SEGMENT_MAX_ENTRIES, DEFAULT_SEGMENT_MAX_BYTES)
+    }
+
+    /// Create a segmented ledger with custom rotation limits.
+    ///
+    /// If a manifest already exists, resumes from it. The last segment in
+    /// the manifest is the active (unsealed) segment. If the manifest is
+    /// empty or doesn't exist, creates a new segment_0.
+    pub fn with_limits(
+        ledger_dir: &Path,
+        identity: &QuantumNodeIdentity,
+        cluster_id: &str,
+        max_entries: u64,
+        max_bytes: u64,
+    ) -> Result<Self, SegmentError> {
+        std::fs::create_dir_all(ledger_dir)?;
+
+        let manifest_path = ledger_dir.join("ledger_manifest.json");
+        let mut manifest = if manifest_path.exists() {
+            let content = std::fs::read_to_string(&manifest_path)
+                .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+            serde_json::from_str::<SegmentManifest>(&content)
+                .map_err(|e| SegmentError::Serialization(e.to_string()))?
+        } else {
+            SegmentManifest::new(cluster_id, max_entries, max_bytes)
+        };
+
+        // Ensure the manifest has the correct limits
+        manifest.segment_max_entries = max_entries;
+        manifest.segment_max_bytes = max_bytes;
+
+        // If the manifest has no segments, create the first one
+        if manifest.segments.is_empty() {
+            let seg_path = ledger_dir.join("segment_0.jsonl");
+            let _ = LedgerWriter::open(&seg_path, identity)
+                .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+            manifest.segments.push(SegmentRecord {
+                segment_index: 0,
+                file_name: "segment_0.jsonl".to_string(),
+                first_seq: 0,
+                last_seq: 0,
+                last_entry_hash: String::new(),
+                prev_segment_hash: String::new(),
+                merkle_root: String::new(),
+                sealed_at_unix: 0,
+                sealed: false,
+                archived: false,
+                deleted: false,
+                file_size_bytes: 0,
+            });
+            let tmp_path = ledger_dir.join("ledger_manifest.json.tmp");
+            let content = serde_json::to_string_pretty(&manifest)
+                .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+            std::fs::write(&tmp_path, content)?;
+            std::fs::rename(&tmp_path, &manifest_path)?;
+        }
+
+        // Open the active (last) segment
+        let active_seg = manifest.active_segment()
+            .ok_or(SegmentError::PolicyViolation("No active segment in manifest".into()))?;
+        let seg_path = ledger_dir.join(&active_seg.file_name);
+
+        let (writer, total_entries, active_bytes, active_segment_first_seq, active_segment_entry_count) =
+            if active_seg.sealed {
+                // The active segment is already sealed — we need a new segment
+                let new_index = manifest.segments.len() as u64;
+                let new_file_name = format!("segment_{}.jsonl", new_index);
+                let new_path = ledger_dir.join(&new_file_name);
+
+                // Each segment starts with internal genesis (prev_hash = [0u8;32]).
+                // Cross-segment linkage is tracked via manifest's prev_segment_hash.
+                let start_seq = manifest.segments.last().map(|s| s.last_seq).unwrap_or(0);
+                let prev_seg_hash: [u8; 32] = manifest.segments.last()
+                    .and_then(|s| hex::decode(&s.last_entry_hash).ok())
+                    .and_then(|v| v.as_slice().try_into().ok())
+                    .unwrap_or([0u8; 32]);
+                let writer = LedgerWriter::open_with_start(
+                    &new_path, identity, prev_seg_hash, start_seq
+                )
+                .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+
+                // Determine prev_segment_hash from last sealed segment
+                let prev_seg_hash = manifest.segments.last()
+                    .map(|s| s.last_entry_hash.clone())
+                    .unwrap_or_default();
+
+                manifest.segments.push(SegmentRecord {
+                    segment_index: new_index,
+                    file_name: new_file_name.clone(),
+                    first_seq: start_seq,
+                    last_seq: start_seq,
+                    last_entry_hash: String::new(),
+                    prev_segment_hash: prev_seg_hash,
+                    merkle_root: String::new(),
+                    sealed_at_unix: 0,
+                    sealed: false,
+                    archived: false,
+                    deleted: false,
+                    file_size_bytes: 0,
+                });
+
+                // Persist the manifest with the new segment
+                let tmp_path = ledger_dir.join("ledger_manifest.json.tmp");
+                let content = serde_json::to_string_pretty(&manifest)
+                    .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+                std::fs::write(&tmp_path, content)?;
+                std::fs::rename(&tmp_path, &manifest_path)?;
+
+                let total = start_seq;
+                (writer, total, 0, total, 0)
+            } else {
+                // Unsealed active segment — resume from it
+                // Determine the initial prev_hash and expected start seq
+                // from the previous sealed segment in the manifest
+                let prev_seg_hash: [u8; 32] = manifest.segments
+                    .iter()
+                    .rev()
+                    .skip(1)
+                    .find(|s| s.sealed && !s.deleted)
+                    .and_then(|s| hex::decode(&s.last_entry_hash).ok())
+                    .and_then(|v| v.as_slice().try_into().ok())
+                    .unwrap_or([0u8; 32]);
+
+                let writer = LedgerWriter::open_with_start(
+                    &seg_path, identity, prev_seg_hash, active_seg.first_seq
+                )
+                .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+                let (next_seq, _last_hash) = writer.chain_tip();
+                let bytes = std::fs::metadata(&seg_path).map(|m| m.len()).unwrap_or(0);
+                let first_seq = active_seg.first_seq;
+                let entry_count = next_seq.saturating_sub(first_seq);
+                (writer, next_seq, bytes, first_seq, entry_count)
+            };
+
+        let _ = cluster_id;
+
+        Ok(Self {
+            inner: Mutex::new(SegmentedLedgerInner {
+                ledger_dir: ledger_dir.to_path_buf(),
+                manifest,
+                active_writer: Some(writer),
+                active_segment_path: Some(seg_path),
+                active_bytes,
+                total_entries,
+                active_segment_first_seq,
+                active_segment_entry_count,
+            }),
+        })
+    }
+
+    /// Append an event to the active segment, rotating if necessary.
+    ///
+    /// Crash-safety: the segment is fsync'd before rotation. If a crash
+    /// occurs during rotation, recovery resumes from the last consistent
+    /// manifest state.
+    pub fn append(
+        &self,
+        event: serde_json::Value,
+        identity: &QuantumNodeIdentity,
+    ) -> Result<LedgerEntry, SegmentError> {
+        let mut inner = self.inner.lock().unwrap();
+
+        // Check if we need to seal + rotate BEFORE appending (entry count or byte limit)
+        if inner.active_segment_entry_count >= inner.manifest.segment_max_entries
+            || inner.active_bytes >= inner.manifest.segment_max_bytes {
+            // Only seal if the current segment has entries
+            if inner.active_segment_entry_count > 0 {
+                self.seal_segment(&mut inner)?;
+            }
+            self.rotate_segment(&mut inner, identity)?;
+        }
+
+        let writer = inner.active_writer.as_ref()
+            .ok_or(SegmentError::PolicyViolation("No active writer".into()))?;
+
+        let entry = writer.append(event, identity)
+            .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+
+        // Compute the hash of this entry for chain linkage tracking
+        let entry_hash = entry.canonical_hash();
+
+        // Track bytes written
+        let line_json = serde_json::to_string(&entry)
+            .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+        inner.active_bytes += line_json.len() as u64 + 1; // +1 for newline
+        inner.total_entries = entry.seq + 1;
+        inner.active_segment_entry_count += 1;
+
+        // Update the manifest record for the active segment so it reflects
+        // the latest state (for crash recovery and verification)
+        let total = inner.total_entries;
+        let bytes = inner.active_bytes;
+        if let Some(seg) = inner.manifest.segments.last_mut() {
+            seg.last_seq = total;
+            seg.last_entry_hash = hex::encode(entry_hash);
+            seg.file_size_bytes = bytes;
+        }
+
+        // Persist manifest so crash recovery can find the active segment
+        self.write_manifest(&mut inner)?;
+
+        Ok(entry)
+    }
+
+    /// Seal the current segment: fsync, compute merkle root, update manifest record.
+    /// Does NOT rotate — the active segment is still available for writes
+    /// until `rotate_segment` is called.
+    fn seal_segment(
+        &self,
+        inner: &mut SegmentedLedgerInner,
+    ) -> Result<(), SegmentError> {
+        let writer = inner.active_writer.as_ref()
+            .ok_or(SegmentError::PolicyViolation("No active writer to seal".into()))?;
+
+        let (next_seq, last_hash) = writer.chain_tip();
+        let seg_path = inner.active_segment_path.as_ref()
+            .ok_or(SegmentError::PolicyViolation("No active segment path".into()))?;
+
+        // fsync the segment before sealing (crash-safety)
+        let file = OpenOptions::new().write(true).open(seg_path)?;
+        file.sync_data()?;
+
+        // Compute merkle root for this segment
+        let merkle = merkle_root_from_ledger_file(seg_path)
+            .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+
+        let file_size = std::fs::metadata(seg_path).map(|m| m.len()).unwrap_or(0);
+
+        // Update the active segment record in the manifest with sealed metadata
+        if let Some(seg) = inner.manifest.segments.last_mut() {
+            seg.last_seq = next_seq;
+            seg.last_entry_hash = hex::encode(last_hash);
+            seg.merkle_root = hex::encode(merkle);
+            seg.sealed_at_unix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            seg.sealed = true;
+            seg.file_size_bytes = file_size;
+        }
+
+        self.write_manifest(inner)?;
+        Ok(())
+    }
+
+    /// Rotate to a new segment file: create the new segment, add to manifest
+    /// as unsealed, and open the LedgerWriter for it.
+    fn rotate_segment(
+        &self,
+        inner: &mut SegmentedLedgerInner,
+        identity: &QuantumNodeIdentity,
+    ) -> Result<(), SegmentError> {
+        let new_index = inner.manifest.segments.len() as u64;
+        let new_file_name = format!("segment_{}.jsonl", new_index);
+        let new_path = inner.ledger_dir.join(&new_file_name);
+
+        // Start the new segment — carry over the global sequence offset and
+        // the previous segment's last entry hash as initial prev_hash, so
+        // the chain is continuous across segment boundaries.
+        let start_seq = inner.total_entries;
+        let prev_seg_hash: [u8; 32] = inner.manifest.segments.last()
+            .and_then(|s| hex::decode(&s.last_entry_hash).ok())
+            .and_then(|v| v.as_slice().try_into().ok())
+            .unwrap_or([0u8; 32]);
+        let writer = LedgerWriter::open_with_start(&new_path, identity, prev_seg_hash, start_seq)
+            .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+
+        // Determine prev_segment_hash from last sealed segment (manifest linkage)
+        let prev_seg_hash = inner.manifest.segments.last()
+            .map(|s| s.last_entry_hash.clone())
+            .unwrap_or_default();
+
+        inner.manifest.segments.push(SegmentRecord {
+            segment_index: new_index,
+            file_name: new_file_name,
+            first_seq: inner.total_entries,
+            last_seq: inner.total_entries,
+            last_entry_hash: String::new(),
+            prev_segment_hash: prev_seg_hash,
+            merkle_root: String::new(),
+            sealed_at_unix: 0,
+            sealed: false,
+            archived: false,
+            deleted: false,
+            file_size_bytes: 0,
+        });
+
+        inner.active_writer = Some(writer);
+        inner.active_segment_path = Some(new_path);
+        inner.active_bytes = 0;
+        inner.active_segment_first_seq = inner.total_entries;
+        inner.active_segment_entry_count = 0;
+
+        Ok(())
+    }
+
+    /// Write the manifest atomically (write-to-temp + rename).
+    fn write_manifest(&self, inner: &mut SegmentedLedgerInner) -> Result<(), SegmentError> {
+        let manifest_path = inner.ledger_dir.join("ledger_manifest.json");
+        let tmp_path = inner.ledger_dir.join("ledger_manifest.json.tmp");
+
+        let content = serde_json::to_string_pretty(&inner.manifest)
+            .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+
+        std::fs::write(&tmp_path, content)?;
+        std::fs::rename(&tmp_path, &manifest_path)?;
+
+        Ok(())
+    }
+
+    /// Returns the current chain tip: (total_entries, last_entry_hash, segment_index).
+    pub fn chain_tip(&self) -> (u64, [u8; 32], u64) {
+        let inner = self.inner.lock().unwrap();
+        let seg_idx = if inner.manifest.segments.is_empty() {
+            0
+        } else {
+            inner.manifest.segments.last().unwrap().segment_index + 1
+        };
+        let last_hash = if let Some(writer) = &inner.active_writer {
+            let (_, h) = writer.chain_tip();
+            h
+        } else {
+            [0u8; 32]
+        };
+        (inner.total_entries, last_hash, seg_idx)
+    }
+
+    /// Returns the manifest.
+    pub fn manifest(&self) -> SegmentManifest {
+        let inner = self.inner.lock().unwrap();
+        inner.manifest.clone()
+    }
+
+    /// Archive a sealed segment (mark for eventual retention-based deletion).
+    ///
+    /// Only segments that have been covered by a checkpoint can be archived.
+    /// The `checkpoint_covering_seq` must be >= the segment's `last_seq`.
+    pub fn archive_segment(&self, segment_index: u64, checkpoint_covering_seq: u64) -> Result<(), SegmentError> {
+        let mut inner = self.inner.lock().unwrap();
+        let seg_idx = inner.manifest.segments.iter()
+            .position(|s| s.segment_index == segment_index)
+            .ok_or(SegmentError::SegmentNotFound(segment_index))?;
+
+        {
+            let seg = &inner.manifest.segments[seg_idx];
+            if seg.archived {
+                return Err(SegmentError::PolicyViolation("Segment already archived".into()));
+            }
+
+            // Only archive segments fully covered by a checkpoint
+            if seg.last_seq > checkpoint_covering_seq {
+                return Err(SegmentError::PolicyViolation(
+                    format!("Cannot archive segment {}: last_seq ({}) > checkpoint covering seq ({})",
+                        segment_index, seg.last_seq, checkpoint_covering_seq))
+                );
+            }
+        }
+
+        inner.manifest.segments[seg_idx].archived = true;
+        self.write_manifest(&mut inner)?;
+        Ok(())
+    }
+
+    /// Authorize deletion of an archived segment.
+    ///
+    /// A segment can only be deleted if:
+    /// 1. It has been archived
+    /// 2. A checkpoint covering its range exists (evidence preserved)
+    /// 3. An explicit retention policy authorization is provided
+    ///
+    /// This prevents silent loss of evidence.
+    pub fn authorize_deletion(
+        &self,
+        segment_index: u64,
+        authorization: &RetentionAuthorization,
+    ) -> Result<(), SegmentError> {
+        let mut inner = self.inner.lock().unwrap();
+
+        // Find and validate the segment
+        let seg_idx = inner.manifest.segments.iter()
+            .position(|s| s.segment_index == segment_index)
+            .ok_or(SegmentError::SegmentNotFound(segment_index))?;
+
+        let seg = &inner.manifest.segments[seg_idx];
+        if !seg.archived {
+            return Err(SegmentError::PolicyViolation("Segment must be archived before deletion".into()));
+        }
+        let file_name = seg.file_name.clone();
+
+        if !authorization.approve() {
+            return Err(SegmentError::PolicyViolation("Retention deletion not authorized".into()));
+        }
+
+        let seg_path = inner.ledger_dir.join(&file_name);
+        let _ = std::fs::remove_file(&seg_path);
+        inner.manifest.segments[seg_idx].deleted = true;
+        self.write_manifest(&mut inner)?;
+        Ok(())
+    }
+
+    /// Verify the entire segmented ledger: chain integrity, segment linkage,
+    /// and multi-segment evidence reconstruction.
+    pub fn verify_all_segments(&self, ledger_dir: &Path) -> Result<(), SegmentError> {
+        let inner = self.inner.lock().unwrap();
+        let mut prev_seg_last_hash: Option<[u8; 32]> = None;
+
+        for seg in &inner.manifest.segments {
+            if seg.deleted { continue; }
+
+            let seg_path = ledger_dir.join(&seg.file_name);
+            if !seg_path.exists() {
+                return Err(SegmentError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Segment file not found: {}", seg.file_name)
+                )));
+            }
+
+            // Scan the segment to verify chain integrity and get the real tip
+            // For continuation segments, use the prev_segment_hash as initial_prev_hash
+            let (initial_prev, expected_start_seq) = if seg.segment_index == 0 {
+                ([0u8; 32], 0u64)
+            } else {
+                let prev_hash_bytes = hex::decode(&seg.prev_segment_hash)
+                    .ok()
+                    .and_then(|v| v.as_slice().try_into().ok())
+                    .unwrap_or([0u8; 32]);
+                (prev_hash_bytes, seg.first_seq)
+            };
+            let (scan_next_seq, scan_last_hash) = scan_ledger_segment(&seg_path, initial_prev, expected_start_seq)
+                .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+
+            // For sealed segments, verify the recorded metadata matches the scan
+            if seg.sealed {
+                if scan_next_seq != seg.last_seq {
+                    return Err(SegmentError::ChainBroken(format!(
+                        "Segment {} seq mismatch: manifest={}, scan={}",
+                        seg.file_name, seg.last_seq, scan_next_seq
+                    )));
+                }
+
+                // Verify the recorded last_entry_hash matches
+                let expected_hash = hex::decode(&seg.last_entry_hash)
+                    .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+                let expected_hash_arr: [u8; 32] = expected_hash
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| SegmentError::Serialization("Invalid hash length".into()))?;
+                if scan_last_hash != expected_hash_arr {
+                    return Err(SegmentError::ChainBroken(format!(
+                        "Segment {} hash mismatch: manifest={}, scan={}",
+                        seg.file_name, seg.last_entry_hash, hex::encode(scan_last_hash)
+                    )));
+                }
+            }
+
+            // Verify cross-segment chain linkage (for all segments after the first)
+            if seg.segment_index > 0 {
+                if let Some(prev_hash_bytes) = &prev_seg_last_hash {
+                    let prev_hash_hex = hex::encode(prev_hash_bytes);
+                    if !seg.prev_segment_hash.is_empty() && seg.prev_segment_hash != prev_hash_hex {
+                        return Err(SegmentError::ChainBroken(format!(
+                            "Segment {} cross-segment chain broken: expected prev={}, got={}",
+                            seg.file_name, prev_hash_hex, seg.prev_segment_hash
+                        )));
+                    }
+                }
+            }
+
+            prev_seg_last_hash = Some(scan_last_hash);
+        }
+
+        Ok(())
+    }
+
+    /// Returns the total number of segments.
+    pub fn segment_count(&self) -> usize {
+        let inner = self.inner.lock().unwrap();
+        inner.manifest.segments.len()
+    }
+
+    /// Returns the number of non-deleted segments.
+    pub fn active_segment_count(&self) -> usize {
+        let inner = self.inner.lock().unwrap();
+        inner.manifest.segments.iter().filter(|s| !s.deleted).count()
+    }
+}
+
+/// Authorization token for retention-based segment deletion.
+///
+/// In production, this would require an approved audit log entry or
+/// an administrator's signed approval. The `approve()` method checks
+/// the authorization is valid and not expired.
+pub struct RetentionAuthorization {
+    /// The admin/user authorizing the deletion
+    pub authorized_by: String,
+    /// Unix timestamp of authorization expiration
+    pub expires_at_unix: u64,
+    /// Reason for deletion (audit trail)
+    pub reason: String,
+    /// Digital signature over the above fields by an authorized admin key
+    pub signature: Vec<u8>,
+}
+
+impl RetentionAuthorization {
+    /// Check if this authorization is valid (not expired and has required fields).
+    pub fn approve(&self) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        !self.authorized_by.is_empty()
+            && now < self.expires_at_unix
+            && !self.signature.is_empty()
+    }
+}
+
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
+use std::path::PathBuf;
+
+/// Multi-segment scanner: scan a directory of segment files and reconstruct
+/// the full ledger chain, verifying chain linkage and monotonic sequence.
+///
+/// This is the P8.12 equivalent of `scan_existing_ledger` for segmented
+/// ledgers. It validates cross-segment chain linkage.
+pub fn scan_segmented_ledger(ledger_dir: &Path) -> Result<u64, SegmentError> {
+    let manifest_path = ledger_dir.join("ledger_manifest.json");
+    if !manifest_path.exists() {
+        return Ok(0);
+    }
+
+    let content = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+    let manifest = serde_json::from_str::<SegmentManifest>(&content)
+        .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+
+    let mut prev_seg_last_hash: Option<[u8; 32]> = None;
+    let mut total_entries = 0u64;
+
+    for seg in &manifest.segments {
+        if seg.deleted { continue; }
+
+        let seg_path = ledger_dir.join(&seg.file_name);
+        if !seg_path.exists() {
+            return Err(SegmentError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Segment file not found: {}", seg.file_name)
+            )));
+        }
+
+        let (initial_prev, expected_start_seq) = if seg.segment_index == 0 {
+            ([0u8; 32], 0u64)
+        } else {
+            let prev_hash_bytes = hex::decode(&seg.prev_segment_hash)
+                .ok()
+                .and_then(|v| v.as_slice().try_into().ok())
+                .unwrap_or([0u8; 32]);
+            (prev_hash_bytes, seg.first_seq)
+        };
+        let (next_seq, last_hash) = scan_ledger_segment(&seg_path, initial_prev, expected_start_seq)
+            .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+        total_entries += next_seq.saturating_sub(seg.first_seq);
+
+        // Verify cross-segment chain
+        if seg.segment_index > 0 {
+            if let Some(prev_bytes) = &prev_seg_last_hash {
+                let prev_hash_hex = hex::encode(prev_bytes);
+                if !seg.prev_segment_hash.is_empty() && seg.prev_segment_hash != prev_hash_hex {
+                    return Err(SegmentError::ChainBroken(format!(
+                        "Segment {} cross-segment chain broken", seg.file_name
+                    )));
+                }
+            }
+        }
+
+        prev_seg_last_hash = Some(last_hash);
+    }
+
+    Ok(total_entries)
+}
+
+/// Compute the Merkle root across ALL non-deleted segments in a ledger directory.
+///
+/// This aggregates per-segment merkle roots into a single root, enabling
+/// `pq_verify` to verify evidence integrity across multiple segments.
+pub fn merkle_root_across_segments(ledger_dir: &Path) -> Result<[u8; 32], SegmentError> {
+    let manifest_path = ledger_dir.join("ledger_manifest.json");
+    if !manifest_path.exists() {
+        // Fall back to single-file ledger
+        let ledger_path = ledger_dir.join("ledger.jsonl");
+        if ledger_path.exists() {
+            return merkle_root_from_ledger_file(&ledger_path)
+                .map_err(|e| SegmentError::Serialization(e.to_string()));
+        }
+        return Ok([0u8; 32]);
+    }
+
+    let content = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+    let manifest = serde_json::from_str::<SegmentManifest>(&content)
+        .map_err(|e| SegmentError::Serialization(e.to_string()))?;
+
+    let mut segment_roots: Vec<Vec<u8>> = Vec::new();
+    for seg in &manifest.segments {
+        if seg.deleted { continue; }
+        let seg_path = ledger_dir.join(&seg.file_name);
+
+        // Recompute the merkle root from the actual file content (not the
+        // manifest's recorded value), so tampering is detectable.
+        let seg_root = if seg_path.exists() {
+            merkle_root_from_ledger_file(&seg_path)
+                .map_err(|e| SegmentError::Serialization(e.to_string()))?
+        } else {
+            [0u8; 32]
+        };
+        segment_roots.push(seg_root.to_vec());
+    }
+
+    Ok(merkle_root_from_hashes(&segment_roots))
 }
 
 #[cfg(test)]
