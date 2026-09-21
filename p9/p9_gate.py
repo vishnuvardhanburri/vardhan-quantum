@@ -60,37 +60,48 @@ def gate(name):
 
 async def check_docker_reproducibility(g: GateResult):
     g.info("Checking Docker image availability")
-    result = subprocess.run(
-        ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"],
-        capture_output=True, text=True
-    )
-    g.info(f"Docker images: {result.stdout[:200]}")
+    try:
+        result = subprocess.run(
+            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"],
+            capture_output=True, text=True, timeout=15
+        )
+        g.info(f"Docker images: {result.stdout[:200]}")
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        g.fail(f"Docker not available: {e}")
+        return
 
     g.info("Checking non-root runtime")
-    result = subprocess.run(
-        ["docker", "image", "inspect", "vardhan-quantum-proxy:p9", "--format", "{{.Config.User}}"],
-        capture_output=True, text=True
-    )
-    user_val = result.stdout.strip()
-    g.info(f"Container USER: {user_val}")
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", "vardhan-quantum-proxy:p9", "--format", "{{.Config.User}}"],
+            capture_output=True, text=True, timeout=15
+        )
+        user_val = result.stdout.strip()
+        g.info(f"Container USER: {user_val}")
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        g.fail(f"Docker image inspect failed: {e}")
+        return
 
     g.info("Checking pinned build inputs")
     g.info("Base image: rust:1.98.1-slim-bookworm (pinned)")
 
     # Verify the image was built from vP8-frozen source
-    result = subprocess.run(
-        ["docker", "run", "--rm", "vardhan-quantum-proxy:p9", "cat", "/app/V8_COMMIT.txt"],
-        capture_output=True, text=True
-    )
-    if result.returncode == 0:
-        commit = result.stdout.strip()
-        g.info(f"Image provenance: built from commit {commit}")
-        if commit == "6b43fd751c9df3539c4c9f3f104b3272c57a84bc":
-            g.pass_("Image built from vP8-frozen @ 6b43fd7, non-root runtime, pinned base image")
+    try:
+        result = subprocess.run(
+            ["docker", "run", "--rm", "vardhan-quantum-proxy:p9", "cat", "/app/V8_COMMIT.txt"],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0:
+            commit = result.stdout.strip()
+            g.info(f"Image provenance: built from commit {commit}")
+            if commit == "6b43fd751c9df3539c4c9f3f104b3272c57a84bc":
+                g.pass_("Image built from vP8-frozen @ 6b43fd7, non-root runtime, pinned base image")
+            else:
+                g.fail(f"Image built from wrong commit: {commit}")
         else:
-            g.fail(f"Image built from wrong commit: {commit}")
-    else:
-        g.fail("Cannot verify image provenance")
+            g.fail("Cannot verify image provenance")
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        g.fail(f"Docker run failed: {e}")
 
 # ─── Gate 2: Service Topology ───────────────────────────────────────────
 
@@ -110,12 +121,16 @@ async def check_service_topology(g: GateResult):
 
     # Check that all binaries exist in the image
     for binary in ["pq_shield", "quantum_node", "pq_verify", "verifier", "mock_upstream"]:
-        result = subprocess.run(
-            ["docker", "run", "--rm", "vardhan-quantum-proxy:p9", "ls", f"/app/{binary}"],
-            capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            g.fail(f"Missing binary: {binary}")
+        try:
+            result = subprocess.run(
+                ["docker", "run", "--rm", "vardhan-quantum-proxy:p9", "ls", f"/app/{binary}"],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode != 0:
+                g.fail(f"Missing binary: {binary}")
+                return
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            g.fail(f"Docker check failed for {binary}: {e}")
             return
 
     g.pass_("All 6 services containerized with required binaries present")
@@ -128,12 +143,16 @@ async def check_3node_raft(g: GateResult):
     compose_file = "deploy_pack/docker-compose.p9.yml"
 
     # Bring up cluster
-    result = subprocess.run(
-        ["docker", "compose", "-f", compose_file, "up", "-d", "--build"],
-        capture_output=True, text=True, timeout=300
-    )
-    if result.returncode != 0:
-        g.fail(f"docker-compose up failed: {result.stderr[:500]}")
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", compose_file, "up", "-d", "--build"],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.returncode != 0:
+            g.fail(f"docker-compose up failed: {result.stderr[:500]}")
+            return
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        g.fail(f"docker-compose not available: {e}")
         return
 
     g.info("Cluster started, waiting for nodes to initialize...")
