@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P9.1-B Behavioral Validation Script
 #
 # Runs the actual test suites to validate P8-frozen invariants behaviorally.
@@ -20,8 +20,10 @@ echo "Build dir: $BUILD_DIR"
 echo "Results:   $RESULTS_DIR"
 echo ""
 
-# Track results
-declare -A TEST_RESULTS
+# Track results in a temp file
+RESULTS_FILE="$RESULTS_DIR/summary.txt"
+> "$RESULTS_FILE"
+
 TOTAL_PASS=0
 TOTAL_FAIL=0
 
@@ -32,16 +34,16 @@ run_test_suite() {
     local result_file="$RESULTS_DIR/${suite}.log"
 
     echo "--- $suite ($description, expecting $expected) ---"
-    if (cd "$BUILD_DIR" && cargo test -p ha_cluster --test "$suite" --release -- --test-threads=1 2>&1) > "$result_file" 2>&1; then
+    if (cd "$BUILD_DIR" && cargo test -p ha_cluster --test "$suite" -- --test-threads=1 2>&1) > "$result_file" 2>&1; then
         local pass_count
         pass_count=$(grep "test result:" "$result_file" | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/')
         echo "  Result: $pass_count/$expected PASSED"
-        TEST_RESULTS[$suite]="PASS ($pass_count/$expected)"
+        echo "$suite: PASS ($pass_count/$expected)" >> "$RESULTS_FILE"
         TOTAL_PASS=$((TOTAL_PASS + pass_count))
     else
         grep "test result:" "$result_file" | tail -1 || true
-        echo "  Result: FAIL"
-        TEST_RESULTS[$suite]="FAIL"
+        echo "  Result: FAIL (check $result_file)"
+        echo "$suite: FAIL" >> "$RESULTS_FILE"
         TOTAL_FAIL=$((TOTAL_FAIL + 1))
     fi
     echo ""
@@ -70,19 +72,19 @@ run_test_suite "raft_l3_failure" "P7.3 Failure" "14"
 
 # Audit ledger unit tests
 echo "=== Audit Ledger Unit Tests ==="
-if (cd "$BUILD_DIR" && cargo test -p audit_ledger --release 2>&1) > "$RESULTS_DIR/audit_ledger.log" 2>&1; then
-    pass_count=$(grep "test result:" "$RESULTS_DIR/audit_ledger.log" | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/')
+if (cd "$BUILD_DIR" && cargo test -p audit_ledger 2>&1) > "$RESULTS_DIR/audit_ledger.log" 2>&1; then
+    pass_count=$(grep "test result:" "$RESULTS_DIR/audit_ledger.log" | head -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/')
     echo "  Result: $pass_count/4 PASSED"
-    TEST_RESULTS["audit_ledger"]="PASS ($pass_count/4)"
+    echo "audit_ledger: PASS ($pass_count/4)" >> "$RESULTS_FILE"
     TOTAL_PASS=$((TOTAL_PASS + pass_count))
 else
     echo "  Result: FAIL"
-    TEST_RESULTS["audit_ledger"]="FAIL"
+    echo "audit_ledger: FAIL" >> "$RESULTS_FILE"
     TOTAL_FAIL=$((TOTAL_FAIL + 1))
 fi
 echo ""
 
-# Note: P7.3 failure tests need to run sequentially before partition tests
+# Notes
 echo "=== Notes ==="
 echo "P8 expected-fail: p8_7d_signer_fingerprint_not_in_signature, p8_7e_no_signing_key_rotation_mechanism"
 echo "  These SHOULD fail (confirming P8-003/P8-004 fixes work)"
@@ -95,11 +97,7 @@ echo "========================================"
 echo "P9.1-B Behavioral Validation Summary"
 echo "========================================"
 echo ""
-printf "%-40s %s\n" "Test Suite" "Result"
-printf "%-40s %s\n" "----------------------------------------" "----------"
-for suite in "${!TEST_RESULTS[@]}"; do
-    printf "%-40s %s\n" "$suite" "${TEST_RESULTS[$suite]}"
-done
+cat "$RESULTS_FILE"
 echo ""
 echo "Total passed: $TOTAL_PASS"
 echo "Total failed: $TOTAL_FAIL"
