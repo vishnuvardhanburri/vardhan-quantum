@@ -226,17 +226,6 @@ fn run_verification(args: &Args) -> VerificationReport {
         entries_verified += 1;
     }
 
-    // ─── Determine verdict ───────────────────────────────────────────────────
-    let has_evidence = entries_verified > 0 || checkpoints_verified > 0;
-    if !has_evidence && failures.is_empty() {
-        failures.push("No ledger entries and no checkpoints found".to_string());
-    }
-    let verdict = if failures.is_empty() && has_evidence {
-        "PASS"
-    } else {
-        "FAIL"
-    };
-
     // ─── Verify checkpoints (P7.3) ───────────────────────────────────────────
     let checkpoint_path = args.evidence_dir.join("checkpoints.jsonl");
     let (cp_verified, cp_chain_ok, cp_sig_ok, cp_merkle_ok, cp_raft_ok) =
@@ -246,6 +235,17 @@ fn run_verification(args: &Args) -> VerificationReport {
             &pub_key_bytes,
             &mut failures,
         );
+
+    // ─── Determine verdict ───────────────────────────────────────────────────
+    let has_evidence = entries_verified > 0 || cp_verified > 0;
+    if !has_evidence && failures.is_empty() {
+        failures.push("No ledger entries and no checkpoints found".to_string());
+    }
+    let verdict = if failures.is_empty() && has_evidence {
+        "PASS"
+    } else {
+        "FAIL"
+    };
 
     VerificationReport {
         verdict,
