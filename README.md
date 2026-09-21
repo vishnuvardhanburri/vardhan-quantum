@@ -11,6 +11,94 @@ The **Vardhan Post-Quantum Ingress Engine** is an enterprise-grade cryptographic
 
 Designed for seamless enterprise integration, the Vardhan engine enables immediate cryptographic modernization and strict adherence to **DORA (Article 9)** and **NIS2 (Article 21)** regulatory mandates—without requiring source code modifications to existing downstream microservices.
 
+> **⚠️ Specification Phase Complete** — The Vardhan architecture has been fully specified through six specification documents, a threat model covering 98 threats across 16 trust domains, and a test contract covering 30+ executable tests. The full specification set is frozen and ready for implementation.
+
+---
+
+## 🏛️ Vardhan Specification Architecture
+
+The Vardhan specification architecture defines the complete system through six authoritative documents, each building on the previous:
+
+```
+     ARCHITECTURE
+         │
+  Constitution v1.1
+         ↓
+   System Map v1.1
+         │
+         ▼
+ DOMAIN CONTRACTS
+         │
+ Canonical Objects
+         ↓
+  State Machines
+         ↓
+ Object Traits
+         │
+         ▼
+  SECURITY MODEL
+         │
+   Threat Model
+         │
+         ▼
+  TEST CONTRACTS
+         │
+         ▼
+  IMPLEMENTATION
+```
+
+| Document | Description | Size |
+|---|---|---|
+| `docs/VARDHAN_ARCHITECTURE_CONSTITUTION.md` | Constitutional foundation: 12 layers, 6 control-flow boundaries, state transition model, evidence model, event model, decision twin, 9 amendments (A1–A9) | ~1,500 lines |
+| `docs/VARDHAN_SYSTEM_MAP.md` | 31-section system map: trust domains, decision twin lifecycle, policy pipeline, execution pipeline, tenant isolation, time model, event/state/evidence flow | ~1,440 lines |
+| `docs/VARDHAN_CANONICAL_OBJECT_SPEC.md` | 27 canonical objects + TenantScoped&lt;T&gt; + TimeContext, 24 distinct newtypes, 15 dimensions per object | ~1,460 lines |
+| `docs/VARDHAN_STATE_MACHINES.md` | 25 finite-state machines, 11 edge cases, 6 concurrency races, 3 specification corrections (A1–A3), Raft commit boundaries | ~1,395 lines |
+| `docs/VARDHAN_OBJECT_TRAITS.md` | 34 distinct newtype identifiers, 29 traits, 3-layer marker traits (`SpeculativeState`/`CommittedState`/`AuthoritativeState`), `VardhanAuthorityGate` trait | ~790 lines |
+| `docs/VARDHAN_THREAT_MODEL.md` | 98 threats across 18 categories, 16 trust domains, 18 security properties, 8 attack trees, 11 abuse cases, 30 test cases | ~1,423 lines |
+| `docs/VARDHAN_TEST_CONTRACTS.md` | Complete pre-implementation test contract: 85+ test contracts covering authority chain, state correctness, tenant isolation, time, evidence, AI assurance, concurrency, Raft, execution, outcome, resource exhaustion, fault domains, idempotency, properties, and end-to-end scenarios | ~2,470 lines |
+
+### 12-Layer Dependency Direction
+
+```
+L01  Ingestion         — Event intake, G0 validation
+L02  Trust Fabric      — PQ transport, ML-KEM-1024, ML-DSA-87
+L03  Consensus         — Raft cluster, log commitment
+L04  Evidence Fabric   — BLAKE3 Merkle chain, evidence finalization
+L05  Enterprise State  — State transitions, authoritative state
+L06  Intelligence      — Reasoning engine, G1–G3, DecisionCandidate generation
+L07  Assurance         — G4 policy verification, AssuranceResult
+L08  Policy            — Policy evaluation, authorization issuance
+L09  Decision          — DecisionTwin lifecycle, AUTHORIZED state
+L10  Authority Gate    — `VardhanAuthorityGate` — single execution entry point
+L11  Execution         — External system calls, Outcome collection
+L12  Memory            — Decision memory, evidence finalization
+```
+
+### Key Specification Decisions
+
+| Amendment | Description |
+|---|---|
+| **A1** | `VARDHAN_COMMITTED_STATE` and `OBSERVED_EXTERNAL_STATE` are distinct terminal states — consensus commit ≠ external execution success |
+| **A2** | Tenant isolation is structural via `TenantScoped<T>`, not a Boolean validation flag |
+| **A3** | `logical_time` is `Option<CommitIndex>`, assigned only at Raft commit (not at event creation) |
+| **A4** | Configuration changes (CONFIG_UPDATE) create a new config generation; stale references are rejected |
+| **A5** | Decision vs Outcome evidence split in `DecisionMemory` |
+| **A6** | `DecisionCandidate` is always SPECULATIVE; cannot self-authorize or bypass G0–G4 |
+| **A7** | `VardhanAuthorityGate` is the single trait; executor API is private |
+| **A8** | `REVALIDATION_REQUIRED` blocks progression until re-verified |
+| **A9** | Fault-domain isolation: Intelligence overload cannot starve control plane |
+
+### Cryptographic Stack
+
+| Primitive | Algorithm | Standard |
+|---|---|---|
+| Key Encapsulation | ML-KEM-1024 | FIPS 203 |
+| Digital Signature | ML-DSA-87 | FIPS 204 |
+| Data Encryption | AES-256-GCM | NIST SP 800-38D |
+| Hash Chain | BLAKE3 | RFC 14584 |
+| Key Derivation | HKDF-SHA256 | RFC 5869 |
+| Consensus | Raft | Ongaro & Ongaro (2014) |
+
 ---
 
 ## 🏛️ System Architecture
@@ -60,6 +148,7 @@ vardhan-quantum/
 │   ├── ebpf_engine/          # Kernel-level packet filter hooks
 │   ├── enterprise_tenant/    # Multi-tenant policy isolation
 │   ├── saas_metering/        # Usage-based metering counters
+│   ├── vardhan_model/        # Canonical objects, state machines, and interface traits
 │   ├── orchestration_ai/     # Node self-healing & telemetry heuristics
 │   ├── poc_auditor/          # Verification suite
 │   ├── load_tester/          # High-throughput load harness
@@ -77,6 +166,15 @@ vardhan-quantum/
 │
 ├── deploy_pack/              # Deployment manifests (Docker, Kubernetes, Compose)
 ├── docs/                     # Architecture specifications & audit reports
+│   ├── P3.5–P9               # Production verification & adversarial validation reports
+│   ├── VARDHAN_*.md          # 7 specification documents (frozen)
+│   │   ├── Constitution v1.1     — 12 layers, 9 amendments
+│   │   ├── System Map v1.1       — 31-section system map
+│   │   ├── Canonical Object Spec — 27 objects, 34 newtypes
+│   │   ├── State Machines        — 25 FSMs, 11 edge cases
+│   │   ├── Object Traits         — 29 traits, Authority Gate
+│   │   ├── Threat Model          — 98 threats, 16 trust domains
+│   │   └── Test Contracts        — 85+ test contracts (pre-implementation)
 ├── scripts/                  # Cluster management & verification automation
 ├── Cargo.toml                # Root workspace configuration
 └── docker-compose.yml        # Multi-service edge deployment
@@ -126,6 +224,7 @@ sequenceDiagram
 | **`quantum_node`** | Distributed mesh node runner & identity bootstrap | P2P network discovery, multi-region clustering |
 | **`quantum_network`**| Secure P2P communication mesh | Encrypted node-to-node transport |
 | **`ledger_sync`** | Inter-node ledger synchronization & block verification | Distributed consensus ledger replication |
+| **`vardhan_model`** | Canonical enterprise model, event fabric, and dependency graph | Serde, BLAKE3, UUID, Chrono, Schema versioning |
 | **`dashboard`** | CISO & Operator administrative control center | Next.js 14, React, MUI dark glassmorphism |
 
 ---
@@ -252,10 +351,50 @@ npm run build    # Production build
 
 The test suite validates cryptographic soundness, API contract compliance, concurrency, and distributed failover:
 
+### Existing Runtime Tests
+
 - **Authentication & RBAC:** 35 unit tests + 6 integration tests verifying Argon2id hashing, rate limiting, session TTL, and permission checks.
 - **Administrative Operations:** Integration tests verifying session revocation, caller preservation during flushes, API key verification, cluster drain state machine, and emergency reboot handling.
 - **Raft High-Availability:** 14 failure scenario tests verifying partition tolerance, leader crash failover, follower crash recovery, torn-write prevention, and stale RPC rejection.
+- **PQC Consensus Integration:** 60 tests verifying post-quantum transport security, key rotation, split-brain prevention, Byzantine behavior rejection, and end-to-end boundary attacks.
+- **Vardhan Model:** 38 tests validating schema versioning, entity identity, event types, and graph operations.
 - **Production Build:** Verified zero-warning release compilation and Next.js production packaging.
+
+### Specification-Level Test Contracts
+
+The `VARDHAN_TEST_CONTRACTS.md` defines 85+ test contracts covering 98 threats across 18 categories:
+
+| Category | Threats | Tests |
+|---|---|---|
+| Identity/Authentication | 4 | T-CHAIN-02..05, T-PROP-01 |
+| PQC/Crypto Transport | 12 | T-B1, T-B12, T-RES-02, T-PROP-03 |
+| Consensus/Distributed State | 15 | T-RAFT-01..04, T-PROP-04 |
+| State Fabric | 10 | T-STATE-01..05, T-PROP-08 |
+| Evidence/Provenance | 15 | T-EVID-01..07, T-EVID-08..15, T-PROP-02, T-PROP-06 |
+| Tenant Isolation | 6 | T-TENANT-01..08, T-PROP-09 |
+| Time | 5 | T-TIME-01..07 |
+| Configuration | 4 | T-CONFIG-01..04 |
+| Model/Intelligence | 11 | T-MODEL-01..02, T-G0-01..03, T-G2-02, T-PROP-12 |
+| AI Assurance | 4 | T-G0-01..02, T-G2-01..02, T-G3-01, T-G4-01..02, T-J4 |
+| Policy/Governance | 3 | T-CONFIG-01, T-G4-02 |
+| Decision Twin | 2 | T-DT-01..03, T-E2E-01..12 |
+| Authorization/Gate | 4 | T-CHAIN-01..05, T-EXEC-01..03, T-PROP-06, T-PROP-13 |
+| Execution | 2 | T-EXEC-01..04 |
+| Outcome | 1 | T-OUT-01..02, T-EVID-08 |
+| Memory/Replay | 2 | T-CONC-01..05, T-IDEM-01..07 |
+| Resource Exhaustion | 1 | T-RES-01..02, T-E2E-12 |
+| Fault-Domain Isolation | 2 | T-FAULT-01..02, T-E2E-06 |
+
+```bash
+# Run PQC consensus integration tests
+cargo test -p ha_cluster --test pqc_consensus_integration
+
+# Run vardhan_model tests
+cargo test -p vardhan_model
+
+# Run all workspace tests
+cargo test --workspace
+```
 
 ---
 

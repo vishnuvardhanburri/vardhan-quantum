@@ -20,6 +20,7 @@ members = [
     "backend/pq_verify",
     "backend/ha_cluster",
     "backend/auth_service",
+    "backend/vardhan_model",
 ]
 
 
