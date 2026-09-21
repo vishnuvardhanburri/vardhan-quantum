@@ -1,0 +1,121 @@
+# P9 docker-compose — 3-node containerized Raft cluster
+#
+# Runs the full Vardhan PQ proxy stack with 3 Raft nodes for
+# containerized adversarial validation against vP8-frozen @ 6b43fd7
+#
+# Usage: docker-compose -f deploy_pack/docker-compose.p9.yml up --build
+
+x-vardhan-common: &default-config
+  build:
+    context: ..
+    dockerfile: deploy_pack/Dockerfile.p9
+  image: vardhan-quantum-proxy:p9
+  restart: "no"
+  environment:
+    # Build provenance metadata (P9.1 requires provenance tracking)
+    - V8_COMMIT=6b43fd751c9df3539c4c9f3f104b3272c57a84bc
+    - V8_TAG=vP8-frozen
+    - VARDHAN_ENV=testing
+    - RUST_LOG=info
+    - VARDHAN_KEY_PROTECTOR=local-dev
+    - VARDHAN_VAULT_PASS=test-vault-pass-12345
+  # Security hardening
+  read_only: true
+  tmpfs:
+    - /tmp
+    - /app/target
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  user: "10001:1001"
+
+services:
+  # ── Node A (potential leader) ──────────────────────────────────────
+  raft-node-a:
+    <<: *default-config
+    container_name: raft-node-a
+    hostname: raft-node-a
+    command: ["quantum_node", "--bind", "0.0.0.0:8443", "--peers", "raft-node-b:8443,raft-node-c:8443", "--data-dir", "/data", "--genesis"]
+    ports:
+      - "18080:18080"
+    volumes:
+      - raft-data-a:/data:rw
+      - ../p9:/p9:ro
+    depends_on:
+      - mock-upstream
+
+  # ── Node B ─────────────────────────────────────────────────────────
+  raft-node-b:
+    <<: *default-config
+    container_name: raft-node-b
+    hostname: raft-node-b
+    command: ["quantum_node", "--bind", "0.0.0.0:8443", "--peers", "raft-node-a:8443,raft-node-c:8443", "--data-dir", "/data"]
+    volumes:
+      - raft-data-b:/data:rw
+      - ../p9:/p9:ro
+
+  # ── Node C ────────────────────────────────────────────────────────
+  raft-node-c:
+    <<: *default-config
+    container_name: raft-node-c
+    hostname: raft-node-c
+    command: ["quantum_node", "--bind", "0.0.0.0:8443", "--peers", "raft-node-a:8443,raft-node-b:8443", "--data-dir", "/data"]
+    volumes:
+      - raft-data-c:/data:rw
+      - ../p9:/p9:ro
+
+  # ── Mock Upstream ─────────────────────────────────────────────────
+  mock-upstream:
+    image: python:3.12-alpine
+    container_name: mock-upstream
+    hostname: mock-upstream
+    command: >
+      sh -c "pip install flask && python -c '
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route(\"/\", defaults={\"path\": \"\"})
+      @app.route(\"/<path:path>\", methods=[\"GET\", \"POST\", \"PUT\", \"DELETE\"])
+      def proxy(path):
+          return jsonify({\"status\": \"ok\", \"upstream\": True, \"path\": path})
+      app.run(host=\"0.0.0.0\", port=9090)
+      '"
+    ports:
+      - "9090:9090"
+
+  # ── pq_verify (offline evidence auditor) ─────────────────────────
+  pq-verify:
+    <<: *default-config
+    container_name: pq-verify
+    hostname: pq-verify
+    volumes:
+      - raft-data-a:/evidence-a:ro
+      - raft-data-b:/evidence-b:ro
+      - raft-data-c:/evidence-c:ro
+    depends_on:
+      - raft-node-a
+      - raft-node-b
+      - raft-node-c
+    command: ["pq_verify", "--help"]
+
+  # ── P9 Test Harness ───────────────────────────────────────────────
+  p9-test-harness:
+    <<: *default-config
+    container_name: p9-test-harness
+    hostname: p9-test-harness
+    volumes:
+      - raft-data-a:/evidence-a:ro
+      - raft-data-b:/evidence-b:ro
+      - raft-data-c:/evidence-c:ro
+      - ../p9:/p9:ro
+    depends_on:
+      - raft-node-a
+      - raft-node-b
+      - raft-node-c
+      - pq-verify
+    command: ["/app/run_tests.sh"]
+
+volumes:
+  raft-data-a:
+  raft-data-b:
+  raft-data-c:
