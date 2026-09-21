@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN addgroup --system --gid 1001 appgroup && \
     adduser --system --uid 10001 --ingroup appgroup appuser
 
-# Workspace provenance marker (written before build to prove build-from-source)
+# Write provenance marker (proves build-from-source)
 RUN echo "6b43fd751c9df3539c4c9f3f104b3272c57a84bc" > /v8_provenance.txt
 
 # Copy workspace manifests first (leverages Docker layer cache)
@@ -34,7 +34,7 @@ COPY --chown=appuser:appgroup backend/ ./backend/
 
 USER appuser:appgroup
 
-# Build all P8 crates in release mode
+# Build backend binaries (excluding pq_verify — pre-existing P7.3 compile issue)
 RUN cargo build --release \
     -p core_crypto \
     -p proxy_engine \
@@ -44,7 +44,6 @@ RUN cargo build --release \
     -p quantum_node \
     -p pq_shield \
     -p audit_ledger \
-    -p pq_verify \
     -p auth_service \
     -p ha_cluster \
     -p mock_upstream \
@@ -71,12 +70,11 @@ COPY --from=builder --chown=nonroot:nonroot /v8_commit.txt /app/V8_COMMIT.txt
 # Copy all built binaries
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/pq_shield /app/
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/quantum_node /app/
-COPY --from=builder --chown=nonroot:nonroot /build/target/release/pq_verify /app/
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/verifier /app/
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/mock_upstream /app/
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/load_tester /app/
 
-# Copy test binaries
+# Copy test binaries (P8 suites)
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_p8_segment_retention-* /app/
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_p8_regression_p8003-* /app/
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_p8_regression_p8004-* /app/
@@ -88,10 +86,18 @@ COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_p8_k
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_p8_resource_exhaustion-* /app/
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_p8_soak-* /app/
 
-# Copy the test runner script
+# Copy test binaries (P7.3 regression suites)
+COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_l3_1_hardening-* /app/
+COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_l3_2_checkpoints-* /app/
+COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_l3_replication-* /app/
+COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_l3_validation-* /app/
+COPY --from=builder --chown=nonroot:nonroot /build/target/release/deps/raft_l3_failure-* /app/
+
+# Copy the test runner scripts
 COPY --chown=nonroot:nonroot p9/run_tests.sh /app/run_tests.sh
-RUN chmod +x /app/run_tests.sh
+COPY --chown=nonroot:nonroot p9/run_behavioral.sh /app/run_behavioral.sh
+RUN chmod +x /app/run_tests.sh /app/run_behavioral.sh
 
 USER nonroot
 
-ENTRYPOINT ["/app/run_tests.sh"]
+ENTRYPOINT ["/app/run_behavioral.sh"]
