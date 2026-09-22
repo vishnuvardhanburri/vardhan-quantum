@@ -25,6 +25,14 @@
 //! ```
 //! This specification is also emitted in `schema.json` so any language can reproduce it.
 
+pub mod schema;
+use serde::{Serialize, Deserialize};
+use std::sync::Mutex;
+use std::io::{BufWriter, BufReader, BufRead, Write};
+use std::fs::{File, OpenOptions};
+use std::path::Path;
+use core_crypto::QuantumNodeIdentity;
+
 #[derive(Debug, thiserror::Error)]
 pub enum LedgerError {
     #[error("IO error: {0}")]
@@ -264,15 +272,13 @@ pub fn merkle_root_from_ledger_file(path: &Path) -> Result<[u8; 32], Box<dyn std
         let line = line_res?;
         if line.trim().is_empty() { continue; }
         let entry: LedgerEntry = serde_json::from_str(&line)?;
-        
+
         // FIX: Use the full canonical hash as the Merkle leaf.
         // This binds seq, timestamp, event, and prev_hash into the Merkle root.
-        hashes.push(entry.canonical_hash().to_vec());
+        hashes.push(entry.canonical_hash()?.to_vec());
     }
     Ok(merkle_root_from_hashes(&hashes))
 }
-
-use std::io::{BufRead, BufReader};
 
 /// Backward-compatible wrapper for `scan_ledger_segment` with
 /// genesis (all-zero) initial prev_hash and seq=0.
@@ -367,7 +373,7 @@ pub fn scan_ledger_segment(
             _ => {}
         }
 
-        prev_hash = entry.canonical_hash();
+        prev_hash = entry.canonical_hash()?;
         last_seq = Some(entry.seq);
         valid_bytes += bytes_read as u64;
     }
@@ -1021,7 +1027,7 @@ impl SegmentedLedgerWriter {
                     &seg_path, identity, prev_seg_hash, active_seg.first_seq
                 )
                 .map_err(|e| SegmentError::Serialization(e.to_string()))?;
-                let (next_seq, _last_hash) = writer.chain_tip();
+                let (next_seq, _last_hash) = writer.chain_tip().map_err(|e| SegmentError::Serialization(e.to_string()))?;
                 let bytes = std::fs::metadata(&seg_path).map(|m| m.len()).unwrap_or(0);
                 let first_seq = active_seg.first_seq;
                 let entry_count = next_seq.saturating_sub(first_seq);
@@ -1088,7 +1094,7 @@ impl SegmentedLedgerWriter {
         let bytes = inner.active_bytes;
         if let Some(seg) = inner.manifest.segments.last_mut() {
             seg.last_seq = total;
-            seg.last_entry_hash = hex::encode(entry_hash);
+            seg.last_entry_hash = hex::encode(entry_hash.map_err(|e| SegmentError::Serialization(e.to_string()))?);
             seg.file_size_bytes = bytes;
         }
 
@@ -1213,7 +1219,7 @@ impl SegmentedLedgerWriter {
             inner.manifest.segments.last().map(|s| s.segment_index + 1).unwrap_or(0)
         };
         let last_hash = if let Some(writer) = &inner.active_writer {
-            let (_, h) = writer.chain_tip().unwrap_or([0u8; 32]);
+            let (_, h) = writer.chain_tip().unwrap_or((0, [0u8; 32]));
             h
         } else {
             [0u8; 32]

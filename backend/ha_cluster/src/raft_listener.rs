@@ -52,8 +52,8 @@ impl RaftNetworkListener {
                 // 2. Wrap in Authenticated Transport
                 let mut transport = AeadTransport::new(
                     stream,
-                    session.server_to_client_key,
-                    session.client_to_server_key,
+                    *session.server_to_client_key,
+                    *session.client_to_server_key,
                     session.session_id,
                     session.session_salt,
                     false,

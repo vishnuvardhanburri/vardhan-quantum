@@ -489,8 +489,8 @@ impl IngressShield {
 
                 let mut transport = AeadTransport::new(
                     client_stream,
-                    session.server_to_client_key,
-                    session.client_to_server_key,
+                    *session.server_to_client_key,
+                    *session.client_to_server_key,
                     session.session_id,
                     session.session_salt,
                     false,

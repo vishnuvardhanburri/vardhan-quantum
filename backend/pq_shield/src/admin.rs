@@ -1,5 +1,5 @@
 use crate::telemetry::{MetricsSnapshot, QuantumEvent};
-use audit_ledger::{schema, LedgerEntry};
+use audit_ledger::LedgerEntry;
 use axum::{
     extract::{Path, Request, State},
     http::header,
@@ -546,7 +546,7 @@ async fn ledger_export(State(state): State<AdminState>) -> axum::response::Respo
         }
         if let Ok(entry) = serde_json::from_str::<LedgerEntry>(line) {
             entry_count += 1;
-            tip_hash = hex::encode(entry.canonical_hash());
+            tip_hash = hex::encode(entry.canonical_hash().expect("Canonical hash failed"));
         }
     }
 
@@ -564,7 +564,7 @@ async fn ledger_export(State(state): State<AdminState>) -> axum::response::Respo
 
     // 4. Write schema.json
     let schema_path = export_dir.join("schema.json");
-    if let Err(e) = schema::write_schema(&schema_path) {
+    if let Err(e) = audit_ledger::schema::write_schema(&schema_path) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Cannot write schema: {e}"),

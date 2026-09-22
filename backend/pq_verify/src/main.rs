@@ -226,7 +226,7 @@ fn run_verification(args: &Args) -> VerificationReport {
         }
 
         // Advance chain state
-        prev_hash = entry.canonical_hash();
+        prev_hash = entry.canonical_hash().expect("Canonical hash failed");
         tip_hash = hex::encode(prev_hash);
         last_seq = Some(entry.seq);
         entries_verified += 1;
@@ -319,7 +319,7 @@ fn verify_checkpoints(
             };
             // FIX: Use the full canonical hash as the Merkle leaf.
             // This binds seq, timestamp, event, and prev_hash into the Merkle root.
-            hashes.push(entry.canonical_hash().to_vec());
+            hashes.push(entry.canonical_hash().expect("Canonical hash failed").to_vec());
         }
         hashes
     };
