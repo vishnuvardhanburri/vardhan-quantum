@@ -20,6 +20,21 @@ use zeroize::Zeroize;
 
 pub use serde_cbor;
 
+/// Cryptographic errors for core operations.
+#[derive(Debug, thiserror::Error)]
+pub enum CryptoError {
+    #[error("PQC Encapsulation failed")]
+    EncapsulationFailed,
+    #[error("PQC Decapsulation failed")]
+    DecapsulationFailed,
+    #[error("Invalid key length: expected {expected}, got {actual}")]
+    InvalidKeyLength { expected: usize, actual: usize },
+    #[error("Vault error: {0}")]
+    Vault(#[from] VaultError),
+    #[error("Internal crypto error: {0}")]
+    Internal(String),
+}
+
 /// ML-KEM-1024 encapsulation key byte length (1568 bytes).
 pub const ENCAP_KEY_LEN: usize = 1568;
 
@@ -332,26 +347,29 @@ impl QuantumNodeIdentity {
     /// Returns `(ciphertext, shared_key)`.
     pub fn encapsulate_shared_secret(
         remote_encap_key: &<MlKem1024 as KemCore>::EncapsulationKey,
-    ) -> (Ciphertext<MlKem1024>, SharedKey<MlKem1024>) {
+    ) -> Result<(Ciphertext<MlKem1024>, SharedKey<MlKem1024>), CryptoError> {
         remote_encap_key
             .encapsulate(&mut OsRng)
-            .expect("Encapsulation failed")
+            .map_err(|_| CryptoError::EncapsulationFailed)
     }
 
     /// Decapsulate a shared key from `ciphertext` using this node's decapsulation key.
     pub fn decapsulate_shared_secret(
         &self,
         ciphertext: &Ciphertext<MlKem1024>,
-    ) -> SharedKey<MlKem1024> {
+    ) -> Result<SharedKey<MlKem1024>, CryptoError> {
         let dk_arr: ml_kem::Encoded<<MlKem1024 as KemCore>::DecapsulationKey> = self
             .kem_decap_key_bytes
             .as_slice()
             .try_into()
-            .expect("Invalid dk length");
+            .map_err(|_| CryptoError::InvalidKeyLength {
+                expected: 2400,
+                actual: self.kem_decap_key_bytes.len(),
+            })?;
         let decap_key = <MlKem1024 as KemCore>::DecapsulationKey::from_bytes(&dk_arr);
         decap_key
             .decapsulate(ciphertext)
-            .expect("Decapsulation failed")
+            .map_err(|_| CryptoError::DecapsulationFailed)
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -364,13 +382,12 @@ impl QuantumNodeIdentity {
     /// Returns `(ciphertext_bytes, shared_key_bytes)`.
     pub fn encapsulate_shared_secret_from_bytes(
         remote_encap_key_bytes: &[u8],
-    ) -> Result<(Vec<u8>, Vec<u8>), Box<dyn std::error::Error>> {
+    ) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
         if remote_encap_key_bytes.len() != ENCAP_KEY_LEN {
-            return Err(format!(
-                "Expected {ENCAP_KEY_LEN} bytes for encap key, got {}",
-                remote_encap_key_bytes.len()
-            )
-            .into());
+            return Err(CryptoError::InvalidKeyLength {
+                expected: ENCAP_KEY_LEN,
+                actual: remote_encap_key_bytes.len(),
+            });
         }
 
         // `EncapsulationKey<P>` implements `EncodedSizeUser` with `from_bytes(&Encoded<Self>)`.
@@ -378,10 +395,10 @@ impl QuantumNodeIdentity {
         // We convert the slice to a fixed-size array then into the hybrid_array::Array type.
         let ek_fixed: [u8; ENCAP_KEY_LEN] = remote_encap_key_bytes
             .try_into()
-            .map_err(|_| "Bad encap key slice length")?;
+            .map_err(|_| CryptoError::Internal("Bad encap key slice length".to_string()))?;
         let ek_arr = ml_kem::Encoded::<<MlKem1024 as KemCore>::EncapsulationKey>::from(ek_fixed);
         let ek = <MlKem1024 as KemCore>::EncapsulationKey::from_bytes(&ek_arr);
-        let (ct, ss) = ek.encapsulate(&mut OsRng).expect("Encapsulation failed");
+        let (ct, ss) = ek.encapsulate(&mut OsRng).map_err(|_| CryptoError::EncapsulationFailed)?;
         Ok((ct.to_vec(), ss.to_vec()))
     }
 
@@ -389,29 +406,31 @@ impl QuantumNodeIdentity {
     pub fn decapsulate_from_bytes(
         &self,
         ciphertext_bytes: &[u8],
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<u8>, CryptoError> {
         if ciphertext_bytes.len() != CIPHERTEXT_LEN {
-            return Err(format!(
-                "Expected {CIPHERTEXT_LEN} bytes for ciphertext, got {}",
-                ciphertext_bytes.len()
-            )
-            .into());
+            return Err(CryptoError::InvalidKeyLength {
+                expected: CIPHERTEXT_LEN,
+                actual: ciphertext_bytes.len(),
+            });
         }
 
         // `Ciphertext<MlKem1024>` = `Array<u8, CiphertextSize<MlKem1024Params>>`.
         // Build it directly from the fixed-size byte array.
         let ct_fixed: [u8; CIPHERTEXT_LEN] = ciphertext_bytes
             .try_into()
-            .map_err(|_| "Bad ciphertext slice length")?;
+            .map_err(|_| CryptoError::Internal("Bad ciphertext slice length".to_string()))?;
         let ct: Ciphertext<MlKem1024> = ct_fixed.into();
 
         let dk_arr: ml_kem::Encoded<<MlKem1024 as KemCore>::DecapsulationKey> = self
             .kem_decap_key_bytes
             .as_slice()
             .try_into()
-            .expect("Invalid dk length");
+            .map_err(|_| CryptoError::InvalidKeyLength {
+                expected: 2400,
+                actual: self.kem_decap_key_bytes.len(),
+            })?;
         let decap_key = <MlKem1024 as KemCore>::DecapsulationKey::from_bytes(&dk_arr);
-        let ss = decap_key.decapsulate(&ct).expect("Decapsulation failed");
+        let ss = decap_key.decapsulate(&ct).map_err(|_| CryptoError::DecapsulationFailed)?;
         Ok(ss.to_vec())
     }
 
@@ -485,8 +504,8 @@ mod tests {
 
         // FIPS 203 ML-KEM-1024 typed key exchange
         let (ciphertext, secret_a) =
-            QuantumNodeIdentity::encapsulate_shared_secret(&node_b.kem_encap_key);
-        let secret_b = node_b.decapsulate_shared_secret(&ciphertext);
+            QuantumNodeIdentity::encapsulate_shared_secret(&node_b.kem_encap_key).unwrap();
+        let secret_b = node_b.decapsulate_shared_secret(&ciphertext).unwrap();
         assert_eq!(
             secret_a.as_slice(),
             secret_b.as_slice(),

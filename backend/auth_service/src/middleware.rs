@@ -57,7 +57,8 @@ pub async fn require_session(
 
     let token = SessionToken::from_str(token_str);
 
-    let username = sessions.validate(&token).await.ok_or_else(|| {
+    // VALIDATE AND ROTATE token to prevent theft
+    let (username, new_token) = sessions.validate_and_rotate(&token).await.ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({ "error": "Invalid or expired session" })),
@@ -67,7 +68,15 @@ pub async fn require_session(
     // Inject authenticated user for downstream handlers
     req.extensions_mut().insert(AuthenticatedUser { username });
 
-    Ok(next.run(req).await)
+    let mut response = next.run(req).await;
+    
+    // Add the new rotated token to the response header
+    response.headers_mut().insert(
+        header::HeaderName::from_static("authorization-new-token"),
+        header::HeaderValue::from_str(&format!("Bearer {}", new_token.as_str())).unwrap(),
+    );
+
+    Ok(response)
 }
 
 /// Extract the bare token string from `Authorization: Bearer <token>`.

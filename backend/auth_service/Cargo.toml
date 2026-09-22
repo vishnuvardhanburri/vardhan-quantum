@@ -19,6 +19,7 @@ tracing       = "0.1"
 audit_ledger  = { path = "../audit_ledger" }
 core_crypto   = { path = "../core_crypto" }
 thiserror     = "1"
+zeroize = "1.9.0"
 
 [dev-dependencies]
 tokio    = { version = "1", features = ["full"] }

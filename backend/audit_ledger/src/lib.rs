@@ -25,14 +25,41 @@
 //! ```
 //! This specification is also emitted in `schema.json` so any language can reproduce it.
 
-pub mod schema;
+#[derive(Debug, thiserror::Error)]
+pub enum LedgerError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    #[error("Cryptographic error: {0}")]
+    Crypto(String),
+    #[error("Lock poisoned")]
+    PoisonedLock,
+    #[error("System time error: {0}")]
+    TimeError(String),
+    #[error("Ledger chain broken: {0}")]
+    ChainBroken(String),
+    #[error("Internal error: {0}")]
+    Internal(String),
+}
 
-use core_crypto::QuantumNodeIdentity;
-use serde::{Deserialize, Serialize};
-use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Write};
-use std::path::Path;
-use std::sync::Mutex;
+impl From<serde_json::Error> for LedgerError {
+    fn from(e: serde_json::Error) -> Self {
+        LedgerError::Serialization(e.to_string())
+    }
+}
+
+impl From<hex::FromHexError> for LedgerError {
+    fn from(e: hex::FromHexError) -> Self {
+        LedgerError::Crypto(e.to_string())
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for LedgerError {
+    fn from(e: Box<dyn std::error::Error>) -> Self {
+        LedgerError::Internal(e.to_string())
+    }
+}
 
 /// A single entry in the durable audit ledger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,11 +80,11 @@ pub struct LedgerEntry {
 impl LedgerEntry {
     /// Compute the canonical 32-byte hash of this entry.
     /// This is the value that becomes `prev_hash` of the next entry.
-    pub fn canonical_hash(&self) -> [u8; 32] {
-        let event_json = serde_json::to_string(&self.event).expect("event must be serializable");
-        let prev_hash_bytes = hex::decode(&self.prev_hash).expect("prev_hash must be valid hex");
+    pub fn canonical_hash(&self) -> Result<[u8; 32], LedgerError> {
+        let event_json = serde_json::to_string(&self.event)?;
+        let prev_hash_bytes = hex::decode(&self.prev_hash)?;
 
-        canonical_hash(self.seq, self.timestamp_ms, &event_json, &prev_hash_bytes)
+        Ok(canonical_hash(self.seq, self.timestamp_ms, &event_json, &prev_hash_bytes))
     }
 }
 
@@ -154,11 +181,12 @@ impl LedgerWriter {
         event: serde_json::Value,
         identity: &QuantumNodeIdentity,
     ) -> Result<LedgerEntry, Box<dyn std::error::Error>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().map_err(|_| LedgerError::PoisonedLock)?;
 
         let seq = inner.next_seq;
         let timestamp_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| LedgerError::TimeError(e.to_string()))?
             .as_millis();
         let prev_hash_hex = hex::encode(inner.prev_hash);
         let event_json = serde_json::to_string(&event)?;
@@ -190,16 +218,17 @@ impl LedgerWriter {
         inner.writer.get_ref().sync_data()?;
 
         // Advance chain state
-        inner.prev_hash = entry.canonical_hash();
+        let entry_hash = entry.canonical_hash()?;
+        inner.prev_hash = entry_hash;
         inner.next_seq += 1;
 
         Ok(entry)
     }
 
     /// Returns the current chain tip: (next_seq, BLAKE3 of last entry).
-    pub fn chain_tip(&self) -> (u64, [u8; 32]) {
-        let inner = self.inner.lock().unwrap();
-        (inner.next_seq, inner.prev_hash)
+    pub fn chain_tip(&self) -> Result<(u64, [u8; 32]), LedgerError> {
+        let inner = self.inner.lock().map_err(|_| LedgerError::PoisonedLock)?;
+        Ok((inner.next_seq, inner.prev_hash))
     }
 
     /// Set the starting sequence number for this writer.
@@ -214,8 +243,8 @@ impl LedgerWriter {
         &self,
         next_seq: u64,
         prev_hash: [u8; 32],
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut inner = self.inner.lock().unwrap();
+    ) -> Result<(), LedgerError> {
+        let mut inner = self.inner.lock().map_err(|_| LedgerError::PoisonedLock)?;
         inner.next_seq = next_seq;
         inner.prev_hash = prev_hash;
         Ok(())
@@ -235,11 +264,10 @@ pub fn merkle_root_from_ledger_file(path: &Path) -> Result<[u8; 32], Box<dyn std
         let line = line_res?;
         if line.trim().is_empty() { continue; }
         let entry: LedgerEntry = serde_json::from_str(&line)?;
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&entry.seq.to_le_bytes());
-        let event_json = serde_json::to_string(&entry.event).unwrap_or_default();
-        hasher.update(event_json.as_bytes());
-        hashes.push(hasher.finalize().as_bytes().to_vec());
+        
+        // FIX: Use the full canonical hash as the Merkle leaf.
+        // This binds seq, timestamp, event, and prev_hash into the Merkle root.
+        hashes.push(entry.canonical_hash().to_vec());
     }
     Ok(merkle_root_from_hashes(&hashes))
 }
@@ -718,7 +746,7 @@ pub const DEFAULT_SEGMENT_MAX_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Each segment is an immutable JSONL file bounded by `max_entries` or
 /// `max_bytes`. The `prev_segment_hash` field chains segments together
 /// using the canonical hash of the last entry in the previous segment.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SegmentRecord {
     /// Zero-based segment index (segment_0.jsonl, segment_1.jsonl, ...)
     pub segment_index: u64,
@@ -1026,7 +1054,7 @@ impl SegmentedLedgerWriter {
         event: serde_json::Value,
         identity: &QuantumNodeIdentity,
     ) -> Result<LedgerEntry, SegmentError> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().map_err(|_| SegmentError::PolicyViolation("Ledger lock poisoned".into()))?;
 
         // Check if we need to seal + rotate BEFORE appending (entry count or byte limit)
         if inner.active_segment_entry_count >= inner.manifest.segment_max_entries
@@ -1080,7 +1108,7 @@ impl SegmentedLedgerWriter {
         let writer = inner.active_writer.as_ref()
             .ok_or(SegmentError::PolicyViolation("No active writer to seal".into()))?;
 
-        let (next_seq, last_hash) = writer.chain_tip();
+        let (next_seq, last_hash) = writer.chain_tip().map_err(|e| SegmentError::Serialization(e.to_string()))?;
         let seg_path = inner.active_segment_path.as_ref()
             .ok_or(SegmentError::PolicyViolation("No active segment path".into()))?;
 
@@ -1101,7 +1129,7 @@ impl SegmentedLedgerWriter {
             seg.merkle_root = hex::encode(merkle);
             seg.sealed_at_unix = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| SegmentError::Serialization(format!("Time error: {e}")))?
                 .as_secs();
             seg.sealed = true;
             seg.file_size_bytes = file_size;
@@ -1178,14 +1206,14 @@ impl SegmentedLedgerWriter {
 
     /// Returns the current chain tip: (total_entries, last_entry_hash, segment_index).
     pub fn chain_tip(&self) -> (u64, [u8; 32], u64) {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().map_err(|_| SegmentError::PolicyViolation("Ledger lock poisoned".into())).unwrap();
         let seg_idx = if inner.manifest.segments.is_empty() {
             0
         } else {
-            inner.manifest.segments.last().unwrap().segment_index + 1
+            inner.manifest.segments.last().map(|s| s.segment_index + 1).unwrap_or(0)
         };
         let last_hash = if let Some(writer) = &inner.active_writer {
-            let (_, h) = writer.chain_tip();
+            let (_, h) = writer.chain_tip().unwrap_or([0u8; 32]);
             h
         } else {
             [0u8; 32]
@@ -1511,12 +1539,12 @@ mod tests {
             assert_eq!(entry.seq, i);
         }
 
-        let (next_seq, _) = writer.chain_tip();
+        let (next_seq, _) = writer.chain_tip().unwrap();
         assert_eq!(next_seq, 10);
 
         // Reopen — should resume from seq=10 with chain intact
         let writer2 = LedgerWriter::open(&path, &identity).unwrap();
-        let (resumed_seq, _) = writer2.chain_tip();
+        let (resumed_seq, _) = writer2.chain_tip().unwrap();
         assert_eq!(resumed_seq, 10);
 
         let _ = std::fs::remove_file(&path);

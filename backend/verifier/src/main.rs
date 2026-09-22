@@ -82,8 +82,8 @@ async fn run_tests() -> Result<(), Box<dyn std::error::Error>> {
     // Normal HTTP Request
     let mut t2 = AeadTransport::new(
         stream2,
-        session2.client_to_server_key,
-        session2.server_to_client_key,
+        *session2.client_to_server_key,
+        *session2.server_to_client_key,
         session2.session_id,
         session2.session_salt,
         true,
@@ -100,8 +100,8 @@ async fn run_tests() -> Result<(), Box<dyn std::error::Error>> {
     // 64KiB boundary success
     let mut t1 = AeadTransport::new(
         stream1,
-        session1.client_to_server_key,
-        session1.server_to_client_key,
+        *session1.client_to_server_key,
+        *session1.server_to_client_key,
         session1.session_id,
         session1.session_salt,
         true,
@@ -115,8 +115,8 @@ async fn run_tests() -> Result<(), Box<dyn std::error::Error>> {
     let (mut stream3, session3) = connect_and_handshake().await?;
     let mut t3 = AeadTransport::new(
         stream3,
-        session3.client_to_server_key,
-        session3.server_to_client_key,
+        *session3.client_to_server_key,
+        *session3.server_to_client_key,
         session3.session_id,
         session3.session_salt,
         true,

@@ -155,11 +155,18 @@ impl CredentialStore {
 
         let val = serde_json::to_vec(&record).map_err(|e| ApiKeyError::DbError(e.to_string()))?;
 
-        // Write both record and hash index
-        self.db.insert(Self::apikey_key(&id), val)
-            .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
-        self.db.insert(Self::apikey_hash_key(&key_hash), id.as_bytes())
-            .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
+        // Write both record and hash index atomically
+        let id_bytes = id.as_bytes();
+        let hash_bytes = key_hash.as_bytes();
+        let record_key = Self::apikey_key(&id);
+        let hash_key = Self::apikey_hash_key(&key_hash);
+
+        self.db.transaction(|tx_db| {
+            tx_db.insert(&*record_key, val.clone())?;
+            tx_db.insert(&*hash_key, id_bytes)?;
+            Ok::<(), sled::transaction::ConflictableTransactionError>(())
+        }).map_err(|e| ApiKeyError::DbError(format!("Transaction failed: {e}")))?;
+
         self.db.flush()
             .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
 
@@ -199,12 +206,18 @@ impl CredentialStore {
         let view = record.to_view();
 
         let val = serde_json::to_vec(&record).map_err(|e| ApiKeyError::DbError(e.to_string()))?;
-        self.db.insert(key, val)
-            .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
 
-        // Remove from hash index so it can never be used again
+        // Update record and remove from hash index atomically
+        let key_clone = key.clone();
         let hash_key = Self::apikey_hash_key(&record.key_hash);
-        let _ = self.db.remove(hash_key);
+        let val_clone = val.clone();
+
+        self.db.transaction(|tx_db| {
+            tx_db.insert(&*key_clone, val_clone.clone())?;
+            tx_db.remove(&*hash_key)?;
+            Ok::<(), sled::transaction::ConflictableTransactionError>(())
+        }).map_err(|e| ApiKeyError::DbError(format!("Revocation transaction failed: {e}")))?;
+
         self.db.flush().map_err(|e| ApiKeyError::DbError(e.to_string()))?;
 
         Ok(view)

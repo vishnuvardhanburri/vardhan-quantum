@@ -418,15 +418,15 @@ impl LedgerSyncChannel {
     /// completed \`ProxySession\`.
     pub fn new(stream: TcpStream, ctx: &SessionContext, is_responder: bool) -> Self {
         let (tx_key, rx_key) = if is_responder {
-            (ctx.server_to_client_key, ctx.client_to_server_key)
+            (ctx.server_to_client_key.clone(), ctx.client_to_server_key.clone())
         } else {
-            (ctx.client_to_server_key, ctx.server_to_client_key)
+            (ctx.client_to_server_key.clone(), ctx.server_to_client_key.clone())
         };
         Self {
             transport: AeadTransport::new(
                 stream,
-                tx_key,
-                rx_key,
+                *tx_key,
+                *rx_key,
                 ctx.session_id,
                 ctx.session_salt,
                 !is_responder,

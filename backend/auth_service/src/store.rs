@@ -43,33 +43,24 @@ impl CredentialStore {
     /// # Fatal (returns `Err`)
     ///
     /// - Store cannot be opened
-    /// - No users exist and env vars are absent/blank
+    /// - No users exist and bootstrap credentials cannot be securely loaded
     /// - Password is shorter than 12 characters
     /// - Argon2id hashing fails (should never happen with valid params)
     pub fn open_or_bootstrap(path: &Path) -> Result<Self, String> {
         let store = Self::open(path)?;
 
         if store.user_count() == 0 {
-            tracing::info!("Credential store is empty — bootstrapping from environment");
+            tracing::info!("Credential store is empty — bootstrapping from secure sources");
 
-            let username = std::env::var("VARDHAN_ADMIN_USERNAME")
-                .ok()
-                .filter(|s| !s.trim().is_empty())
-                .ok_or_else(|| {
-                    "FATAL: Credential store is empty and VARDHAN_ADMIN_USERNAME is not set.\n\
-                     Set VARDHAN_ADMIN_USERNAME + VARDHAN_ADMIN_PASSWORD to bootstrap.".to_string()
-                })?;
+            let username = crate::secrets::SecretReader::read_bootstrap_username()
+                .map_err(|e| format!("FATAL: {e}"))?;
 
-            let password = std::env::var("VARDHAN_ADMIN_PASSWORD")
-                .ok()
-                .filter(|s| !s.trim().is_empty())
-                .ok_or_else(|| {
-                    "FATAL: VARDHAN_ADMIN_USERNAME is set but VARDHAN_ADMIN_PASSWORD is missing.".to_string()
-                })?;
+            let password = crate::secrets::SecretReader::read_bootstrap_password()
+                .map_err(|e| format!("FATAL: {e}"))?;
 
             if password.len() < 12 {
                 return Err(
-                    "FATAL: VARDHAN_ADMIN_PASSWORD must be at least 12 characters.".to_string()
+                    "FATAL: Bootstrap password must be at least 12 characters.".to_string()
                 );
             }
 
@@ -77,15 +68,14 @@ impl CredentialStore {
             let phc = crate::credentials::hash_password(&password)
                 .map_err(|e| format!("FATAL: Bootstrap password hashing failed: {e}"))?;
 
-            // Drop the plaintext password as soon as possible
+            // password is a Zeroizing<String>, so it will be wiped on drop.
             drop(password);
 
             store.set_phc_sync(&username, &phc)?;
 
             tracing::warn!(
                 username = %username,
-                "Bootstrap credential stored. IMPORTANT: Remove VARDHAN_ADMIN_USERNAME and \
-                 VARDHAN_ADMIN_PASSWORD from your environment and restart."
+                "Bootstrap credential stored. IMPORTANT: Remove bootstrap secrets from your environment or filesystem and restart."
             );
         }
 

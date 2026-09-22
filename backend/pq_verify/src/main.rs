@@ -66,7 +66,13 @@ struct VerificationReport {
 fn main() {
     let args = Args::parse();
     let report = run_verification(&args);
-    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => println!("{}", json),
+        Err(e) => {
+            eprintln!("Failed to serialize verification report: {e}");
+            std::process::exit(2);
+        }
+    }
     std::process::exit(if report.verdict == "PASS" { 0 } else { 1 });
 }
 
@@ -311,13 +317,9 @@ fn verify_checkpoints(
                 Ok(e) => e,
                 Err(_) => continue,
             };
-            // Deterministic hash: BLAKE3(seq || event_json) — matches
-            // the merkle_hashes used by LedgerApplier in raft.rs.
-            let event_json = serde_json::to_string(&entry.event).unwrap_or_default();
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(&entry.seq.to_le_bytes());
-            hasher.update(event_json.as_bytes());
-            hashes.push(hasher.finalize().as_bytes().to_vec());
+            // FIX: Use the full canonical hash as the Merkle leaf.
+            // This binds seq, timestamp, event, and prev_hash into the Merkle root.
+            hashes.push(entry.canonical_hash().to_vec());
         }
         hashes
     };

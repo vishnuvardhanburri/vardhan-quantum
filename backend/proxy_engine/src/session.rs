@@ -6,10 +6,10 @@ use zeroize::{Zeroize, Zeroizing};
 #[derive(Clone)]
 pub struct SessionContext {
     pub session_id: [u8; 32],
-    pub shared_secret: Vec<u8>,
+    pub shared_secret: Zeroizing<Vec<u8>>,
     pub session_key: Zeroizing<[u8; 32]>,
-    pub client_to_server_key: [u8; 32],
-    pub server_to_client_key: [u8; 32],
+    pub client_to_server_key: Zeroizing<[u8; 32]>,
+    pub server_to_client_key: Zeroizing<[u8; 32]>,
     pub session_salt: [u8; 4],
 }
 
@@ -25,22 +25,25 @@ pub fn derive_session_context(
 
     let mut session_id = [0u8; 32];
     session_id.copy_from_slice(&okm[0..32]);
-    let mut client_to_server_key = [0u8; 32];
-    client_to_server_key.copy_from_slice(&okm[32..64]);
-    let mut server_to_client_key = [0u8; 32];
-    server_to_client_key.copy_from_slice(&okm[64..96]);
+    
+    let mut c_to_s = [0u8; 32];
+    c_to_s.copy_from_slice(&okm[32..64]);
+    
+    let mut s_to_c = [0u8; 32];
+    s_to_c.copy_from_slice(&okm[64..96]);
+    
     let mut session_salt = [0u8; 4];
     session_salt.copy_from_slice(&okm[96..100]);
 
-    let session_key = Zeroizing::new(client_to_server_key);
+    let session_key = Zeroizing::new(c_to_s);
     okm.zeroize();
 
     Ok(SessionContext {
         session_id,
-        shared_secret: shared_secret.to_vec(),
+        shared_secret: Zeroizing::new(shared_secret.to_vec()),
         session_key,
-        client_to_server_key,
-        server_to_client_key,
+        client_to_server_key: Zeroizing::new(c_to_s),
+        server_to_client_key: Zeroizing::new(s_to_c),
         session_salt,
     })
 }

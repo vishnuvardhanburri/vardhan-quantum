@@ -65,6 +65,10 @@ pub struct SessionEntry {
     pub ip: String,
     pub node_id: String,
     pub revoked: bool,
+    /// The current valid secret token.
+    pub current_token: String,
+    /// The immediately preceding token, kept for race condition handling.
+    pub previous_token: Option<String>,
 }
 
 impl SessionEntry {
@@ -127,10 +131,10 @@ pub struct SessionInfo {
 /// Thread-safe in-memory session store.
 #[derive(Clone)]
 pub struct SessionStore {
-    /// Maps secret `token_str -> SessionEntry`
+    /// Maps safe `session_id -> SessionEntry`
     inner: Arc<DashMap<String, SessionEntry>>,
-    /// Maps safe `session_id -> token_str` for fast lookup
-    by_id: Arc<DashMap<String, String>>,
+    /// Maps secret `token_str -> session_id` for fast lookup
+    token_to_id: Arc<DashMap<String, String>>,
     /// Retains recently revoked sessions for idempotent revocation, status check, and audit
     revoked: Arc<DashMap<String, SessionView>>,
 }
@@ -145,7 +149,7 @@ impl SessionStore {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(DashMap::new()),
-            by_id: Arc::new(DashMap::new()),
+            token_to_id: Arc::new(DashMap::new()),
             revoked: Arc::new(DashMap::new()),
         }
     }
@@ -173,58 +177,116 @@ impl SessionStore {
             ip: ip.to_string(),
             node_id: node_id.to_string(),
             revoked: false,
+            current_token: token.as_str().to_string(),
+            previous_token: None,
         };
 
-        self.inner.insert(token.as_str().to_string(), entry);
-        self.by_id.insert(session_id, token.as_str().to_string());
+        self.inner.insert(session_id.clone(), entry);
+        self.token_to_id.insert(token.as_str().to_string(), session_id);
         token
     }
 
-    /// Validate a token and update `last_activity`.
+    /// Validate a token and rotate it to prevent theft.
     ///
-    /// Returns `Some(username)` if valid, `None` if missing, expired, or revoked.
-    pub async fn validate(&self, token: &SessionToken) -> Option<String> {
-        if let Some(mut entry) = self.inner.get_mut(token.as_str()) {
-            if entry.is_expired() {
-                let session_id = entry.session_id.clone();
-                drop(entry);
-                self.inner.remove(token.as_str());
-                self.by_id.remove(&session_id);
-                return None;
-            }
+    /// Returns `Some((username, new_token))` if valid, `None` if missing, expired, or revoked.
+    /// If a stolen token is detected (token not current or previous), the session is revoked.
+    pub async fn validate_and_rotate(&self, token: &SessionToken) -> Option<(String, SessionToken)> {
+        let token_str = token.as_str();
+        
+        let session_id = self.token_to_id.get(token_str)?.clone();
+        let mut entry = self.inner.get_mut(&session_id)?;
+
+        if entry.is_expired() {
+            drop(entry);
+            self.inner.remove(&session_id);
+            self.token_to_id.remove(token_str);
+            return None;
+        }
+
+        // --- Token Rotation Logic ---
+        if token_str == entry.current_token {
+            // Normal path: rotate current to previous
+            let new_token = SessionToken::generate();
+            let new_token_str = new_token.as_str().to_string();
+            
+            entry.previous_token = Some(entry.current_token.clone());
+            entry.current_token = new_token_str.clone();
             entry.last_activity_ms = now_ms();
-            Some(entry.username.clone())
+            
+            let username = entry.username.clone();
+            drop(entry);
+            self.token_to_id.remove(token_str);
+            self.token_to_id.insert(new_token_str, session_id);
+            
+            Some((username, new_token))
+        } else if entry.previous_token.as_deref() == Some(token_str) {
+            // Race condition path: token is the previous one.
+            // Still valid, but must return the current one.
+            let current_token_str = entry.current_token.clone();
+            entry.last_activity_ms = now_ms();
+            
+            let current_token = SessionToken::from_str(&current_token_str);
+            Some((entry.username.clone(), current_token))
         } else {
+            // STOLEN TOKEN DETECTED: Token is neither current nor previous.
+            // Fail-closed: Revoke the entire session immediately.
+            entry.revoked = true;
+            let session_id_clone = session_id.clone();
+            let username = entry.username.clone();
+            drop(entry);
+            
+            self.revoke_by_id(&session_id_clone).await;
+            self.token_to_id.remove(token_str);
+            
+            tracing::warn!(
+                username = %username,
+                session_id = %session_id_clone,
+                "Session theft detected: token mismatch. Revoking session."
+            );
             None
         }
+    }
+
+    /// Validate a token without rotation (e.g. for simple checks).
+    pub async fn validate(&self, token: &SessionToken) -> Option<String> {
+        let token_str = token.as_str();
+        let session_id = self.token_to_id.get(token_str)?.clone();
+        let entry = self.inner.get(&session_id)?;
+        
+        if entry.is_expired() {
+            return None;
+        }
+        Some(entry.username.clone())
     }
 
     /// Remove a session (logout).
     pub async fn remove(&self, token: &SessionToken) -> Option<SessionEntry> {
-        if let Some((_, entry)) = self.inner.remove(token.as_str()) {
-            self.by_id.remove(&entry.session_id);
-            Some(entry)
-        } else {
-            None
+        let token_str = token.as_str();
+        if let Some((_, session_id)) = self.token_to_id.remove(token_str) {
+            if let Some((_, entry)) = self.inner.remove(&session_id) {
+                return Some(entry);
+            }
         }
+        None
     }
+
 
     /// Return non-sensitive session metadata for the info endpoint.
     pub async fn get_info(&self, token: &SessionToken) -> Option<SessionInfo> {
-        if let Some(entry) = self.inner.get(token.as_str()) {
-            if entry.is_expired() {
-                return None;
-            }
-            let now = now_ms();
-            let remaining_ms = entry.expires_at_ms.saturating_sub(now);
-            Some(SessionInfo {
-                username: entry.username.clone(),
-                issued_at_ms: entry.created_at_ms as u64,
-                expires_in_secs: (remaining_ms / 1000) as u64,
-            })
-        } else {
-            None
+        let token_str = token.as_str();
+        let session_id = self.token_to_id.get(token_str)?.clone();
+        let entry = self.inner.get(&session_id)?;
+        
+        if entry.is_expired() {
+            return None;
         }
+        let now = now_ms();
+        let remaining_ms = entry.expires_at_ms.saturating_sub(now);
+        Some(SessionInfo {
+            username: entry.username.clone(),
+            issued_at_ms: entry.created_at_ms as u64,
+            expires_in_secs: (remaining_ms / 1000) as u64,
+        })
     }
 
     /// List all sessions as safe public views (never revealing tokens).
@@ -246,8 +308,10 @@ impl SessionStore {
         if let Some(view) = self.revoked.get(session_id) {
             return Some(view.clone());
         }
-        let token = self.by_id.get(session_id)?;
-        self.inner.get(token.as_str()).map(|e| e.to_view())
+        if let Some(entry) = self.inner.get(session_id) {
+            return Some(entry.to_view());
+        }
+        None
     }
 
     /// Revoke a session by safe `session_id`.
@@ -259,11 +323,17 @@ impl SessionStore {
             return Some(view.clone());
         }
 
-        let token_str = self.by_id.get(session_id)?.clone();
-        if let Some((_, mut entry)) = self.inner.remove(&token_str) {
+        if let Some((_, mut entry)) = self.inner.remove(session_id) {
             entry.revoked = true;
             let view = entry.to_view();
             self.revoked.insert(session_id.to_string(), view.clone());
+            
+            // Also remove all associated tokens from the lookup map
+            self.token_to_id.remove(&entry.current_token);
+            if let Some(prev) = &entry.previous_token {
+                self.token_to_id.remove(prev);
+            }
+            
             Some(view)
         } else {
             None
@@ -278,7 +348,7 @@ impl SessionStore {
             .iter()
             .filter(|e| {
                 if let Some(p) = preserve_token {
-                    e.key() != p
+                    e.value().current_token != p && e.value().previous_token.as_deref() != Some(p)
                 } else {
                     true
                 }
@@ -286,10 +356,16 @@ impl SessionStore {
             .map(|e| (e.key().clone(), e.value().session_id.clone()))
             .collect();
 
-        for (token_str, session_id) in keys_to_revoke {
-            if let Some((_, mut entry)) = self.inner.remove(&token_str) {
+        for (session_id, _) in keys_to_revoke {
+            if let Some((_, mut entry)) = self.inner.remove(&session_id) {
                 entry.revoked = true;
                 self.revoked.insert(session_id, entry.to_view());
+                
+                // Clean up tokens
+                self.token_to_id.remove(&entry.current_token);
+                if let Some(prev) = &entry.previous_token {
+                    self.token_to_id.remove(prev);
+                }
                 count += 1;
             }
         }

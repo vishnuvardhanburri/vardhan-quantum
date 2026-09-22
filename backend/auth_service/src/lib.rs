@@ -13,6 +13,7 @@ pub mod rate_limit;
 pub mod session;
 pub mod settings;
 pub mod store;
+pub mod secrets;
 
 use std::sync::Arc;
 

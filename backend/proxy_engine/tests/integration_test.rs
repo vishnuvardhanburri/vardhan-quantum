@@ -61,7 +61,11 @@ async fn test_two_honest_nodes_derive_same_secret() {
         "Raw shared secrets must match"
     );
     assert_eq!(init_session.shared_secret.len(), 32);
-    assert_ne!(init_session.shared_secret, vec![0u8; 32]);
+    assert_ne!(
+        init_session.shared_secret, 
+        zeroize::Zeroizing::new(vec![0u8; 32]),
+        "Shared secret must not be all zeros"
+    );
 
     assert_eq!(
         init_session.session_key.as_slice(),
@@ -77,7 +81,7 @@ async fn test_two_honest_nodes_derive_same_secret() {
 
 #[tokio::test]
 async fn test_independent_handshakes_produce_distinct_secrets() {
-    async fn do_handshake() -> Vec<u8> {
+    async fn do_handshake() -> zeroize::Zeroizing<Vec<u8>> {
         let (listener, addr) = bind_listener().await;
         let resp_task = tokio::spawn(async move {
             let (session, _) = listener.accept_handshake().await.unwrap();
@@ -250,13 +254,13 @@ async fn test_concurrent_handshakes() {
     for (cs, ss) in client_secrets.iter().zip(server_secrets.iter()) {
         assert_eq!(cs.len(), 32);
         assert_eq!(cs, ss, "Client and server secrets must match");
-        assert_ne!(cs, &vec![0u8; 32]);
+        assert_ne!(cs, &zeroize::Zeroizing::new(vec![0u8; 32]));
     }
 
     // All N secrets distinct
     let mut seen = std::collections::HashSet::new();
     for s in &server_secrets {
-        assert!(seen.insert(s.clone()), "Duplicate secret across sessions");
+        assert!(seen.insert(s.as_slice().to_vec()), "Duplicate secret across sessions");
     }
 }
 
