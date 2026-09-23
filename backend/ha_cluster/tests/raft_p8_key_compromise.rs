@@ -402,16 +402,3 @@ fn p8_7f_merkle_root_integrity_under_key_compromise() {
 
     println!("P8.7f PASSED: Merkle root integrity — tampering changes computed root, mismatch with stored checkpoint");
 }
-
-use std::collections::HashMap;
-fn build_identities(peers: &[ha_cluster::NodeId]) -> (HashMap<ha_cluster::NodeId, std::sync::Arc<core_crypto::QuantumNodeIdentity>>, ha_cluster::raft_listener::PeerRegistry) {
-    let mut identities = HashMap::new();
-    let mut registry = ha_cluster::raft_listener::PeerRegistry::new();
-    for id in peers {
-        let ident = std::sync::Arc::new(core_crypto::QuantumNodeIdentity::generate_node_identity().unwrap());
-        let fp = core_crypto::QuantumNodeIdentity::hash_ledger_block(&ident.dsa_public_key_bytes());
-        registry.insert(fp, id.clone());
-        identities.insert(id.clone(), ident);
-    }
-    (identities, registry)
-}

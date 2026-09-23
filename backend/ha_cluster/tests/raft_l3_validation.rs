@@ -177,16 +177,3 @@ async fn test_l3_leader_election() {
 
     assert_eq!(leaders, 1, "Exactly one leader must be elected");
 }
-
-use std::collections::HashMap;
-fn build_identities(peers: &[ha_cluster::NodeId]) -> (HashMap<ha_cluster::NodeId, std::sync::Arc<core_crypto::QuantumNodeIdentity>>, ha_cluster::raft_listener::PeerRegistry) {
-    let mut identities = HashMap::new();
-    let mut registry = ha_cluster::raft_listener::PeerRegistry::new();
-    for id in peers {
-        let ident = std::sync::Arc::new(core_crypto::QuantumNodeIdentity::generate_node_identity().unwrap());
-        let fp = core_crypto::QuantumNodeIdentity::hash_ledger_block(&ident.dsa_public_key_bytes());
-        registry.insert(fp, id.clone());
-        identities.insert(id.clone(), ident);
-    }
-    (identities, registry)
-}
