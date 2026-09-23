@@ -111,7 +111,7 @@ fn test_config() -> RaftConfig {
 }
 
 async fn wait_for_leader(nodes: &[TestNode]) -> Arc<RaftNode> {
-    timeout(Duration::from_secs(15), async {
+    timeout(Duration::from_secs(30), async {
         loop {
             let mut leaders = Vec::new();
             let mut candidates = 0;

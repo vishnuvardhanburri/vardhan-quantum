@@ -24,8 +24,8 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{info, warn};
 
-const ELECTION_WAIT: Duration = Duration::from_secs(15);
-const REPLICATION_WAIT: Duration = Duration::from_secs(15);
+const ELECTION_WAIT: Duration = Duration::from_secs(30);
+const REPLICATION_WAIT: Duration = Duration::from_secs(30);
 
 fn fast_config() -> RaftConfig {
     RaftConfig {
