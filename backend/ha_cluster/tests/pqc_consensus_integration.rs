@@ -2001,7 +2001,7 @@ async fn pqc_7_7_rotation_preserves_evidence() {
 /// I8: A network partition cannot create two valid committed histories.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pqc_7_8_partition_no_split_history() {
-    for f in &["/tmp/pqc_7_8_a.json", "/tmp/pqc_7_8_b.json", "/tmp/pqc_7_8_c.json"] {
+    for f in &["/tmp/pqc_7_8_a.json", "/tmp/pqc_7_8_b.json", "/tmp/pqc_7_8_c.json", "/tmp/pqc_7_8_c_partitioned.json"] {
         std::fs::remove_file(f).ok();
     }
 

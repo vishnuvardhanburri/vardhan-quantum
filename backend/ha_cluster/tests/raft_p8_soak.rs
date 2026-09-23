@@ -137,9 +137,9 @@ async fn p8_9a_soak_continuous_writes_with_crashes() {
     let _ = tracing_subscriber::fmt::try_init();
 
     let membership = Arc::new(ClusterMembership::new());
-    let addr_a: std::net::SocketAddr = "127.0.0.1:19201".parse().unwrap();
-    let addr_b: std::net::SocketAddr = "127.0.0.1:19202".parse().unwrap();
-    let addr_c: std::net::SocketAddr = "127.0.0.1:19203".parse().unwrap();
+    let addr_a: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let addr_b: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let addr_c: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
 
     membership.register_self(NodeId::new("node-a"), addr_a, 19201).await;
     membership.register_self(NodeId::new("node-b"), addr_b, 19202).await;
