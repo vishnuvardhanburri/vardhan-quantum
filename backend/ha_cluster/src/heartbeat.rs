@@ -248,7 +248,9 @@ mod tests {
     #[tokio::test]
     async fn test_heartbeat_udp_loopback() {
         // Use ephemeral ports
-        let port: u16 = 19871;
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        drop(socket);
         let self_id = NodeId::new("test-node-hb");
         let self_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
 
