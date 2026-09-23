@@ -105,7 +105,7 @@ async fn spawn_test_node_cp(
         .with_checkpoint_writer(std::sync::Arc::new(checkpoint_writer)),
     );
 
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_test_insecure(addr, identity.clone(), raft_node.clone()).await.unwrap();
     let lid = id.clone();
     let listener_handle = tokio::spawn(async move {
         if let Err(e) = listener.run(tcp_listener).await {

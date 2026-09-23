@@ -25,6 +25,7 @@ use tokio::net::TcpStream;
 pub type PeerRegistry = HashMap<[u8; 32], NodeId>;
 
 pub struct RaftNetworkListener {
+    test_bypass_registry: bool,
     listen_addr: std::net::SocketAddr,
     identity: Arc<QuantumNodeIdentity>,
     raft_node: Arc<RaftNode>,
@@ -34,34 +35,42 @@ pub struct RaftNetworkListener {
 }
 
 impl RaftNetworkListener {
-    /// Create a listener **without** a peer registry (legacy, open mode).
-    ///
-    /// ⚠️  This constructor does NOT enforce SEC-018 identity binding.
-    /// It is retained only for non-security test harnesses that do not
-    /// use a real PQ transport. Do not use in production.
-    pub async fn new(
+
+    pub async fn new_test_insecure(
         listen_addr: std::net::SocketAddr,
         identity: Arc<QuantumNodeIdentity>,
         raft_node: Arc<RaftNode>,
     ) -> std::io::Result<(Self, tokio::net::TcpListener, std::net::SocketAddr)> {
-        Self::new_with_registry(listen_addr, identity, raft_node, HashMap::new()).await
+        Self::new_internal(listen_addr, identity, raft_node, HashMap::new(), true).await
     }
 
-    /// Create a listener with a cryptographic peer registry (SEC-018).
-    ///
-    /// The registry maps DSA fingerprints to NodeIds. Any connecting peer
-    /// whose fingerprint is not in the registry, or whose envelope
-    /// `sender_id` does not match the registry entry, is rejected.
     pub async fn new_with_registry(
         listen_addr: std::net::SocketAddr,
         identity: Arc<QuantumNodeIdentity>,
         raft_node: Arc<RaftNode>,
         peer_registry: PeerRegistry,
     ) -> std::io::Result<(Self, tokio::net::TcpListener, std::net::SocketAddr)> {
+        if peer_registry.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "FATAL: Production RaftNetworkListener requires a non-empty PeerRegistry (SEC-018)",
+            ));
+        }
+        Self::new_internal(listen_addr, identity, raft_node, peer_registry, false).await
+    }
+
+    async fn new_internal(
+        listen_addr: std::net::SocketAddr,
+        identity: Arc<QuantumNodeIdentity>,
+        raft_node: Arc<RaftNode>,
+        peer_registry: PeerRegistry,
+        test_bypass_registry: bool,
+    ) -> std::io::Result<(Self, tokio::net::TcpListener, std::net::SocketAddr)> {
         let listener = tokio::net::TcpListener::bind(listen_addr).await?;
         let bound_addr = listener.local_addr()?;
         Ok((
             Self {
+                test_bypass_registry,
                 listen_addr: bound_addr,
                 identity,
                 raft_node,
@@ -86,6 +95,8 @@ impl RaftNetworkListener {
             let identity = Arc::clone(&self.identity);
             let raft_node = Arc::clone(&self.raft_node);
             let peer_registry = Arc::clone(&self.peer_registry);
+            let test_bypass_registry = self.test_bypass_registry;
+            let test_bypass_registry = self.test_bypass_registry;
 
             let permit = match Arc::clone(&conn_limit).try_acquire_owned() {
                 Ok(p) => p,
@@ -124,7 +135,7 @@ impl RaftNetworkListener {
                 //
                 // This MUST happen BEFORE any RPC is processed — prevents forged sender_id
                 // from being accepted even if the outer AEAD frame is authentic.
-                let registry_enforced = !peer_registry.is_empty();
+                let registry_enforced = !test_bypass_registry;
                 let authoritative_node_id: Option<NodeId> = if registry_enforced {
                     match peer_registry.get(&peer_dsa_fingerprint) {
                         Some(node_id) => {

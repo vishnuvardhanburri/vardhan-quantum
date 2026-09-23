@@ -100,7 +100,7 @@ pub struct RaftRpcEnvelope {
     pub rpc_type: RaftRpcType,
     pub sender_id: NodeId,
     pub receiver_id: NodeId,
-    pub request_id: u64,
+    pub request_id: String,
     pub payload: Vec<u8>,
 }
 

@@ -375,7 +375,7 @@ async fn pqc_2_1_request_vote_over_pq_transport() {
         rpc_type: RaftRpcType::RequestVote,
         sender_id: NodeId::new("node-a"),
         receiver_id: NodeId::new("node-b"),
-        request_id: 1,
+        request_id: "1".to_string(),
         payload: serde_json::to_vec(&rv_args).unwrap(),
     };
     let env_bytes = serde_json::to_vec(&envelope).unwrap();
@@ -500,7 +500,7 @@ async fn pqc_2_2_append_entries_over_pq_transport() {
         rpc_type: RaftRpcType::AppendEntries,
         sender_id: NodeId::new("node-a"),
         receiver_id: NodeId::new("node-b"),
-        request_id: 1,
+        request_id: "1".to_string(),
         payload: serde_json::to_vec(&ae_args).unwrap(),
     };
     let env_bytes = serde_json::to_vec(&envelope).unwrap();
@@ -997,7 +997,7 @@ async fn pqc_3_10_modified_request_id_rejected() {
         rpc_type: RaftRpcType::RequestVote,
         sender_id: NodeId::new("node-a"),
         receiver_id: NodeId::new("node-b"),
-        request_id: 999,
+        request_id: "999".to_string(),
         payload: serde_json::to_vec(&RequestVoteArgs {
             term: 1,
             candidate_id: NodeId::new("node-a"),
@@ -1005,7 +1005,7 @@ async fn pqc_3_10_modified_request_id_rejected() {
             last_log_term: 0,
         }).unwrap(),
     };
-    assert_ne!(envelope_bad.request_id, 0, "request_id mismatch is detectable");
+    assert_ne!(envelope_bad.request_id, "0", "request_id mismatch is detectable");
     println!("pqc_3_10 PASSED: Modified request_id → reply discarded, no state transition (I1)");
 }
 

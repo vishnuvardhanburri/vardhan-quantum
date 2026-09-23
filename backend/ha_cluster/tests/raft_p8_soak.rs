@@ -68,7 +68,7 @@ async fn spawn_node(
     let ledger = Arc::new(MerkleLedger::new());
     let applier = Arc::new(LedgerApplier::new(raft_node.clone(), ledger.clone(), identity.clone()));
 
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_test_insecure(addr, identity.clone(), raft_node.clone()).await.unwrap();
     membership.set_raft_port(id.clone(), bound_addr.port()).await;
     membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
     let listener_id = id.clone();

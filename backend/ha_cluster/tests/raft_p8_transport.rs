@@ -309,7 +309,7 @@ async fn p8_3b_protocol_version_downgrade() {
         rpc_type: RaftRpcType::AppendEntries,
         sender_id: ha_cluster::NodeId::new("attacker"),
         receiver_id: ha_cluster::NodeId::new("node-a"),
-        request_id: 42,
+        request_id: "42".to_string(),
         payload: Vec::new(),
     };
     assert_ne!(evil.version, 1,
@@ -321,7 +321,7 @@ async fn p8_3b_protocol_version_downgrade() {
         rpc_type: RaftRpcType::RequestVote,
         sender_id: ha_cluster::NodeId::new("attacker"),
         receiver_id: ha_cluster::NodeId::new("node-a"),
-        request_id: 43,
+        request_id: "43".to_string(),
         payload: Vec::new(),
     };
     assert_ne!(future.version, 1,
@@ -333,7 +333,7 @@ async fn p8_3b_protocol_version_downgrade() {
         rpc_type: RaftRpcType::RequestVote,
         sender_id: ha_cluster::NodeId::new("node-a"),
         receiver_id: ha_cluster::NodeId::new("node-b"),
-        request_id: 1,
+        request_id: "1".to_string(),
         payload: b"{}".to_vec(),
     };
     assert_eq!(valid.version, 1,

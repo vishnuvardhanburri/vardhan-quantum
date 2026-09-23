@@ -219,7 +219,7 @@ async fn spawn_test_node(
         identity.clone(),
     ));
 
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_test_insecure(addr, identity.clone(), raft_node.clone()).await.unwrap();
     membership.set_raft_port(id.clone(), bound_addr.port()).await;
     membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
     let lid = id.clone();
@@ -388,7 +388,7 @@ async fn restart_node(
         identity.clone(),
     ));
 
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(new_addr, identity.clone(), raft_node.clone()).await.unwrap();
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_test_insecure(new_addr, identity.clone(), raft_node.clone()).await.unwrap();
 
     membership.set_raft_port(id.clone(), bound_addr.port()).await;
     membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;

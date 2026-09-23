@@ -565,12 +565,13 @@ async fn p8_6g_pq_verify_detects_corruption() {
     let _ = std::fs::remove_dir_all(&evidence_dir);
 }
 
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[should_panic(expected = "FATAL: Raft state file must be MAC-protected")]
 async fn sec_003_a_plaintext_refused() {
     let dir = std::env::temp_dir();
-    let persist_path = dir.join("sec_003_a.json");
-    std::fs::write(&persist_path, r#"{"current_term": 5, "voted_for": "node-a"}"#).unwrap();
+    let persist_path = dir.join(format!("sec_003_a_{}.json", rand::random::<u64>()));
+    std::fs::write(&persist_path, r#"{"current_term": 5, "voted_for": "node-a", "log": [], "commit_index": 0, "cluster_id": "test", "config_epoch": 1}"#).unwrap();
 
     let mut config = test_config();
     config.state_machine_mac_key = Some([0x42; 32]);
@@ -578,23 +579,21 @@ async fn sec_003_a_plaintext_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[should_panic(expected = "FATAL: State integrity compromised: MAC mismatch")]
+#[should_panic(expected = "Raft state file integrity check failed (MAC mismatch)")]
 async fn sec_003_b_tampered_payload() {
     use ha_cluster::raft::SecureEnvelope;
-    use ring::hmac;
     let dir = std::env::temp_dir();
-    let persist_path = dir.join("sec_003_b.json");
+    let persist_path = dir.join(format!("sec_003_b_{}.json", rand::random::<u64>()));
     
-    let key = hmac::Key::new(hmac::HMAC_SHA256, &[0x42; 32]);
-    let payload = b"good payload";
-    let tag = hmac::sign(&key, payload);
-    let mut mac_bytes = [0u8; 32];
-    mac_bytes.copy_from_slice(tag.as_ref());
+    let key = [0x42; 32];
+    let payload = r#"{"current_term": 5, "voted_for": "node-a", "log": [], "commit_index": 0, "cluster_id": "test", "config_epoch": 1}"#;
+    let expected_mac = blake3::keyed_hash(&key, payload.as_bytes());
     
+    let tampered_payload = r#"{"current_term": 99, "voted_for": "node-a", "log": [], "commit_index": 0, "cluster_id": "test", "config_epoch": 1}"#;
+
     let env = SecureEnvelope {
-        version: 1,
-        mac: mac_bytes,
-        payload: b"tampered payload".to_vec(),
+        payload_json: tampered_payload.to_string(),
+        mac: expected_mac.to_hex().to_string(),
     };
     std::fs::write(&persist_path, serde_json::to_string(&env).unwrap()).unwrap();
 
@@ -604,17 +603,16 @@ async fn sec_003_b_tampered_payload() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[should_panic(expected = "FATAL: State integrity compromised: MAC mismatch")]
+#[should_panic(expected = "Raft state file integrity check failed (MAC mismatch)")]
 async fn sec_003_c_tampered_mac() {
     use ha_cluster::raft::SecureEnvelope;
-    use ring::hmac;
     let dir = std::env::temp_dir();
-    let persist_path = dir.join("sec_003_c.json");
+    let persist_path = dir.join(format!("sec_003_c_{}.json", rand::random::<u64>()));
     
+    let payload = r#"{"current_term": 5, "voted_for": "node-a", "log": [], "commit_index": 0, "cluster_id": "test", "config_epoch": 1}"#;
     let env = SecureEnvelope {
-        version: 1,
-        mac: [0x99; 32], // Fake MAC
-        payload: b"good payload".to_vec(),
+        payload_json: payload.to_string(),
+        mac: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string(),
     };
     std::fs::write(&persist_path, serde_json::to_string(&env).unwrap()).unwrap();
 

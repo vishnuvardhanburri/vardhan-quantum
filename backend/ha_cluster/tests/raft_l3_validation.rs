@@ -38,7 +38,7 @@ async fn spawn_node(
     ));
 
     // 3. Start the Network Listener
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_test_insecure(
         addr,
         identity.clone(),
         raft_node.clone(),

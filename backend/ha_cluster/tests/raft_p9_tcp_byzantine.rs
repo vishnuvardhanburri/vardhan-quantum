@@ -139,7 +139,7 @@ async fn sec018_valid_authenticated_sender_accepted() {
 
     let envelope = RaftRpcEnvelope {
         sender_id: valid_id.clone(), receiver_id: NodeId::new("server-node"), version: 1,
-        request_id: 1,
+        request_id: "1".to_string(),
         rpc_type: RaftRpcType::RequestVote,
         payload: serde_json::to_vec(&RequestVoteArgs {
             term: 6,
@@ -166,7 +166,7 @@ async fn sec018_forged_sender_id_rejected() {
     
     let envelope = RaftRpcEnvelope {
         sender_id: forged_id.clone(), receiver_id: NodeId::new("server-node"), version: 1,
-        request_id: 2,
+        request_id: "2".to_string(),
         rpc_type: RaftRpcType::RequestVote,
         payload: serde_json::to_vec(&RequestVoteArgs {
             term: 99,
@@ -194,7 +194,7 @@ async fn sec018_stale_unknown_peer_rejected() {
 
     let envelope = RaftRpcEnvelope {
         sender_id: valid_id.clone(), receiver_id: NodeId::new("server-node"), version: 1, // Attacker tries to claim the valid ID
-        request_id: 3,
+        request_id: "3".to_string(),
         rpc_type: RaftRpcType::RequestVote,
         payload: serde_json::to_vec(&RequestVoteArgs {
             term: 99,
@@ -221,7 +221,7 @@ async fn sec018_envelope_sender_mismatch_rejected() {
     // The client is valid and registered, BUT puts a different NodeId in the envelope
     let envelope = RaftRpcEnvelope {
         sender_id: other_id.clone(), receiver_id: NodeId::new("server-node"), version: 1,
-        request_id: 4,
+        request_id: "4".to_string(),
         rpc_type: RaftRpcType::AppendEntries,
         payload: serde_json::to_vec(&AppendEntriesArgs {
             term: 99,

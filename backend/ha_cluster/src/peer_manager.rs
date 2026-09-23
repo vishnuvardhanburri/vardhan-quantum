@@ -18,22 +18,22 @@ use tokio::time::{timeout, Duration};
 /// A request to be sent by the PeerWorker.
 pub enum PeerRequest {
     RequestVote {
-        request_id: u64,
+        request_id: String,
         args: RequestVoteArgs,
         response_tx: oneshot::Sender<Result<Vec<u8>, String>>,
     },
     AppendEntries {
-        request_id: u64,
+        request_id: String,
         args: AppendEntriesArgs,
         response_tx: oneshot::Sender<Result<Vec<u8>, String>>,
     },
 }
 
 impl PeerRequest {
-    fn request_id(&self) -> u64 {
+    fn request_id(&self) -> String {
         match self {
-            PeerRequest::RequestVote { request_id, .. } => *request_id,
-            PeerRequest::AppendEntries { request_id, .. } => *request_id,
+            PeerRequest::RequestVote { request_id, .. } => request_id.clone(),
+            PeerRequest::AppendEntries { request_id, .. } => request_id.clone(),
         }
     }
 
@@ -70,7 +70,6 @@ struct RaftPeerManagerInner {
     membership: Arc<ClusterMembership>,
     self_node_id: NodeId,
     workers: RwLock<HashMap<NodeId, mpsc::Sender<PeerRequest>>>,
-    next_request_id: AtomicU64,
 }
 
 impl RaftPeerManager {
@@ -85,7 +84,6 @@ impl RaftPeerManager {
                 membership,
                 self_node_id,
                 workers: RwLock::new(HashMap::new()),
-                next_request_id: AtomicU64::new(rand::thread_rng().gen::<u64>()),
             }),
         }
     }
@@ -168,11 +166,11 @@ impl RaftRpcClient for RaftPeerManager {
         let inner = Arc::clone(&self.inner);
         Box::pin(async move {
             let tx = inner.get_or_spawn_worker(to.clone()).await?;
-            let request_id = inner.next_request_id.fetch_add(1, Ordering::SeqCst);
+            let request_id = uuid::Uuid::new_v4().to_string();
             let (response_tx, response_rx) = oneshot::channel();
 
             let req = PeerRequest::RequestVote {
-                request_id,
+                request_id: request_id.clone(),
                 args,
                 response_tx,
             };
@@ -200,11 +198,11 @@ impl RaftRpcClient for RaftPeerManager {
         let inner = Arc::clone(&self.inner);
         Box::pin(async move {
             let tx = inner.get_or_spawn_worker(to.clone()).await?;
-            let request_id = inner.next_request_id.fetch_add(1, Ordering::SeqCst);
+            let request_id = uuid::Uuid::new_v4().to_string();
             let (response_tx, response_rx) = oneshot::channel();
 
             let req = PeerRequest::AppendEntries {
-                request_id,
+                request_id: request_id.clone(),
                 args,
                 response_tx,
             };
@@ -292,7 +290,7 @@ async fn run_peer_worker(
         );
         info!(peer = %to_id, "Transport established");
 
-        let mut pending_responses: HashMap<u64, oneshot::Sender<Result<Vec<u8>, String>>> =
+        let mut pending_responses: HashMap<String, oneshot::Sender<Result<Vec<u8>, String>>> =
             HashMap::new();
         backoff = Duration::from_millis(100); // Reset backoff on successful connection
 
@@ -315,7 +313,7 @@ async fn run_peer_worker(
                         rpc_type,
                         sender_id: self_id.clone(),
                         receiver_id: to_id.clone(),
-                        request_id,
+                        request_id: request_id.clone(),
                         payload,
                     };
                     let env_bytes = match serde_json::to_vec(&envelope) {
@@ -326,9 +324,9 @@ async fn run_peer_worker(
                         }
                     };
 
-                    pending_responses.insert(request_id, response_tx);
+                    pending_responses.insert(request_id.clone(), response_tx);
 
-                    info!(peer = %to_id, req_id = request_id, "Sending RPC frame");
+                    info!(peer = %to_id, req_id = request_id: request_id.clone(), "Sending RPC frame");
                     if let Err(e) = transport.write_frame(&env_bytes).await {
                         error!(peer = %to_id, err = %e, "Transport write failed");
                         for (_, tx) in pending_responses.drain() {
@@ -348,11 +346,11 @@ async fn run_peer_worker(
                                 }
                             };
 
-                            info!(peer = %to_id, req_id = resp_env.request_id, "Received response frame");
+                            info!(peer = %to_id, req_id = resp_env.request_id: request_id.clone(), "Received response frame");
                             if let Some(tx) = pending_responses.remove(&resp_env.request_id) {
                                 let _ = tx.send(Ok(resp_env.payload));
                             } else {
-                                warn!(peer = %to_id, req_id = resp_env.request_id, "Received response for unknown/stale request");
+                                warn!(peer = %to_id, req_id = resp_env.request_id: request_id.clone(), "Received response for unknown/stale request");
                             }
                         }
                         Ok(None) => {

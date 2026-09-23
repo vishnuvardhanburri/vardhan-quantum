@@ -53,7 +53,7 @@ async fn spawn_node(
     ));
 
     let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_test_insecure(addr, identity.clone(), raft_node.clone()).await.unwrap();
 
     membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
     membership.set_raft_port(id.clone(), bound_addr.port()).await;
