@@ -1462,11 +1462,18 @@ async fn test_c22_restart_during_commitment() {
 
     // Apply committed entries — should process the checkpoint entry
     nodes[leader_idx].applier.apply_committed_entries().await.ok();
-    tokio::time::sleep(Duration::from_millis(300)).await;
 
-    // The restarted node should have the checkpoint in its new checkpoint file
-    // (if the checkpoint was already committed before the restart)
-    let recovered_cps = read_checkpoint_file(&nodes[leader_idx].checkpoint_path);
+    let mut recovered_cps = vec![];
+    let _ = timeout(Duration::from_secs(10), async {
+        loop {
+            recovered_cps = read_checkpoint_file(&nodes[leader_idx].checkpoint_path);
+            if !recovered_cps.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }).await;
+
     assert!(!recovered_cps.is_empty(), "Restarted node should have applied checkpoint");
 
     info!("C22 PASSED: Restart during commitment recovers state from disk");
