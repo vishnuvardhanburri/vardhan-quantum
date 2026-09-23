@@ -6,10 +6,26 @@
 //! Design invariant: this crate has NO knowledge of PQ session keys or
 //! cryptographic material. It is purely an availability/coordination layer.
 
-macro_rules! info { ($($arg:tt)*) => {()}; }
-macro_rules! warn { ($($arg:tt)*) => {()}; }
-macro_rules! debug { ($($arg:tt)*) => {()}; }
-macro_rules! error { ($($arg:tt)*) => {()}; }
+macro_rules! info {
+    ($($arg:tt)*) => {
+        ()
+    };
+}
+macro_rules! warn {
+    ($($arg:tt)*) => {
+        ()
+    };
+}
+macro_rules! debug {
+    ($($arg:tt)*) => {
+        ()
+    };
+}
+macro_rules! error {
+    ($($arg:tt)*) => {
+        ()
+    };
+}
 
 pub mod drain;
 pub mod election;
@@ -20,15 +36,13 @@ pub mod raft_listener;
 #[cfg(test)]
 pub mod raft_test_utils;
 
-pub use peer_manager::RaftPeerManager;
-pub use raft::{
-    RaftConfig, RaftNode, RaftNodeStatus, RaftRole, LedgerApplier,
-};
-pub use raft_listener::RaftNetworkListener;
 pub use audit_ledger::{
-    Checkpoint, CommittedCheckpoint, CheckpointWriter, CHECKPOINT_CLIENT_ID,
-    CHECKPOINT_VERSION, CheckpointError,
+    Checkpoint, CheckpointError, CheckpointWriter, CommittedCheckpoint, CHECKPOINT_CLIENT_ID,
+    CHECKPOINT_VERSION,
 };
+pub use peer_manager::RaftPeerManager;
+pub use raft::{LedgerApplier, RaftConfig, RaftNode, RaftNodeStatus, RaftRole};
+pub use raft_listener::{PeerRegistry, RaftNetworkListener};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,

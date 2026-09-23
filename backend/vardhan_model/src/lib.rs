@@ -22,26 +22,22 @@
 //! 5. Schema versioning with compatibility rules
 //! 6. Explicit entity relationships (no implicit joins or inferred links)
 
+pub mod entities;
 pub mod events;
 pub mod graph;
-pub mod entities;
-pub mod schema;
 pub mod identity;
+pub mod schema;
 
-pub use events::{
-    VardhanEvent, EventBuilder, EventType, Severity, Confidence, EventId,
-    EMITTER_PQ_SHIELD, EMITTER_AUTH_SERVICE, EMITTER_HA_CLUSTER,
-    EMITTER_RAFT_LISTENER, EMITTER_QUANTUM_NODE, EventValidationError,
-    EVENT_ACTIONS, VARDHAN_EVENT_SCHEMA_VERSION,
-};
 pub use entities::{
-    Entity, EntityId, EntityType, EntityError,
-    Tenant, Organization, BusinessUnit, Application, Service, Asset,
-    Node, Container, Identity,
-    CryptoAsset, CryptoKey, Certificate,
-    BusinessProcess, Transaction, Risk, Control, Policy,
-    Decision, Action, Outcome, Incident,
+    Action, Application, Asset, BusinessProcess, BusinessUnit, Certificate, Container, Control,
+    CryptoAsset, CryptoKey, Decision, Entity, EntityError, EntityId, EntityType, Identity,
+    Incident, Node, Organization, Outcome, Policy, Risk, Service, Tenant, Transaction,
 };
-pub use graph::{Relationship, DependencyGraph, TraversalResult, GraphError};
-pub use schema::{SchemaVersion, SchemaCompatibility, SchemaRegistry};
-pub use identity::{PrincipalRef, PrincipalKind, PrincipalRegistry, IdentityError};
+pub use events::{
+    Confidence, EventBuilder, EventId, EventType, EventValidationError, Severity, VardhanEvent,
+    EMITTER_AUTH_SERVICE, EMITTER_HA_CLUSTER, EMITTER_PQ_SHIELD, EMITTER_QUANTUM_NODE,
+    EMITTER_RAFT_LISTENER, EVENT_ACTIONS, VARDHAN_EVENT_SCHEMA_VERSION,
+};
+pub use graph::{DependencyGraph, GraphError, Relationship, TraversalResult};
+pub use identity::{IdentityError, PrincipalKind, PrincipalRef, PrincipalRegistry};
+pub use schema::{SchemaCompatibility, SchemaRegistry, SchemaVersion};

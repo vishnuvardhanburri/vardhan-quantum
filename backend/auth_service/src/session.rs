@@ -79,7 +79,8 @@ impl SessionEntry {
         }
         let now = now_ms();
         let hard_expired = now >= self.expires_at_ms;
-        let idle_expired = now.saturating_sub(self.last_activity_ms) >= (SESSION_IDLE_TIMEOUT_SECS as u128 * 1000);
+        let idle_expired =
+            now.saturating_sub(self.last_activity_ms) >= (SESSION_IDLE_TIMEOUT_SECS as u128 * 1000);
         hard_expired || idle_expired
     }
 
@@ -162,7 +163,12 @@ impl SessionStore {
     }
 
     /// Create a new session with explicit `node_id`.
-    pub async fn create_with_node(&self, username: &str, ip: IpAddr, node_id: &str) -> SessionToken {
+    pub async fn create_with_node(
+        &self,
+        username: &str,
+        ip: IpAddr,
+        node_id: &str,
+    ) -> SessionToken {
         let token = SessionToken::generate();
         let mut id_bytes = [0u8; 8];
         OsRng.fill_bytes(&mut id_bytes);
@@ -183,7 +189,8 @@ impl SessionStore {
         };
 
         self.inner.insert(session_id.clone(), entry);
-        self.token_to_id.insert(token.as_str().to_string(), session_id);
+        self.token_to_id
+            .insert(token.as_str().to_string(), session_id);
         token
     }
 
@@ -191,9 +198,12 @@ impl SessionStore {
     ///
     /// Returns `Some((username, new_token))` if valid, `None` if missing, expired, or revoked.
     /// If a stolen token is detected (token not current or previous), the session is revoked.
-    pub async fn validate_and_rotate(&self, token: &SessionToken) -> Option<(String, SessionToken)> {
+    pub async fn validate_and_rotate(
+        &self,
+        token: &SessionToken,
+    ) -> Option<(String, SessionToken)> {
         let token_str = token.as_str();
-        
+
         let session_id = self.token_to_id.get(token_str)?.clone();
         let mut entry = self.inner.get_mut(&session_id)?;
 
@@ -209,23 +219,23 @@ impl SessionStore {
             // Normal path: rotate current to previous
             let new_token = SessionToken::generate();
             let new_token_str = new_token.as_str().to_string();
-            
+
             entry.previous_token = Some(entry.current_token.clone());
             entry.current_token = Zeroizing::new(new_token_str.clone());
             entry.last_activity_ms = now_ms();
-            
+
             let username = entry.username.clone();
             drop(entry);
             self.token_to_id.remove(token_str);
             self.token_to_id.insert(new_token_str, session_id);
-            
+
             Some((username, new_token))
         } else if entry.previous_token.as_ref().map(|s| s.as_str()) == Some(token_str) {
             // Race condition path: token is the previous one.
             // Still valid, but must return the current one.
             let current_token_str = entry.current_token.as_str().to_string();
             entry.last_activity_ms = now_ms();
-            
+
             let current_token = SessionToken::from_str(&current_token_str);
             Some((entry.username.clone(), current_token))
         } else {
@@ -235,10 +245,10 @@ impl SessionStore {
             let session_id_clone = session_id.clone();
             let username = entry.username.clone();
             drop(entry);
-            
+
             self.revoke_by_id(&session_id_clone).await;
             self.token_to_id.remove(token_str);
-            
+
             tracing::warn!(
                 username = %username,
                 session_id = %session_id_clone,
@@ -253,7 +263,7 @@ impl SessionStore {
         let token_str = token.as_str();
         let session_id = self.token_to_id.get(token_str)?.clone();
         let entry = self.inner.get(&session_id)?;
-        
+
         if entry.is_expired() {
             return None;
         }
@@ -271,13 +281,12 @@ impl SessionStore {
         None
     }
 
-
     /// Return non-sensitive session metadata for the info endpoint.
     pub async fn get_info(&self, token: &SessionToken) -> Option<SessionInfo> {
         let token_str = token.as_str();
         let session_id = self.token_to_id.get(token_str)?.clone();
         let entry = self.inner.get(&session_id)?;
-        
+
         if entry.is_expired() {
             return None;
         }
@@ -292,10 +301,7 @@ impl SessionStore {
 
     /// List all sessions as safe public views (never revealing tokens).
     pub async fn list_sessions(&self) -> Vec<SessionView> {
-        let mut list: Vec<SessionView> = self.inner
-            .iter()
-            .map(|e| e.value().to_view())
-            .collect();
+        let mut list: Vec<SessionView> = self.inner.iter().map(|e| e.value().to_view()).collect();
         for r in self.revoked.iter() {
             list.push(r.value().clone());
         }
@@ -328,13 +334,13 @@ impl SessionStore {
             entry.revoked = true;
             let view = entry.to_view();
             self.revoked.insert(session_id.to_string(), view.clone());
-            
+
             // Also remove all associated tokens from the lookup map
             self.token_to_id.remove(entry.current_token.as_str());
             if let Some(prev) = &entry.previous_token {
                 self.token_to_id.remove(prev.as_str());
             }
-            
+
             Some(view)
         } else {
             None
@@ -345,11 +351,13 @@ impl SessionStore {
     /// Returns the number of sessions revoked.
     pub async fn flush_except(&self, preserve_token: Option<&str>) -> usize {
         let mut count = 0;
-        let keys_to_revoke: Vec<(String, String)> = self.inner
+        let keys_to_revoke: Vec<(String, String)> = self
+            .inner
             .iter()
             .filter(|e| {
                 if let Some(p) = preserve_token {
-                    e.value().current_token.as_str() != p && e.value().previous_token.as_ref().map(|s| s.as_str()) != Some(p)
+                    e.value().current_token.as_str() != p
+                        && e.value().previous_token.as_ref().map(|s| s.as_str()) != Some(p)
                 } else {
                     true
                 }
@@ -361,7 +369,7 @@ impl SessionStore {
             if let Some((_, mut entry)) = self.inner.remove(&session_id) {
                 entry.revoked = true;
                 self.revoked.insert(session_id, entry.to_view());
-                
+
                 // Clean up tokens
                 self.token_to_id.remove(entry.current_token.as_str());
                 if let Some(prev) = &entry.previous_token {
@@ -376,10 +384,7 @@ impl SessionStore {
 
     /// Return the number of currently active (non-expired, non-revoked) sessions.
     pub fn active_count(&self) -> usize {
-        self.inner
-            .iter()
-            .filter(|e| !e.is_expired())
-            .count()
+        self.inner.iter().filter(|e| !e.is_expired()).count()
     }
 }
 

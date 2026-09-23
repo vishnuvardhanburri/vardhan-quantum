@@ -229,11 +229,16 @@ impl KmsClient for MockKmsClient {
             ));
         }
 
-        let mut keys_guard = self.keys.lock().map_err(|_| VaultError::Internal("KMS keys lock poisoned".into()))?;
+        let mut keys_guard = self
+            .keys
+            .lock()
+            .map_err(|_| VaultError::Internal("KMS keys lock poisoned".into()))?;
         let versions = keys_guard
             .entry(key_id.to_string())
             .or_insert_with(|| vec![Self::derive_master(key_id, 1)]);
-        let current_master = versions.last().ok_or_else(|| VaultError::Crypto("No KMS key versions available".into()))?;
+        let current_master = versions
+            .last()
+            .ok_or_else(|| VaultError::Crypto("No KMS key versions available".into()))?;
 
         let cipher = Aes256Gcm::new(&(*current_master).into());
         let mut nonce_bytes = [0u8; 12];
@@ -265,7 +270,10 @@ impl KmsClient for MockKmsClient {
         }
 
         let key_str = key_id.unwrap_or("default");
-        let mut keys_guard = self.keys.lock().map_err(|_| VaultError::Internal("KMS keys lock poisoned".into()))?;
+        let mut keys_guard = self
+            .keys
+            .lock()
+            .map_err(|_| VaultError::Internal("KMS keys lock poisoned".into()))?;
         let versions = keys_guard
             .entry(key_str.to_string())
             .or_insert_with(|| (1..=5).map(|v| Self::derive_master(key_str, v)).collect());
@@ -308,7 +316,8 @@ impl<C: KmsClient> KmsKeyProtector<C> {
     }
 
     pub fn audit_records(&self) -> Result<Vec<KmsAuditRecord>, VaultError> {
-        self.audit_log.lock()
+        self.audit_log
+            .lock()
             .map(|lock| lock.clone())
             .map_err(|_| VaultError::Internal("Audit log lock poisoned".into()))
     }
@@ -326,7 +335,8 @@ impl<C: KmsClient> KeyProtector for KmsKeyProtector<C> {
             .as_secs();
         match self.client.encrypt(&self.key_id, dek) {
             Ok(wrapped) => {
-                self.audit_log.lock()
+                self.audit_log
+                    .lock()
                     .map(|mut log| {
                         log.push(KmsAuditRecord {
                             timestamp_unix: now,
@@ -341,7 +351,8 @@ impl<C: KmsClient> KeyProtector for KmsKeyProtector<C> {
                 Ok(wrapped)
             }
             Err(e) => {
-                self.audit_log.lock()
+                self.audit_log
+                    .lock()
                     .map(|mut log| {
                         log.push(KmsAuditRecord {
                             timestamp_unix: now,
@@ -367,7 +378,8 @@ impl<C: KmsClient> KeyProtector for KmsKeyProtector<C> {
             Ok(pt) => {
                 if pt.len() != 32 {
                     let err = "Unwrapped DEK is not 32 bytes".to_string();
-                    self.audit_log.lock()
+                    self.audit_log
+                        .lock()
                         .map(|mut log| {
                             log.push(KmsAuditRecord {
                                 timestamp_unix: now,
@@ -381,7 +393,8 @@ impl<C: KmsClient> KeyProtector for KmsKeyProtector<C> {
                         .map_err(|_| VaultError::Internal("Audit log lock poisoned".into()))?;
                     return Err(VaultError::Crypto(err));
                 }
-                self.audit_log.lock()
+                self.audit_log
+                    .lock()
                     .map(|mut log| {
                         log.push(KmsAuditRecord {
                             timestamp_unix: now,
@@ -398,7 +411,8 @@ impl<C: KmsClient> KeyProtector for KmsKeyProtector<C> {
                 Ok(Zeroizing::new(dek))
             }
             Err(e) => {
-                self.audit_log.lock()
+                self.audit_log
+                    .lock()
                     .map(|mut log| {
                         log.push(KmsAuditRecord {
                             timestamp_unix: now,
@@ -637,45 +651,45 @@ pub struct EncryptedEnvelope {
     pub wrapped_payload: Vec<u8>,
 }
 
-    pub fn wrap_envelope<P: KeyProtector>(
-        protector: &P,
-        plaintext: &[u8],
-    ) -> Result<EncryptedEnvelope, VaultError> {
-        // 1. Generate ephemeral 256-bit DEK
-        let mut dek = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut dek);
-        let zeroizing_dek = Zeroizing::new(dek);
+pub fn wrap_envelope<P: KeyProtector>(
+    protector: &P,
+    plaintext: &[u8],
+) -> Result<EncryptedEnvelope, VaultError> {
+    // 1. Generate ephemeral 256-bit DEK
+    let mut dek = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut dek);
+    let zeroizing_dek = Zeroizing::new(dek);
 
-        // 2. Encrypt plaintext under DEK via AES-256-GCM
-        let cipher = Aes256Gcm::new((&*zeroizing_dek).into());
-        let mut nonce_bytes = [0u8; 12];
-        rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
+    // 2. Encrypt plaintext under DEK via AES-256-GCM
+    let cipher = Aes256Gcm::new((&*zeroizing_dek).into());
+    let mut nonce_bytes = [0u8; 12];
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let mut ciphertext = cipher
-            .encrypt(nonce, plaintext)
-            .map_err(|e| VaultError::Crypto(format!("Envelope payload encryption failed: {:?}", e)))?;
+    let mut ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|e| VaultError::Crypto(format!("Envelope payload encryption failed: {:?}", e)))?;
 
-        let mut wrapped_payload = nonce_bytes.to_vec();
-        wrapped_payload.append(&mut ciphertext);
+    let mut wrapped_payload = nonce_bytes.to_vec();
+    wrapped_payload.append(&mut ciphertext);
 
-        // 3. Wrap DEK with protector (KMS / HSM / Local KEK)
-        let wrapped_dek = protector.wrap_dek(&zeroizing_dek)?;
-        let (kms_key_id, kms_key_version) = protector.key_metadata();
+    // 3. Wrap DEK with protector (KMS / HSM / Local KEK)
+    let wrapped_dek = protector.wrap_dek(&zeroizing_dek)?;
+    let (kms_key_id, kms_key_version) = protector.key_metadata();
 
-        Ok(EncryptedEnvelope {
-            version: 2,
-            created_at_unix: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| VaultError::Internal(format!("System time error: {e}")))?
-                .as_secs(),
-            provider: protector.provider_name().to_string(),
-            kms_key_id,
-            kms_key_version,
-            wrapped_dek: Some(wrapped_dek),
-            wrapped_payload,
-        })
-    }
+    Ok(EncryptedEnvelope {
+        version: 2,
+        created_at_unix: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| VaultError::Internal(format!("System time error: {e}")))?
+            .as_secs(),
+        provider: protector.provider_name().to_string(),
+        kms_key_id,
+        kms_key_version,
+        wrapped_dek: Some(wrapped_dek),
+        wrapped_payload,
+    })
+}
 
 pub fn unwrap_envelope<P: KeyProtector>(
     protector: &P,
@@ -688,9 +702,10 @@ pub fn unwrap_envelope<P: KeyProtector>(
     }
 
     // Version 2 envelope (KMS / HSM DEK wrapping)
-    let wrapped_dek = envelope.wrapped_dek.as_ref().ok_or_else(|| {
-        VaultError::Crypto("Missing wrapped DEK in v2 envelope".into())
-    })?;
+    let wrapped_dek = envelope
+        .wrapped_dek
+        .as_ref()
+        .ok_or_else(|| VaultError::Crypto("Missing wrapped DEK in v2 envelope".into()))?;
     let dek = protector.unwrap_dek(wrapped_dek)?;
 
     if envelope.wrapped_payload.len() < 12 {
@@ -768,7 +783,9 @@ mod tests {
         assert_eq!(&*recovered, secret);
 
         // Audit records
-        let audits = protector.audit_records().expect("Audit records should be accessible");
+        let audits = protector
+            .audit_records()
+            .expect("Audit records should be accessible");
         assert_eq!(audits.len(), 2);
         assert_eq!(audits[0].operation, "wrap");
         assert_eq!(audits[0].status, "SUCCESS");

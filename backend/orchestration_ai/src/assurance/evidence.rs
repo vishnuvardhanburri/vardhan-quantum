@@ -1,8 +1,8 @@
 use super::contracts::AssuranceResult;
 use audit_ledger::SegmentedLedgerWriter;
 use core_crypto::QuantumNodeIdentity;
-use std::sync::Arc;
 use serde_json::json;
+use std::sync::Arc;
 
 pub struct EvidenceManager {
     ledger: Arc<SegmentedLedgerWriter>,
@@ -15,8 +15,8 @@ impl EvidenceManager {
     }
 
     pub fn persist_assurance_evidence(
-        &self, 
-        result: &AssuranceResult
+        &self,
+        result: &AssuranceResult,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let event_val = json!({
             "event_type": "ai_assurance_evaluation",
@@ -30,7 +30,7 @@ impl EvidenceManager {
 
         // The appended event is actively signed using the node's PQ identity.
         self.ledger.append(event_val, &self.identity)?;
-        
+
         Ok(())
     }
 }

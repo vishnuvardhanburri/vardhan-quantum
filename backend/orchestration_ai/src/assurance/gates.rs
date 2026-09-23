@@ -1,6 +1,6 @@
-use super::contracts::{SecurityIR, AssuranceStatus};
 use super::authorization::PolicyEvaluation;
-use super::types::{StateHash, ConfigurationHash, TenantId};
+use super::contracts::{AssuranceStatus, SecurityIR};
+use super::types::{ConfigurationHash, StateHash, TenantId};
 
 #[derive(Debug, Clone)]
 pub struct StateSnapshotRef {
@@ -15,11 +15,11 @@ pub struct StateSnapshotRef {
 
 pub trait G0ContextValidity {
     fn evaluate(
-        &self, 
-        ir: &SecurityIR, 
-        committed_state: &StateSnapshotRef, 
+        &self,
+        ir: &SecurityIR,
+        committed_state: &StateSnapshotRef,
         config_hash: &ConfigurationHash,
-        current_time_ms: u64
+        current_time_ms: u64,
     ) -> AssuranceStatus;
 }
 
@@ -43,27 +43,32 @@ pub struct StabilityCriteria {
     pub tolerance_percent: u8,
 }
 
-
 pub trait PerturbationGenerator {
-    fn generate_perturbation(&self, ir: &SecurityIR, class: &PerturbationClasses) -> Option<SecurityIR>;
+    fn generate_perturbation(
+        &self,
+        ir: &SecurityIR,
+        class: &PerturbationClasses,
+    ) -> Option<SecurityIR>;
 }
 
 pub trait ModelEvaluator {
     fn reevaluate(&self, ir: &SecurityIR) -> Result<SecurityIR, String>;
 }
 
-pub struct Tolerance { pub max_deviation_score: u8 }
+pub struct Tolerance {
+    pub max_deviation_score: u8,
+}
 
 pub trait G2PerturbationRobustness {
     fn evaluate(
-        &mut self, 
-        ir: &SecurityIR, 
+        &mut self,
+        ir: &SecurityIR,
         generator: &dyn PerturbationGenerator,
         evaluator: &dyn ModelEvaluator,
-        classes: &PerturbationClasses, 
+        classes: &PerturbationClasses,
         criteria: &StabilityCriteria,
         tolerance: &Tolerance,
-        window: &EvaluationWindow
+        window: &EvaluationWindow,
     ) -> AssuranceStatus;
 }
 
@@ -79,7 +84,12 @@ pub struct DegeneracyCriteria {
 }
 
 pub trait G3Utility {
-    fn evaluate(&self, policy: &UtilityPolicy, criteria: &DegeneracyCriteria, window: &EvaluationWindow) -> AssuranceStatus;
+    fn evaluate(
+        &self,
+        policy: &UtilityPolicy,
+        criteria: &DegeneracyCriteria,
+        window: &EvaluationWindow,
+    ) -> AssuranceStatus;
 }
 
 pub trait G4PolicyEnforcement {

@@ -292,10 +292,7 @@ impl MerkleLedger {
     /// Signature verification is assumed to have already been performed by the
     /// caller (e.g., in a `spawn_blocking` task) to avoid blocking the
     /// single-threaded async runtime with CPU-bound ML-DSA verification.
-    pub async fn append_verified_block(
-        &self,
-        block: LedgerBlock,
-    ) -> Result<(), LedgerError> {
+    pub async fn append_verified_block(&self, block: LedgerBlock) -> Result<(), LedgerError> {
         let mut write = self.chain.write().await;
 
         let expected_index = write.len() as u64;
@@ -418,9 +415,15 @@ impl LedgerSyncChannel {
     /// completed \`ProxySession\`.
     pub fn new(stream: TcpStream, ctx: &SessionContext, is_responder: bool) -> Self {
         let (tx_key, rx_key) = if is_responder {
-            (ctx.server_to_client_key.clone(), ctx.client_to_server_key.clone())
+            (
+                ctx.server_to_client_key.clone(),
+                ctx.client_to_server_key.clone(),
+            )
         } else {
-            (ctx.client_to_server_key.clone(), ctx.server_to_client_key.clone())
+            (
+                ctx.client_to_server_key.clone(),
+                ctx.server_to_client_key.clone(),
+            )
         };
         Self {
             transport: AeadTransport::new(

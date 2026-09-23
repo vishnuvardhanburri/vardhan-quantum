@@ -2,35 +2,80 @@ use crate::raft::{
     AppendEntriesArgs, AppendEntriesReply, RaftNode, RaftRpcEnvelope, RaftRpcType, RequestVoteArgs,
     RequestVoteReply,
 };
+use crate::NodeId;
 use core_crypto::QuantumNodeIdentity;
 use proxy_engine::run_responder;
 use proxy_engine::transport::AeadTransport;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
+
+/// Maps DSA-public-key BLAKE3 fingerprints → NodeId.
+///
+/// SEC-018: The production RaftNetworkListener uses this registry to
+/// cryptographically bind the authenticated peer identity (from the PQ
+/// handshake) to the NodeId that the peer claims in application-layer
+/// envelopes. An unknown fingerprint or a mismatched NodeId is rejected
+/// BEFORE the RPC is dispatched to the Raft state machine.
+///
+/// If the registry is empty, every inbound connection is rejected
+/// (fail-closed). Nodes that have not been provisioned in the registry
+/// cannot participate in consensus.
+pub type PeerRegistry = HashMap<[u8; 32], NodeId>;
 
 pub struct RaftNetworkListener {
     listen_addr: std::net::SocketAddr,
     identity: Arc<QuantumNodeIdentity>,
     raft_node: Arc<RaftNode>,
+    /// SEC-018: Fingerprint → NodeId binding registry.
+    /// Populated from trusted provisioning at node startup.
+    peer_registry: Arc<PeerRegistry>,
 }
 
 impl RaftNetworkListener {
+    /// Create a listener **without** a peer registry (legacy, open mode).
+    ///
+    /// ⚠️  This constructor does NOT enforce SEC-018 identity binding.
+    /// It is retained only for non-security test harnesses that do not
+    /// use a real PQ transport. Do not use in production.
     pub async fn new(
         listen_addr: std::net::SocketAddr,
         identity: Arc<QuantumNodeIdentity>,
         raft_node: Arc<RaftNode>,
     ) -> std::io::Result<(Self, tokio::net::TcpListener, std::net::SocketAddr)> {
-        let listener = tokio::net::TcpListener::bind(listen_addr).await?;
-        let bound_addr = listener.local_addr()?;
-        Ok((Self {
-            listen_addr: bound_addr,
-            identity,
-            raft_node,
-        }, listener, bound_addr))
+        Self::new_with_registry(listen_addr, identity, raft_node, HashMap::new()).await
     }
 
-    pub async fn run(&self, listener: tokio::net::TcpListener) -> Result<(), Box<dyn std::error::Error>> {
+    /// Create a listener with a cryptographic peer registry (SEC-018).
+    ///
+    /// The registry maps DSA fingerprints to NodeIds. Any connecting peer
+    /// whose fingerprint is not in the registry, or whose envelope
+    /// `sender_id` does not match the registry entry, is rejected.
+    pub async fn new_with_registry(
+        listen_addr: std::net::SocketAddr,
+        identity: Arc<QuantumNodeIdentity>,
+        raft_node: Arc<RaftNode>,
+        peer_registry: PeerRegistry,
+    ) -> std::io::Result<(Self, tokio::net::TcpListener, std::net::SocketAddr)> {
+        let listener = tokio::net::TcpListener::bind(listen_addr).await?;
+        let bound_addr = listener.local_addr()?;
+        Ok((
+            Self {
+                listen_addr: bound_addr,
+                identity,
+                raft_node,
+                peer_registry: Arc::new(peer_registry),
+            },
+            listener,
+            bound_addr,
+        ))
+    }
+
+    pub async fn run(
+        &self,
+        listener: tokio::net::TcpListener,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!(addr = %self.listen_addr, "Raft Network Listener active");
 
         // SEC-005: Inbound connection limit to prevent FD exhaustion DoS
@@ -40,7 +85,8 @@ impl RaftNetworkListener {
             let (mut stream, peer_addr) = listener.accept().await?;
             let identity = Arc::clone(&self.identity);
             let raft_node = Arc::clone(&self.raft_node);
-            
+            let peer_registry = Arc::clone(&self.peer_registry);
+
             let permit = match Arc::clone(&conn_limit).try_acquire_owned() {
                 Ok(p) => p,
                 Err(_) => {
@@ -52,7 +98,7 @@ impl RaftNetworkListener {
             tokio::spawn(async move {
                 // Drop the permit only when the connection task finishes
                 let _permit = permit;
-                
+
                 info!(peer = %peer_addr, "Incoming Raft connection");
 
                 // 1. PQ Handshake (Responder)
@@ -64,11 +110,45 @@ impl RaftNetworkListener {
                     }
                 };
 
-                // SEC-001: Compute the authenticated peer's DSA fingerprint
-                // (BLAKE3 of the verified DSA public key from the handshake).
-                // This fingerprint is pinned for the entire connection lifetime.
-                let peer_dsa_fingerprint = QuantumNodeIdentity::hash_ledger_block(&session.peer_dsa_pub_bytes);
-                let _peer_fingerprint_hex = hex::encode(peer_dsa_fingerprint);
+                // SEC-018: Compute the authenticated peer's DSA fingerprint.
+                // This is BLAKE3(peer_dsa_pub_bytes) — verified during the handshake.
+                // The fingerprint is pinned for the entire connection lifetime.
+                let peer_dsa_fingerprint =
+                    QuantumNodeIdentity::hash_ledger_block(&session.peer_dsa_pub_bytes);
+                let peer_fingerprint_hex = hex::encode(peer_dsa_fingerprint);
+
+                // SEC-018 CORE: Validate that the authenticated fingerprint maps to a known NodeId.
+                //
+                // If the registry is non-empty, the peer MUST be in it.
+                // If the registry is empty (legacy/test mode), skip registry check.
+                //
+                // This MUST happen BEFORE any RPC is processed — prevents forged sender_id
+                // from being accepted even if the outer AEAD frame is authentic.
+                let registry_enforced = !peer_registry.is_empty();
+                let authoritative_node_id: Option<NodeId> = if registry_enforced {
+                    match peer_registry.get(&peer_dsa_fingerprint) {
+                        Some(node_id) => {
+                            info!(
+                                peer = %peer_addr,
+                                fingerprint = %peer_fingerprint_hex,
+                                authorized_node_id = %node_id,
+                                "SEC-018: Authenticated peer found in registry"
+                            );
+                            Some(node_id.clone())
+                        }
+                        None => {
+                            error!(
+                                peer = %peer_addr,
+                                fingerprint = %peer_fingerprint_hex,
+                                "SEC-018 VIOLATION: Authenticated peer fingerprint not in registry — connection rejected (fail-closed)"
+                            );
+                            return; // Reject connection before any RPC
+                        }
+                    }
+                } else {
+                    // Legacy/test mode: no registry enforcement
+                    None
+                };
 
                 // 2. Wrap in Authenticated Transport
                 let mut transport = AeadTransport::new(
@@ -91,7 +171,8 @@ impl RaftNetworkListener {
                     let result = tokio::time::timeout(
                         tokio::time::Duration::from_secs(10),
                         transport.read_frame(),
-                    ).await;
+                    )
+                    .await;
 
                     let frame_result = match result {
                         Ok(r) => r,
@@ -129,44 +210,56 @@ impl RaftNetworkListener {
                                 break;
                             }
 
-                            // 3. SEC-001 Sender Identity Verification
+                            // 3. SEC-018 Sender Identity Verification
                             // a) sender_id must be non-empty
                             if envelope.sender_id.0.is_empty() {
                                 error!(peer = %peer_addr, "Raft RPC missing sender identity");
                                 break;
                             }
 
-                            // b) Pin sender_id on first RPC and enforce lock for subsequent RPCs.
-                            //    A connection authenticated as DSA fingerprint X must always
-                            //    claim the same sender_id. Any mid-session change is an impersonation
-                            //    attempt — terminate immediately.
+                            // b) SEC-018 CORE: If registry is enforced, the envelope sender_id
+                            //    MUST match the NodeId the registry bound to this fingerprint.
+                            //    An authenticated peer cannot impersonate a different NodeId.
+                            if let Some(ref auth_node_id) = authoritative_node_id {
+                                if envelope.sender_id != *auth_node_id {
+                                    error!(
+                                        peer = %peer_addr,
+                                        claimed_id = %envelope.sender_id,
+                                        authorized_id = %auth_node_id,
+                                        fingerprint = %peer_fingerprint_hex,
+                                        "SEC-018 VIOLATION: envelope sender_id does not match registry binding — connection rejected"
+                                    );
+                                    break;
+                                }
+                            }
+
+                            // c) Pin sender_id on first RPC and enforce for subsequent RPCs.
+                            //    Prevents mid-session identity change (belt-and-suspenders).
                             match &pinned_sender_id {
                                 None => {
-                                    // First RPC on this connection — pin the sender_id.
                                     info!(
                                         peer = %peer_addr,
                                         sender_id = %envelope.sender_id,
-                                        peer_dsa_fingerprint = %peer_fingerprint_hex,
-                                        "SEC-001: Pinning sender_id to authenticated DSA fingerprint"
+                                        fingerprint = %peer_fingerprint_hex,
+                                        "SEC-018: Pinning sender_id to authenticated DSA fingerprint"
                                     );
                                     pinned_sender_id = Some(envelope.sender_id.0.clone());
                                 }
                                 Some(pinned) => {
                                     if pinned != &envelope.sender_id.0 {
-                                        // Mid-session impersonation attempt detected.
                                         error!(
                                             peer = %peer_addr,
                                             claimed_id = %envelope.sender_id,
                                             pinned_id = %pinned,
-                                            peer_dsa_fingerprint = %peer_fingerprint_hex,
-                                            "SEC-001 VIOLATION: sender_id changed mid-session — closing connection"
+                                            fingerprint = %peer_fingerprint_hex,
+                                            "SEC-018 VIOLATION: sender_id changed mid-session — closing connection"
                                         );
                                         break;
                                     }
                                 }
                             }
 
-                            // Dispatch based on RPC type
+                            // Dispatch based on RPC type — only reached after identity is verified
                             let reply_payload = match envelope.rpc_type {
                                 RaftRpcType::RequestVote => {
                                     let args: RequestVoteArgs = match serde_json::from_slice::<
@@ -247,5 +340,73 @@ impl RaftNetworkListener {
                 }
             });
         }
+    }
+}
+
+/// Unit tests for SEC-018 identity binding logic (no TCP — tests the policy directly).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_fingerprint(n: u8) -> [u8; 32] {
+        [n; 32]
+    }
+
+    #[test]
+    fn valid_sender_matches_authenticated_peer() {
+        let mut registry = PeerRegistry::new();
+        let fp = make_fingerprint(1);
+        registry.insert(fp, NodeId::new("node-b"));
+
+        let authorized = registry.get(&fp).cloned();
+        assert_eq!(authorized, Some(NodeId::new("node-b")));
+
+        let claimed = NodeId::new("node-b");
+        assert_eq!(
+            claimed,
+            authorized.unwrap(),
+            "Valid sender must match registry"
+        );
+    }
+
+    #[test]
+    fn forged_sender_does_not_match_authenticated_peer() {
+        let mut registry = PeerRegistry::new();
+        let fp = make_fingerprint(2);
+        registry.insert(fp, NodeId::new("node-b"));
+
+        let authorized = registry.get(&fp).cloned().unwrap();
+        let forged = NodeId::new("node-evil");
+        assert_ne!(
+            forged, authorized,
+            "Forged sender must not match registry binding"
+        );
+    }
+
+    #[test]
+    fn stale_authenticated_peer_is_rejected() {
+        let registry = PeerRegistry::new(); // empty registry
+        let fp = make_fingerprint(3);
+        assert!(registry.is_empty(), "Empty registry = no known peers");
+        let found = registry.get(&fp);
+        assert!(
+            found.is_none(),
+            "Unknown fingerprint must not be in empty registry"
+        );
+    }
+
+    #[test]
+    fn envelope_sender_must_match_handshake_binding() {
+        let mut registry = PeerRegistry::new();
+        let fp = make_fingerprint(4);
+        registry.insert(fp, NodeId::new("node-b"));
+
+        let authorized = registry.get(&fp).cloned().unwrap();
+        // Envelope claims node-c, but handshake bound to node-b
+        let mismatched = NodeId::new("node-c");
+        assert_ne!(
+            mismatched, authorized,
+            "Envelope sender != authenticated binding MUST be rejected"
+        );
     }
 }

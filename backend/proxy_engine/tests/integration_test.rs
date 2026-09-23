@@ -62,7 +62,7 @@ async fn test_two_honest_nodes_derive_same_secret() {
     );
     assert_eq!(init_session.shared_secret.len(), 32);
     assert_ne!(
-        init_session.shared_secret, 
+        init_session.shared_secret,
         zeroize::Zeroizing::new(vec![0u8; 32]),
         "Shared secret must not be all zeros"
     );
@@ -260,7 +260,10 @@ async fn test_concurrent_handshakes() {
     // All N secrets distinct
     let mut seen = std::collections::HashSet::new();
     for s in &server_secrets {
-        assert!(seen.insert(s.as_slice().to_vec()), "Duplicate secret across sessions");
+        assert!(
+            seen.insert(s.as_slice().to_vec()),
+            "Duplicate secret across sessions"
+        );
     }
 }
 

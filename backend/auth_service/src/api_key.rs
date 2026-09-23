@@ -3,9 +3,9 @@
 //! Plaintext secrets are generated with `OsRng` and shown ONLY ONCE at creation.
 //! Only the BLAKE3 hash is persisted in the database.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use crate::store::CredentialStore;
@@ -161,13 +161,16 @@ impl CredentialStore {
         let record_key = Self::apikey_key(&id);
         let hash_key = Self::apikey_hash_key(&key_hash);
 
-        self.db.transaction(|tx_db| {
-            tx_db.insert(&*record_key, val.clone())?;
-            tx_db.insert(&*hash_key, id_bytes)?;
-            Ok::<(), sled::transaction::ConflictableTransactionError>(())
-        }).map_err(|e| ApiKeyError::DbError(format!("Transaction failed: {e}")))?;
+        self.db
+            .transaction(|tx_db| {
+                tx_db.insert(&*record_key, val.clone())?;
+                tx_db.insert(&*hash_key, id_bytes)?;
+                Ok::<(), sled::transaction::ConflictableTransactionError>(())
+            })
+            .map_err(|e| ApiKeyError::DbError(format!("Transaction failed: {e}")))?;
 
-        self.db.flush()
+        self.db
+            .flush()
             .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
 
         Ok(CreateApiKeyResponse {
@@ -195,12 +198,14 @@ impl CredentialStore {
     /// Revoke an API key by ID.
     pub fn revoke_api_key(&self, id: &str) -> Result<ApiKeyView, ApiKeyError> {
         let key = Self::apikey_key(id);
-        let raw = self.db.get(&key)
+        let raw = self
+            .db
+            .get(&key)
             .map_err(|e| ApiKeyError::DbError(e.to_string()))?
             .ok_or(ApiKeyError::NotFound)?;
 
-        let mut record: ApiKeyRecord = serde_json::from_slice(&raw)
-            .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
+        let mut record: ApiKeyRecord =
+            serde_json::from_slice(&raw).map_err(|e| ApiKeyError::DbError(e.to_string()))?;
 
         record.revoked = true;
         let view = record.to_view();
@@ -212,13 +217,17 @@ impl CredentialStore {
         let hash_key = Self::apikey_hash_key(&record.key_hash);
         let val_clone = val.clone();
 
-        self.db.transaction(|tx_db| {
-            tx_db.insert(&*key_clone, val_clone.clone())?;
-            tx_db.remove(&*hash_key)?;
-            Ok::<(), sled::transaction::ConflictableTransactionError>(())
-        }).map_err(|e| ApiKeyError::DbError(format!("Revocation transaction failed: {e}")))?;
+        self.db
+            .transaction(|tx_db| {
+                tx_db.insert(&*key_clone, val_clone.clone())?;
+                tx_db.remove(&*hash_key)?;
+                Ok::<(), sled::transaction::ConflictableTransactionError>(())
+            })
+            .map_err(|e| ApiKeyError::DbError(format!("Revocation transaction failed: {e}")))?;
 
-        self.db.flush().map_err(|e| ApiKeyError::DbError(e.to_string()))?;
+        self.db
+            .flush()
+            .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
 
         Ok(view)
     }
@@ -229,21 +238,30 @@ impl CredentialStore {
         let key_hash = hex::encode(blake3::hash(secret.as_bytes()).as_bytes());
         let hash_key = Self::apikey_hash_key(&key_hash);
 
-        let id_bytes = match self.db.get(&hash_key).map_err(|e| ApiKeyError::DbError(e.to_string()))? {
+        let id_bytes = match self
+            .db
+            .get(&hash_key)
+            .map_err(|e| ApiKeyError::DbError(e.to_string()))?
+        {
             Some(bytes) => bytes,
             None => return Ok(None),
         };
 
-        let id = String::from_utf8(id_bytes.to_vec()).map_err(|e| ApiKeyError::DbError(e.to_string()))?;
+        let id = String::from_utf8(id_bytes.to_vec())
+            .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
         let key = Self::apikey_key(&id);
 
-        let raw = match self.db.get(&key).map_err(|e| ApiKeyError::DbError(e.to_string()))? {
+        let raw = match self
+            .db
+            .get(&key)
+            .map_err(|e| ApiKeyError::DbError(e.to_string()))?
+        {
             Some(r) => r,
             None => return Ok(None),
         };
 
-        let mut record: ApiKeyRecord = serde_json::from_slice(&raw)
-            .map_err(|e| ApiKeyError::DbError(e.to_string()))?;
+        let mut record: ApiKeyRecord =
+            serde_json::from_slice(&raw).map_err(|e| ApiKeyError::DbError(e.to_string()))?;
 
         if !record.is_active() {
             return Ok(None);
@@ -276,7 +294,9 @@ mod tests {
         let store = temp_store();
 
         // 1. Create API key
-        let res = store.create_api_key("CI Runner", Some(30), "admin").unwrap();
+        let res = store
+            .create_api_key("CI Runner", Some(30), "admin")
+            .unwrap();
         assert!(res.id.starts_with("ak_"));
         assert!(res.secret.starts_with("vq_live_"));
         assert_eq!(res.name, "CI Runner");

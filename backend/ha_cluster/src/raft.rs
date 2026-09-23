@@ -1,5 +1,7 @@
 use crate::{ClusterNode, NodeId};
-use audit_ledger::{Checkpoint, CommittedCheckpoint, CheckpointWriter, CHECKPOINT_CLIENT_ID, CHECKPOINT_VERSION};
+use audit_ledger::{
+    Checkpoint, CheckpointWriter, CommittedCheckpoint, CHECKPOINT_CLIENT_ID, CHECKPOINT_VERSION,
+};
 use core_crypto::QuantumNodeIdentity;
 use futures::future::join_all;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -254,15 +256,19 @@ impl RaftNode {
         rpc_client: Arc<dyn RaftRpcClient>,
         config: RaftConfig,
     ) -> Self {
-        config.validate().expect("invalid RaftConfig: timing invariant violated");
-        let state = Self::load_persistent_state(&persistence_path, config.state_machine_mac_key.as_ref()).unwrap_or(RaftPersistentState {
-            current_term: 0,
-            voted_for: None,
-            log: Vec::new(),
-            commit_index: 0,
-            cluster_id: String::new(),
-            config_epoch: 1,
-        });
+        config
+            .validate()
+            .expect("invalid RaftConfig: timing invariant violated");
+        let state =
+            Self::load_persistent_state(&persistence_path, config.state_machine_mac_key.as_ref())
+                .unwrap_or(RaftPersistentState {
+                    current_term: 0,
+                    voted_for: None,
+                    log: Vec::new(),
+                    commit_index: 0,
+                    cluster_id: String::new(),
+                    config_epoch: 1,
+                });
 
         // Bootstrap cluster_id: use env var if provided, or persisted value.
         // If neither exists (first bootstrap), generate a new UUID.
@@ -281,7 +287,11 @@ impl RaftNode {
         };
 
         // config_epoch: use persisted value, or 1 if not yet persisted.
-        let config_epoch = if state.config_epoch > 0 { state.config_epoch } else { 1 };
+        let config_epoch = if state.config_epoch > 0 {
+            state.config_epoch
+        } else {
+            1
+        };
 
         let election_timeout = {
             let mut rng = rand::thread_rng();
@@ -314,7 +324,10 @@ impl RaftNode {
         }
     }
 
-    fn load_persistent_state(path: &PathBuf, mac_key: Option<&[u8; 32]>) -> Option<RaftPersistentState> {
+    fn load_persistent_state(
+        path: &PathBuf,
+        mac_key: Option<&[u8; 32]>,
+    ) -> Option<RaftPersistentState> {
         let mut file = match OpenOptions::new().read(true).open(path) {
             Ok(f) => f,
             Err(e) => {
@@ -340,7 +353,7 @@ impl RaftNode {
                     panic!("FATAL: Raft state file integrity check failed (MAC mismatch). Node refusing to start.");
                 }
             }
-            
+
             match serde_json::from_str::<RaftPersistentState>(&env.payload_json) {
                 Ok(state) => {
                     tracing::info!(
@@ -383,7 +396,6 @@ impl RaftNode {
         }
     }
 
-
     pub async fn persist_state(&self) -> std::io::Result<()> {
         let term = *self.current_term.read().await;
         let voted_for = self.voted_for.read().await.clone();
@@ -391,7 +403,15 @@ impl RaftNode {
         let commit_index = *self.commit_index.read().await;
         let cluster_id = self.cluster_id.read().await.clone();
         let config_epoch = *self.config_epoch.read().await;
-        self.persist_state_with(term, voted_for, log_clone, commit_index, cluster_id, config_epoch).await
+        self.persist_state_with(
+            term,
+            voted_for,
+            log_clone,
+            commit_index,
+            cluster_id,
+            config_epoch,
+        )
+        .await
     }
 
     /// Persist Raft state with explicit values. Used when the caller already
@@ -425,7 +445,7 @@ impl RaftNode {
             cluster_id,
             config_epoch,
         };
-        
+
         let bytes = if let Some(key) = &self.config.state_machine_mac_key {
             let payload_json = serde_json::to_string_pretty(&state)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -441,7 +461,9 @@ impl RaftNode {
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
         };
 
-        let tmp_path = self.persistence_path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
+        let tmp_path = self
+            .persistence_path
+            .with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
 
         // 1. Write and sync temporary file
         {
@@ -520,7 +542,16 @@ impl RaftNode {
             let cluster_id = self.cluster_id.read().await.clone();
             let config_epoch = *self.config_epoch.read().await;
             drop(log);
-            let _ = self.persist_state_with(term, voted_for, log_clone, commit_idx, cluster_id, config_epoch).await;
+            let _ = self
+                .persist_state_with(
+                    term,
+                    voted_for,
+                    log_clone,
+                    commit_idx,
+                    cluster_id,
+                    config_epoch,
+                )
+                .await;
         } else {
             drop(log);
         }
@@ -599,7 +630,8 @@ impl RaftNode {
                 RaftRole::Follower => "Follower",
                 RaftRole::Candidate => "Candidate",
                 RaftRole::Leader => "Leader",
-            }.to_string(),
+            }
+            .to_string(),
             current_term,
             commit_index,
             last_applied,
@@ -614,7 +646,7 @@ impl RaftNode {
             config_epoch,
         }
     }
-    
+
     /// P7.3: Snapshot of Raft state needed for checkpoint generation.
     /// Returns cluster_id, config_epoch, current_term, and the current log length
     /// (which becomes raft_log_index in the checkpoint).
@@ -771,14 +803,17 @@ impl RaftNode {
         drop(log);
 
         if needs_persist {
-            if let Err(e) = self.persist_state_with(
-                term_for_persist,
-                voted_for_for_persist,
-                log_clone,
-                commit_idx_val,
-                self.cluster_id.read().await.clone(),
-                *self.config_epoch.read().await,
-            ).await {
+            if let Err(e) = self
+                .persist_state_with(
+                    term_for_persist,
+                    voted_for_for_persist,
+                    log_clone,
+                    commit_idx_val,
+                    self.cluster_id.read().await.clone(),
+                    *self.config_epoch.read().await,
+                )
+                .await
+            {
                 tracing::error!(
                     node_id = %self.id,
                     err = %e,
@@ -872,7 +907,9 @@ impl RaftNode {
                     let reply = client.send_request_vote(peer_id.clone(), rpc_args).await;
                     (peer_id, reply)
                 });
-                fut as Pin<Box<dyn Future<Output = (NodeId, Result<RequestVoteReply, String>)> + Send>>
+                fut as Pin<
+                    Box<dyn Future<Output = (NodeId, Result<RequestVoteReply, String>)> + Send>,
+                >
             })
             .collect();
 
@@ -981,7 +1018,9 @@ impl RaftNode {
                     let log_clone = log.clone();
                     let cluster_id = self.cluster_id.read().await.clone();
                     let config_epoch = *self.config_epoch.read().await;
-                    let _ = self.persist_state_with(term, voted_for, log_clone, n, cluster_id, config_epoch).await;
+                    let _ = self
+                        .persist_state_with(term, voted_for, log_clone, n, cluster_id, config_epoch)
+                        .await;
                 }
                 *commit_idx = n;
                 drop(commit_idx);
@@ -995,8 +1034,8 @@ impl RaftNode {
     /// Generate a fresh randomized election timeout based on config.
     fn random_election_timeout(&self) -> Duration {
         let cfg = &self.config;
-        let millis = rand::thread_rng()
-            .gen_range(cfg.election_timeout_min_ms..cfg.election_timeout_max_ms);
+        let millis =
+            rand::thread_rng().gen_range(cfg.election_timeout_min_ms..cfg.election_timeout_max_ms);
         Duration::from_millis(millis)
     }
 
@@ -1039,10 +1078,8 @@ impl RaftNode {
                         self.reset_election_timer().await;
 
                         // Start election
-                        let peer_ids: Vec<NodeId> = peers.iter()
-                            .filter(|&p| p != &self.id)
-                            .cloned()
-                            .collect();
+                        let peer_ids: Vec<NodeId> =
+                            peers.iter().filter(|&p| p != &self.id).cloned().collect();
 
                         info!(node_id = %self.id, "DEBUG_BEFORE_START_ELECTION_CALL");
                         if let Ok(true) = self.start_election(&peer_ids).await {
@@ -1069,10 +1106,8 @@ impl RaftNode {
                         ni.len() < peers.len().saturating_sub(1) && peers.len() > 1
                     };
                     if needs_init {
-                        let peer_ids: Vec<NodeId> = peers.iter()
-                            .filter(|&p| p != &self.id)
-                            .cloned()
-                            .collect();
+                        let peer_ids: Vec<NodeId> =
+                            peers.iter().filter(|&p| p != &self.id).cloned().collect();
                         self.init_leader_state(&peer_ids).await;
                         info!(node_id = %self.id, "Leader state initialized (next_index/match_index)");
                     }
@@ -1081,16 +1116,16 @@ impl RaftNode {
                     // leader's log, using per-peer next_index.
                     let cur_term = *self.current_term.read().await;
                     let commit_idx = *self.commit_index.read().await;
-                    let peer_ids: Vec<NodeId> = peers.iter()
-                        .filter(|&p| p != &self.id)
-                        .cloned()
-                        .collect();
+                    let peer_ids: Vec<NodeId> =
+                        peers.iter().filter(|&p| p != &self.id).cloned().collect();
 
-                    type AppendReplyFut = Pin<Box<
-                        dyn std::future::Future<
-                            Output = (NodeId, Result<AppendEntriesReply, String>, u64, u64),
-                        > + Send,
-                    >>;
+                    type AppendReplyFut = Pin<
+                        Box<
+                            dyn std::future::Future<
+                                    Output = (NodeId, Result<AppendEntriesReply, String>, u64, u64),
+                                > + Send,
+                        >,
+                    >;
                     let mut append_futures: Vec<AppendReplyFut> = Vec::new();
                     {
                         let log = self.log.read().await;
@@ -1099,13 +1134,12 @@ impl RaftNode {
                         for peer in &peer_ids {
                             let next_idx = next_indices.get(peer).copied().unwrap_or(1);
                             let prev_log_index = next_idx.saturating_sub(1);
-                            let prev_log_term = if prev_log_index > 0
-                                && (prev_log_index as usize) <= log.len()
-                            {
-                                log[(prev_log_index - 1) as usize].term
-                            } else {
-                                0
-                            };
+                            let prev_log_term =
+                                if prev_log_index > 0 && (prev_log_index as usize) <= log.len() {
+                                    log[(prev_log_index - 1) as usize].term
+                                } else {
+                                    0
+                                };
                             let entries: Vec<LogEntry> = if (next_idx as usize) <= log.len() {
                                 log[((next_idx - 1) as usize)..].to_vec()
                             } else {
@@ -1138,11 +1172,12 @@ impl RaftNode {
                     let mut should_step_down = false;
                     let mut max_reply_term = cur_term;
 
-                    let mut fut_stream = append_futures
-                        .into_iter()
-                        .collect::<FuturesUnordered<_>>();
+                    let mut fut_stream =
+                        append_futures.into_iter().collect::<FuturesUnordered<_>>();
 
-                    while let Some((peer, result, prev_log_index, entries_len)) = fut_stream.next().await {
+                    while let Some((peer, result, prev_log_index, entries_len)) =
+                        fut_stream.next().await
+                    {
                         // Once we detect a higher-term reply, stop processing
                         // further replies to prevent stale replies from
                         // mutating leader state (match_index/next_index).
@@ -1395,7 +1430,7 @@ impl LedgerApplier {
             let prev_hash_for_block = prev_hash;
             let block = tokio::task::spawn_blocking(move || {
                 ledger_sync::LedgerBlock::new(
-                    seq,  // Use ledger_seq (regular-entry count), not raft_log_index-1
+                    seq, // Use ledger_seq (regular-entry count), not raft_log_index-1
                     timestamp_ms,
                     prev_hash_for_block,
                     [0u8; 32],
@@ -1410,15 +1445,15 @@ impl LedgerApplier {
             // ML-DSA-87 verification in blocking thread
             let pub_key = self.identity.dsa_public_key_bytes().to_vec();
             let block_for_verify = block.clone();
-            tokio::task::spawn_blocking(move || {
-                block_for_verify.verify(&pub_key)
-            })
-            .await
-            .map_err(|e| format!("spawn_blocking join error (verify): {}", e))?
-            .map_err(|e| e.to_string())?;
+            tokio::task::spawn_blocking(move || block_for_verify.verify(&pub_key))
+                .await
+                .map_err(|e| format!("spawn_blocking join error (verify): {}", e))?
+                .map_err(|e| e.to_string())?;
 
             // Push to ledger (fast — just lock + push, already verified)
-            self.ledger.append_verified_block(block).await
+            self.ledger
+                .append_verified_block(block)
+                .await
                 .map_err(|e| e.to_string())?;
 
             // Update merkle_hashes chain
@@ -1445,7 +1480,11 @@ impl LedgerApplier {
     }
 
     /// Apply a committed checkpoint entry: persist it to checkpoints.jsonl.
-    async fn apply_checkpoint_entry(&self, entry: &LogEntry, raft_log_index: u64) -> Result<(), String> {
+    async fn apply_checkpoint_entry(
+        &self,
+        entry: &LogEntry,
+        raft_log_index: u64,
+    ) -> Result<(), String> {
         let cp: Checkpoint = serde_json::from_slice(&entry.data)
             .map_err(|e| format!("Failed to deserialize checkpoint: {e}"))?;
 
@@ -1463,9 +1502,11 @@ impl LedgerApplier {
         }
 
         // Verify Merkle root matches our local ledger state
-        let local_merkle = self.merkle_root_for_range(cp.ledger_first_seq, cp.ledger_last_seq).await;
-        let stored_merkle = hex::decode(&cp.merkle_root)
-            .map_err(|e| format!("Invalid merkle_root hex: {e}"))?;
+        let local_merkle = self
+            .merkle_root_for_range(cp.ledger_first_seq, cp.ledger_last_seq)
+            .await;
+        let stored_merkle =
+            hex::decode(&cp.merkle_root).map_err(|e| format!("Invalid merkle_root hex: {e}"))?;
         if local_merkle.as_slice() != stored_merkle.as_slice() {
             return Err(format!(
                 "Checkpoint Merkle root mismatch: local={:x?}, checkpoint={:x?}",
@@ -1476,7 +1517,10 @@ impl LedgerApplier {
         // Verify ledger range is consistent: the local ledger must contain at
         // least up to ledger_last_seq, and entry_count must match (last - first + 1).
         let local_len = self.ledger.len().await as u64;
-        let expected_count = cp.ledger_last_seq.saturating_sub(cp.ledger_first_seq).saturating_add(1);
+        let expected_count = cp
+            .ledger_last_seq
+            .saturating_sub(cp.ledger_first_seq)
+            .saturating_add(1);
         if local_len < cp.ledger_last_seq + 1 {
             return Err(format!(
                 "Checkpoint ledger range out of bounds: local_len={}, checkpoint_last_seq={}",
@@ -1499,7 +1543,8 @@ impl LedgerApplier {
 
         // Persist to checkpoints file
         if let Some(ref writer) = self.checkpoint_writer {
-            writer.append(&committed)
+            writer
+                .append(&committed)
                 .map_err(|e| format!("Checkpoint persistence failed: {e}"))?;
         }
 
@@ -1605,21 +1650,27 @@ impl LedgerApplier {
         let signer_fp = hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key));
         cp.signer_pub_fingerprint = signer_fp;
 
-        let canonical = cp.canonical_hash()
+        let canonical = cp
+            .canonical_hash()
             .map_err(|e| format!("Checkpoint canonical hash failed: {e}"))?;
-        let sig_bytes = self.identity.sign_payload(&canonical)
+        let sig_bytes = self
+            .identity
+            .sign_payload(&canonical)
             .map_err(|e| format!("ML-DSA-87 signing failed: {e}"))?;
 
         cp.signature = hex::encode(&sig_bytes);
 
         // Serialize and submit as Raft log entry
-        let data = serde_json::to_vec(&cp)
-            .map_err(|e| format!("Checkpoint serialization failed: {e}"))?;
+        let data =
+            serde_json::to_vec(&cp).map_err(|e| format!("Checkpoint serialization failed: {e}"))?;
 
-        let request_id = format!("checkpoint-{}", cp.checkpoint_hash()
-            .map_err(|e| format!("Checkpoint hash computation failed: {e}"))
-            .map(|h| hex::encode(h))
-            .unwrap_or_else(|_| "unknown".to_string()));
+        let request_id = format!(
+            "checkpoint-{}",
+            cp.checkpoint_hash()
+                .map_err(|e| format!("Checkpoint hash computation failed: {e}"))
+                .map(|h| hex::encode(h))
+                .unwrap_or_else(|_| "unknown".to_string())
+        );
 
         let log_entry = LogEntry {
             term: raft_term,

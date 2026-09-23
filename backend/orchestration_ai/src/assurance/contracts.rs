@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::types::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SecurityIntent {
@@ -22,19 +22,19 @@ pub struct SecurityIR {
     pub schema_version: u16,
     pub tenant_scope: TenantId,
     pub assumed_system_state_hash: StateHash,
-    
+
     // Intent & Action
     pub intent: SecurityIntent,
     pub target_component: ComponentId,
     pub action_primitive: ActionId,
     pub parameters: PrimitiveParameters,
-    
+
     // Guardrails
     pub constraints: Vec<ExecutionConstraint>,
     pub expected_effect: EffectDescriptor,
     pub reversibility: ReversibilityModel,
     pub blast_radius: BlastRadiusDescriptor,
-    
+
     // Traceability
     pub provenance: ProvenanceTrail,
     pub integrity_signature: Signature,

@@ -3,10 +3,10 @@
 //! Enforces that no secrets, plaintext passwords, session tokens, or private keys
 //! are ever recorded in the audit ledger.
 
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use rand::{rngs::OsRng, RngCore};
 use serde_json::json;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_ms() -> u128 {
     SystemTime::now()

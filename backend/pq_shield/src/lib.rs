@@ -19,7 +19,9 @@ use crate::prometheus_metrics::PrometheusMetrics;
 use crate::telemetry::{InternalMsg, TelemetryEngine};
 use audit_ledger::LedgerWriter;
 use core_crypto::QuantumNodeIdentity;
-use ha_cluster::{drain::ActiveSessionCounter, ClusterMembership, NodeId, NodeState, RaftNode, RaftRole};
+use ha_cluster::{
+    drain::ActiveSessionCounter, ClusterMembership, NodeId, NodeState, RaftNode, RaftRole,
+};
 use proxy_engine::run_responder;
 use proxy_engine::transport::AeadTransport;
 
@@ -192,13 +194,17 @@ impl IngressShield {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        let cred_store = match auth_service::store::CredentialStore::open_or_bootstrap(&auth_db_path) {
-            Ok(store) => Arc::new(store),
-            Err(e) => {
-                tracing::warn!("Auth credential store bootstrap notice: {e}");
-                Arc::new(auth_service::store::CredentialStore::open(&auth_db_path).expect("failed to open auth store"))
-            }
-        };
+        let cred_store =
+            match auth_service::store::CredentialStore::open_or_bootstrap(&auth_db_path) {
+                Ok(store) => Arc::new(store),
+                Err(e) => {
+                    tracing::warn!("Auth credential store bootstrap notice: {e}");
+                    Arc::new(
+                        auth_service::store::CredentialStore::open(&auth_db_path)
+                            .expect("failed to open auth store"),
+                    )
+                }
+            };
 
         let auth_state = auth_service::AuthState {
             credentials: cred_store,
@@ -274,11 +280,14 @@ impl IngressShield {
                     let known_leader = if let Some(ref cluster) = self.cluster {
                         let nodes = cluster.all_nodes().await;
                         if let Some(ref self_id) = self.self_node_id {
-                            nodes.iter()
+                            nodes
+                                .iter()
                                 .find(|n| n.node_id != *self_id)
                                 .map(|n| n.node_id.as_str().to_string())
                         } else {
-                            nodes.iter().find(|n| n.state == NodeState::Healthy)
+                            nodes
+                                .iter()
+                                .find(|n| n.state == NodeState::Healthy)
                                 .map(|n| n.node_id.as_str().to_string())
                         }
                     } else {
@@ -298,8 +307,10 @@ impl IngressShield {
                         "{{\"error\":\"not_leader\",\"role\":\"{}\",\"leader_id\":{}}}\n",
                         role_str, leader_json
                     );
-                    let _ = client_stream.write_all(format!(
-                        "HTTP/1.1 503 Service Unavailable\r\n\
+                    let _ = client_stream
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 503 Service Unavailable\r\n\
                          X-Raft-Not-Leader: {}\r\n\
                          X-Raft-Leader-Id: {}\r\n\
                          Content-Type: application/json\r\n\
@@ -307,11 +318,14 @@ impl IngressShield {
                          Connection: close\r\n\
                          \r\n\
                          {}",
-                        role_str,
-                        known_leader.as_deref().unwrap_or("unknown"),
-                        body.len(),
-                        body
-                    ).as_bytes()).await;
+                                role_str,
+                                known_leader.as_deref().unwrap_or("unknown"),
+                                body.len(),
+                                body
+                            )
+                            .as_bytes(),
+                        )
+                        .await;
                     let _ = client_stream.shutdown().await;
                     continue;
                 }
@@ -436,7 +450,8 @@ impl IngressShield {
                         let leader_hint = if let Some(ref cluster) = cluster_for_leader_hint {
                             let nodes = cluster.all_nodes().await;
                             let self_id = self_node_id_clone.as_ref().map(|n| n.clone());
-                            nodes.iter()
+                            nodes
+                                .iter()
                                 .find(|n| Some(&n.node_id) != self_id.as_ref())
                                 .map(|n| n.node_id.as_str().to_string())
                         } else {
@@ -450,8 +465,10 @@ impl IngressShield {
                             Some(l) => format!("\"{}\"", l),
                             None => "null".to_string(),
                         };
-                        let _ = client_stream.write_all(format!(
-                            "HTTP/1.1 503 Service Unavailable\r\n\
+                        let _ = client_stream
+                            .write_all(
+                                format!(
+                                    "HTTP/1.1 503 Service Unavailable\r\n\
                              X-Raft-Not-Leader: {}\r\n\
                              X-Raft-Leader-Id: {}\r\n\
                              Content-Type: application/json\r\n\
@@ -459,11 +476,14 @@ impl IngressShield {
                              Connection: close\r\n\
                              \r\n\
                              {}",
-                            role_as_str(role),
-                            leader_hint.as_deref().unwrap_or("unknown"),
-                            body.len(),
-                            body
-                        ).as_bytes()).await;
+                                    role_as_str(role),
+                                    leader_hint.as_deref().unwrap_or("unknown"),
+                                    body.len(),
+                                    body
+                                )
+                                .as_bytes(),
+                            )
+                            .await;
                         let _ = client_stream.shutdown().await;
                         let _ = tx.try_send(InternalMsg::FrameRejected);
                         return;

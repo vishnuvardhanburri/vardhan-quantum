@@ -69,7 +69,7 @@ pub async fn require_session(
     req.extensions_mut().insert(AuthenticatedUser { username });
 
     let mut response = next.run(req).await;
-    
+
     // Add the new rotated token to the response header
     response.headers_mut().insert(
         header::HeaderName::from_static("authorization-new-token"),

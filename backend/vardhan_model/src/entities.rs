@@ -136,14 +136,26 @@ pub struct Tenant {
     pub active: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 impl Entity for Tenant {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::Tenant }
-    fn tenant_id(&self) -> Option<&str> { None } // tenants are top-level
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::Tenant
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        None
+    } // tenants are top-level
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 impl Tenant {
@@ -180,11 +192,21 @@ pub struct Organization {
 }
 
 impl Entity for Organization {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::Organization }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::Organization
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── Business Unit ───────────────────────────────────────────────────────────
@@ -199,11 +221,21 @@ pub struct BusinessUnit {
 }
 
 impl Entity for BusinessUnit {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::BusinessUnit }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::BusinessUnit
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── Application ─────────────────────────────────────────────────────────────
@@ -222,11 +254,21 @@ pub struct Application {
 }
 
 impl Entity for Application {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::Application }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::Application
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── Service ─────────────────────────────────────────────────────────────────
@@ -245,11 +287,21 @@ pub struct Service {
 }
 
 impl Entity for Service {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::Service }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::Service
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── Asset ───────────────────────────────────────────────────────────────────
@@ -268,11 +320,21 @@ pub struct Asset {
 }
 
 impl Entity for Asset {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::Asset }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::Asset
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── Node ────────────────────────────────────────────────────────────────────
@@ -293,11 +355,21 @@ pub struct Node {
 }
 
 impl Entity for Node {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::Node }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::Node
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── Container ───────────────────────────────────────────────────────────────
@@ -316,11 +388,21 @@ pub struct Container {
 }
 
 impl Entity for Container {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::Container }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::Container
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── Identity ────────────────────────────────────────────────────────────────
@@ -344,23 +426,31 @@ pub struct Identity {
     pub can_admin: bool,
 }
 
-fn default_false() -> bool { false }
+fn default_false() -> bool {
+    false
+}
 
 impl Entity for Identity {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::Identity }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::Identity
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 impl Identity {
     /// Create an identity. AI agents NEVER get admin by default.
-    pub fn new(
-        id: impl Into<String>,
-        name: impl Into<String>,
-        kind: impl Into<String>,
-    ) -> Self {
+    pub fn new(id: impl Into<String>, name: impl Into<String>, kind: impl Into<String>) -> Self {
         let kind_str = kind.into();
         // AI agents must never receive unrestricted administrator access
         let can_admin = kind_str != "ai_agent" && kind_str != "ai-agent";
@@ -399,11 +489,21 @@ pub struct CryptoAsset {
 }
 
 impl Entity for CryptoAsset {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::CryptoAsset }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::CryptoAsset
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── BusinessProcess ─────────────────────────────────────────────────────────
@@ -422,11 +522,21 @@ pub struct BusinessProcess {
 }
 
 impl Entity for BusinessProcess {
-    fn entity_id(&self) -> &EntityId { &self.entity_id }
-    fn entity_type(&self) -> EntityType { EntityType::BusinessProcess }
-    fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-    fn name(&self) -> &str { &self.name }
-    fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+    fn entity_id(&self) -> &EntityId {
+        &self.entity_id
+    }
+    fn entity_type(&self) -> EntityType {
+        EntityType::BusinessProcess
+    }
+    fn tenant_id(&self) -> Option<&str> {
+        self.tenant_id.as_deref()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
 }
 
 // ── Remaining entity types (lightweight, for graph completeness) ────────────
@@ -443,25 +553,67 @@ macro_rules! define_simple_entity {
             pub tags: BTreeMap<String, String>,
         }
         impl Entity for $name {
-            fn entity_id(&self) -> &EntityId { &self.entity_id }
-            fn entity_type(&self) -> EntityType { $et }
-            fn tenant_id(&self) -> Option<&str> { self.tenant_id.as_deref() }
-            fn name(&self) -> &str { &self.name }
-            fn tags(&self) -> &BTreeMap<String, String> { &self.tags }
+            fn entity_id(&self) -> &EntityId {
+                &self.entity_id
+            }
+            fn entity_type(&self) -> EntityType {
+                $et
+            }
+            fn tenant_id(&self) -> Option<&str> {
+                self.tenant_id.as_deref()
+            }
+            fn name(&self) -> &str {
+                &self.name
+            }
+            fn tags(&self) -> &BTreeMap<String, String> {
+                &self.tags
+            }
         }
     };
 }
 
-define_simple_entity!(CryptoKey, EntityType::CryptoKey, "A cryptographic key (e.g., ML-DSA-87 private key).");
-define_simple_entity!(Certificate, EntityType::Certificate, "A cryptographic certificate.");
-define_simple_entity!(Transaction, EntityType::Transaction, "A business transaction (e.g., payment, request).");
-define_simple_entity!(Risk, EntityType::Risk, "A quantified risk to the enterprise.");
-define_simple_entity!(Control, EntityType::Control, "A security or operational control.");
+define_simple_entity!(
+    CryptoKey,
+    EntityType::CryptoKey,
+    "A cryptographic key (e.g., ML-DSA-87 private key)."
+);
+define_simple_entity!(
+    Certificate,
+    EntityType::Certificate,
+    "A cryptographic certificate."
+);
+define_simple_entity!(
+    Transaction,
+    EntityType::Transaction,
+    "A business transaction (e.g., payment, request)."
+);
+define_simple_entity!(
+    Risk,
+    EntityType::Risk,
+    "A quantified risk to the enterprise."
+);
+define_simple_entity!(
+    Control,
+    EntityType::Control,
+    "A security or operational control."
+);
 define_simple_entity!(Policy, EntityType::Policy, "A policy governing behavior.");
-define_simple_entity!(Decision, EntityType::Decision, "A decision made by the control plane.");
-define_simple_entity!(Action, EntityType::Action, "An action taken in response to a decision.");
+define_simple_entity!(
+    Decision,
+    EntityType::Decision,
+    "A decision made by the control plane."
+);
+define_simple_entity!(
+    Action,
+    EntityType::Action,
+    "An action taken in response to a decision."
+);
 define_simple_entity!(Outcome, EntityType::Outcome, "The result of an action.");
-define_simple_entity!(Incident, EntityType::Incident, "A security or operational incident.");
+define_simple_entity!(
+    Incident,
+    EntityType::Incident,
+    "A security or operational incident."
+);
 define_simple_entity!(Event, EntityType::Event, "An event recorded in the system.");
 
 #[cfg(test)]
@@ -558,8 +710,7 @@ mod tests {
 
     #[test]
     fn test_serialization_roundtrip() {
-        let t = Tenant::new("tenant:test", "Test Tenant")
-            .with_crypto_context("ctx-1");
+        let t = Tenant::new("tenant:test", "Test Tenant").with_crypto_context("ctx-1");
         let json = serde_json::to_string(&t).unwrap();
         let back: Tenant = serde_json::from_str(&json).unwrap();
         assert_eq!(t, back);

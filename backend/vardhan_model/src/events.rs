@@ -223,13 +223,7 @@ impl VardhanEvent {
         event_type: EventType,
         severity: Severity,
     ) -> EventBuilder {
-        EventBuilder::new(
-            principal_id,
-            source,
-            action,
-            event_type,
-            severity,
-        )
+        EventBuilder::new(principal_id, source, action, event_type, severity)
     }
 
     /// Compute a deterministic BLAKE3 hash of the canonical event bytes.
@@ -243,20 +237,68 @@ impl VardhanEvent {
     fn canonical_bytes(&self) -> Vec<u8> {
         // We serialize a BTreeMap (sorted keys) to ensure deterministic output.
         let mut map: BTreeMap<String, serde_json::Value> = BTreeMap::new();
-        map.insert("schema_version".to_string(), serde_json::json!(self.schema_version));
-        map.insert("timestamp_ms".to_string(), serde_json::json!(self.timestamp_ms));
-        map.insert("tenant_id".to_string(), self.tenant_id.clone().map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
-        map.insert("principal_id".to_string(), serde_json::json!(self.principal_id));
-        map.insert("asset_id".to_string(), self.asset_id.clone().map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
-        map.insert("event_type".to_string(), serde_json::to_value(&self.event_type).unwrap());
+        map.insert(
+            "schema_version".to_string(),
+            serde_json::json!(self.schema_version),
+        );
+        map.insert(
+            "timestamp_ms".to_string(),
+            serde_json::json!(self.timestamp_ms),
+        );
+        map.insert(
+            "tenant_id".to_string(),
+            self.tenant_id
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        map.insert(
+            "principal_id".to_string(),
+            serde_json::json!(self.principal_id),
+        );
+        map.insert(
+            "asset_id".to_string(),
+            self.asset_id
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        map.insert(
+            "event_type".to_string(),
+            serde_json::to_value(&self.event_type).unwrap(),
+        );
         map.insert("source".to_string(), serde_json::json!(self.source));
         map.insert("action".to_string(), serde_json::json!(self.action));
-        map.insert("state_before".to_string(), self.state_before.clone().unwrap_or(serde_json::Value::Null));
-        map.insert("state_after".to_string(), self.state_after.clone().unwrap_or(serde_json::Value::Null));
-        map.insert("severity".to_string(), serde_json::to_value(&self.severity).unwrap());
-        map.insert("confidence".to_string(), serde_json::to_value(&self.confidence).unwrap());
-        map.insert("correlation_id".to_string(), self.correlation_id.clone().map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
-        map.insert("evidence_ref".to_string(), self.evidence_ref.clone().map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
+        map.insert(
+            "state_before".to_string(),
+            self.state_before.clone().unwrap_or(serde_json::Value::Null),
+        );
+        map.insert(
+            "state_after".to_string(),
+            self.state_after.clone().unwrap_or(serde_json::Value::Null),
+        );
+        map.insert(
+            "severity".to_string(),
+            serde_json::to_value(&self.severity).unwrap(),
+        );
+        map.insert(
+            "confidence".to_string(),
+            serde_json::to_value(&self.confidence).unwrap(),
+        );
+        map.insert(
+            "correlation_id".to_string(),
+            self.correlation_id
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        map.insert(
+            "evidence_ref".to_string(),
+            self.evidence_ref
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+        );
 
         serde_json::to_vec(&map).unwrap_or_default()
     }
@@ -449,7 +491,7 @@ mod tests {
         let event = VardhanEvent::build(
             "svc-1",
             "my_service",
-            "custom_unknown_action",  // not in EVENT_ACTIONS
+            "custom_unknown_action", // not in EVENT_ACTIONS
             EventType::Application,
             Severity::Low,
         )
@@ -478,8 +520,22 @@ mod tests {
 
     #[test]
     fn test_event_canonical_hash_differs_for_different_actions() {
-        let e1 = VardhanEvent::build("svc", EMITTER_HA_CLUSTER, "raft_election_won", EventType::System, Severity::Info).build();
-        let e2 = VardhanEvent::build("svc", EMITTER_HA_CLUSTER, "raft_election_lost", EventType::System, Severity::Info).build();
+        let e1 = VardhanEvent::build(
+            "svc",
+            EMITTER_HA_CLUSTER,
+            "raft_election_won",
+            EventType::System,
+            Severity::Info,
+        )
+        .build();
+        let e2 = VardhanEvent::build(
+            "svc",
+            EMITTER_HA_CLUSTER,
+            "raft_election_lost",
+            EventType::System,
+            Severity::Info,
+        )
+        .build();
         assert_ne!(e1.canonical_hash(), e2.canonical_hash());
     }
 
@@ -523,9 +579,16 @@ mod tests {
 
     #[test]
     fn test_all_event_types_serializable() {
-        for et in [EventType::Security, EventType::Infrastructure, EventType::Identity,
-                    EventType::Cryptography, EventType::Audit, EventType::Application,
-                    EventType::Business, EventType::System] {
+        for et in [
+            EventType::Security,
+            EventType::Infrastructure,
+            EventType::Identity,
+            EventType::Cryptography,
+            EventType::Audit,
+            EventType::Application,
+            EventType::Business,
+            EventType::System,
+        ] {
             let json = serde_json::to_string(&et).unwrap();
             let back: EventType = serde_json::from_str(&json).unwrap();
             assert_eq!(et, back);

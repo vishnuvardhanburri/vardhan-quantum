@@ -26,7 +26,8 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 
 pub trait ExecutionValidator: Send + Sync {
-    fn validate_execution(&self, action_id: &str, authorization_id: &str) -> Result<String, String>;
+    fn validate_execution(&self, action_id: &str, authorization_id: &str)
+        -> Result<String, String>;
 }
 
 #[derive(Clone)]
@@ -69,7 +70,8 @@ async fn auth_middleware(
     }
 
     // Extract Bearer token from Authorization header or ?token= query param (SSE)
-    let token_header = req.headers()
+    let token_header = req
+        .headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
@@ -100,21 +102,31 @@ async fn auth_middleware(
     // 1. Check active session in SessionStore (validated & sliding activity updated)
     let session_tok = auth_service::session::SessionToken::from_str(&token_str);
     if let Some(username) = state.auth_state.sessions.validate(&session_tok).await {
-        let role = state.auth_state.credentials.get_profile(&username)
+        let role = state
+            .auth_state
+            .credentials
+            .get_profile(&username)
             .map(|p| auth_service::authorization::Role::from_str(&p.role))
             .unwrap_or(auth_service::authorization::Role::Admin);
         let mut req = req;
-        req.extensions_mut().insert(auth_service::authorization::AuthenticatedUser { username, role });
+        req.extensions_mut()
+            .insert(auth_service::authorization::AuthenticatedUser { username, role });
         return Ok(next.run(req).await);
     }
 
     // 2. Fallback: constant-time check against bootstrap admin token
-    if !state.admin_token.is_empty() && token_str.as_bytes().ct_eq(state.admin_token.as_bytes()).into() {
+    if !state.admin_token.is_empty()
+        && token_str
+            .as_bytes()
+            .ct_eq(state.admin_token.as_bytes())
+            .into()
+    {
         let mut req = req;
-        req.extensions_mut().insert(auth_service::authorization::AuthenticatedUser {
-            username: "bootstrap-admin".to_string(),
-            role: auth_service::authorization::Role::Admin,
-        });
+        req.extensions_mut()
+            .insert(auth_service::authorization::AuthenticatedUser {
+                username: "bootstrap-admin".to_string(),
+                role: auth_service::authorization::Role::Admin,
+            });
         return Ok(next.run(req).await);
     }
 
@@ -122,10 +134,11 @@ async fn auth_middleware(
     if token_str.starts_with("vq_live_") {
         if let Ok(Some(key_view)) = state.auth_state.credentials.verify_api_key(&token_str) {
             let mut req = req;
-            req.extensions_mut().insert(auth_service::authorization::AuthenticatedUser {
-                username: key_view.created_by,
-                role: auth_service::authorization::Role::Admin,
-            });
+            req.extensions_mut()
+                .insert(auth_service::authorization::AuthenticatedUser {
+                    username: key_view.created_by,
+                    role: auth_service::authorization::Role::Admin,
+                });
             return Ok(next.run(req).await);
         }
     }
@@ -188,7 +201,10 @@ pub fn build_admin_router(state: AdminState) -> Router {
         // P2: ledger endpoints
         .route("/api/v1/ledger/status", get(ledger_status))
         .route("/api/v1/ledger/export", get(ledger_export))
-        .route("/api/v1/ledger/verify", get(ledger_verify).post(ledger_verify))
+        .route(
+            "/api/v1/ledger/verify",
+            get(ledger_verify).post(ledger_verify),
+        )
         // P3.4: cluster endpoints
         .route("/api/v1/cluster/peers", get(cluster_peers))
         .route("/api/v1/cluster/status", get(cluster_status))
@@ -201,16 +217,28 @@ pub fn build_admin_router(state: AdminState) -> Router {
             get(cluster_peers_in_region),
         )
         // Priority 2: Admin profile & password endpoints
-        .route("/api/v1/admin/profile", get(admin_get_profile).put(admin_update_profile))
+        .route(
+            "/api/v1/admin/profile",
+            get(admin_get_profile).put(admin_update_profile),
+        )
         .route("/api/v1/admin/password", post(admin_change_password))
         // Priority 3: Settings endpoints
-        .route("/api/v1/settings", get(admin_get_settings).put(admin_update_settings))
+        .route(
+            "/api/v1/settings",
+            get(admin_get_settings).put(admin_update_settings),
+        )
         // Priority 4.1 & 4.6: Session management endpoints
         .route("/api/v1/sessions", get(admin_list_sessions))
-        .route("/api/v1/sessions/{session_id}/revoke", post(admin_revoke_session))
+        .route(
+            "/api/v1/sessions/{session_id}/revoke",
+            post(admin_revoke_session),
+        )
         .route("/api/v1/sessions/flush", post(admin_flush_sessions))
         // Priority 4.2: API key endpoints
-        .route("/api/v1/admin/api-keys", get(admin_list_api_keys).post(admin_create_api_key))
+        .route(
+            "/api/v1/admin/api-keys",
+            get(admin_list_api_keys).post(admin_create_api_key),
+        )
         .route("/api/v1/admin/api-keys/{id}", delete(admin_revoke_api_key))
         // Priority 4.5: Emergency Reboot
         .route("/api/v1/cluster/reboot", post(cluster_reboot))
@@ -349,11 +377,31 @@ struct CryptoStatus {
 
 async fn crypto_status() -> impl IntoResponse {
     let payload = vec![
-        CryptoStatus { algorithm: "ML-KEM-1024".into(), state: "Active".into(), detail: "FIPS 203 - Quantum Safe Encapsulation".into() },
-        CryptoStatus { algorithm: "ML-DSA-87".into(), state: "Active".into(), detail: "FIPS 204 - Quantum Safe Signatures".into() },
-        CryptoStatus { algorithm: "AES-256-GCM".into(), state: "Active".into(), detail: "Authenticated Encryption".into() },
-        CryptoStatus { algorithm: "HKDF-SHA256".into(), state: "Active".into(), detail: "Session Key Derivation".into() },
-        CryptoStatus { algorithm: "BLAKE3".into(), state: "Active".into(), detail: "Fast Integrity Hashing".into() },
+        CryptoStatus {
+            algorithm: "ML-KEM-1024".into(),
+            state: "Active".into(),
+            detail: "FIPS 203 - Quantum Safe Encapsulation".into(),
+        },
+        CryptoStatus {
+            algorithm: "ML-DSA-87".into(),
+            state: "Active".into(),
+            detail: "FIPS 204 - Quantum Safe Signatures".into(),
+        },
+        CryptoStatus {
+            algorithm: "AES-256-GCM".into(),
+            state: "Active".into(),
+            detail: "Authenticated Encryption".into(),
+        },
+        CryptoStatus {
+            algorithm: "HKDF-SHA256".into(),
+            state: "Active".into(),
+            detail: "Session Key Derivation".into(),
+        },
+        CryptoStatus {
+            algorithm: "BLAKE3".into(),
+            state: "Active".into(),
+            detail: "Fast Integrity Hashing".into(),
+        },
     ];
     axum::Json(payload)
 }
@@ -416,7 +464,8 @@ async fn ledger_verify(State(state): State<AdminState>) -> impl IntoResponse {
                 "root_hash": "0".repeat(64),
                 "error": "Durable ledger not configured. Set VARDHAN_LEDGER_PATH and restart."
             })),
-        ).into_response();
+        )
+            .into_response();
     };
 
     let content = match std::fs::read_to_string(ledger_path) {
@@ -430,7 +479,8 @@ async fn ledger_verify(State(state): State<AdminState>) -> impl IntoResponse {
                     "root_hash": "0".repeat(64),
                     "error": format!("Cannot read ledger: {e}")
                 })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -448,7 +498,10 @@ async fn ledger_verify(State(state): State<AdminState>) -> impl IntoResponse {
 
         let entry: LedgerEntry = match serde_json::from_str(line) {
             Ok(e) => e,
-            Err(_) => { chain_valid = false; continue; }
+            Err(_) => {
+                chain_valid = false;
+                continue;
+            }
         };
 
         blocks_verified += 1;
@@ -468,7 +521,7 @@ async fn ledger_verify(State(state): State<AdminState>) -> impl IntoResponse {
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&b);
                 arr
-            },
+            }
             _ => [0u8; 32],
         };
         let canonical = audit_ledger::canonical_hash(
@@ -489,7 +542,8 @@ async fn ledger_verify(State(state): State<AdminState>) -> impl IntoResponse {
             "root_hash": hex::encode(tip_hash),
             "signer_pub_fingerprint": signer_fp,
         })),
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ── P2: Evidence export endpoint ────────────────────────────────────────────
@@ -810,15 +864,21 @@ async fn cluster_status(State(state): State<AdminState>) -> impl IntoResponse {
     match &state.cluster {
         Some(cluster) => {
             let nodes = cluster.all_nodes().await;
-            let healthy: Vec<_> = nodes.iter()
+            let healthy: Vec<_> = nodes
+                .iter()
                 .filter(|n| n.state == ha_cluster::NodeState::Healthy)
-                .cloned().collect();
-            let draining: Vec<_> = nodes.iter()
+                .cloned()
+                .collect();
+            let draining: Vec<_> = nodes
+                .iter()
                 .filter(|n| n.state == ha_cluster::NodeState::Draining)
-                .cloned().collect();
-            let dead: Vec<_> = nodes.iter()
+                .cloned()
+                .collect();
+            let dead: Vec<_> = nodes
+                .iter()
                 .filter(|n| n.state == ha_cluster::NodeState::Dead)
-                .cloned().collect();
+                .cloned()
+                .collect();
             let leader = ha_cluster::election::compute_leader(cluster).await;
 
             (
@@ -907,7 +967,12 @@ async fn cluster_drain(
 ) -> impl IntoResponse {
     let caller = match auth_service::extract_authenticated_user(&state.auth_state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let req_id = auth_service::extract_request_id(&headers);
@@ -925,9 +990,12 @@ async fn cluster_drain(
             req_id.as_deref(),
             serde_json::json!({ "operation": "ClusterDrain" }),
         );
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
-            "error": "Forbidden: Operator or Admin privilege required to drain cluster node"
-        })));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Forbidden: Operator or Admin privilege required to drain cluster node"
+            })),
+        );
     }
 
     match (&state.cluster, &state.self_node_id) {
@@ -1030,7 +1098,12 @@ async fn cluster_reboot(
 ) -> impl IntoResponse {
     let caller = match auth_service::extract_authenticated_user(&state.auth_state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let req_id = auth_service::extract_request_id(&headers);
@@ -1048,22 +1121,34 @@ async fn cluster_reboot(
             req_id.as_deref(),
             serde_json::json!({ "operation": "ClusterReboot" }),
         );
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
-            "error": "Forbidden: Admin privilege required for emergency reboot"
-        })));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Forbidden: Admin privilege required for emergency reboot"
+            })),
+        );
     }
 
     // 2. Confirmation check
     let is_confirmed = body.as_ref().map(|b| b.confirm).unwrap_or(false)
-        || headers.get("x-confirm").and_then(|h| h.to_str().ok()).map(|v| v.eq_ignore_ascii_case("reboot") || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+        || headers
+            .get("x-confirm")
+            .and_then(|h| h.to_str().ok())
+            .map(|v| v.eq_ignore_ascii_case("reboot") || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
 
     if !is_confirmed {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": "Emergency reboot requires explicit confirmation ({ 'confirm': true } or X-Confirm: reboot)"
-        })));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Emergency reboot requires explicit confirmation ({ 'confirm': true } or X-Confirm: reboot)"
+            })),
+        );
     }
 
-    let reason = body.and_then(|b| b.reason.clone()).unwrap_or_else(|| "Operator initiated".to_string());
+    let reason = body
+        .and_then(|b| b.reason.clone())
+        .unwrap_or_else(|| "Operator initiated".to_string());
 
     // 3. Audit before operation
     auth_service::emit_admin_audit(
@@ -1104,7 +1189,9 @@ mod tests {
     async fn spawn_test_admin() -> (String, AdminState, tempfile::TempDir) {
         struct MockValidator;
         impl super::ExecutionValidator for MockValidator {
-            fn validate_execution(&self, _a: &str, _b: &str) -> Result<String, String> { Ok("ok".into()) }
+            fn validate_execution(&self, _a: &str, _b: &str) -> Result<String, String> {
+                Ok("ok".into())
+            }
         }
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("auth_db");
@@ -1117,11 +1204,14 @@ mod tests {
         let (tx, _rx) = broadcast::channel(16);
 
         let ledger_path = dir.path().join("test_ledger.jsonl");
-        let ledger_writer = Arc::new(audit_ledger::LedgerWriter::open(&ledger_path, &identity).unwrap());
+        let ledger_writer =
+            Arc::new(audit_ledger::LedgerWriter::open(&ledger_path, &identity).unwrap());
 
         let cluster = Arc::new(ClusterMembership::new());
         let self_id = NodeId::new("test-node-1");
-        cluster.register_self(self_id.clone(), "127.0.0.1:8080".parse().unwrap(), 8081).await;
+        cluster
+            .register_self(self_id.clone(), "127.0.0.1:8080".parse().unwrap(), 8081)
+            .await;
 
         let auth_state = auth_service::AuthState {
             credentials: Arc::new(cred_store),
@@ -1179,36 +1269,52 @@ mod tests {
         let client = reqwest::Client::new();
 
         // 1. Unauthenticated request to metrics is rejected
-        let res = client.get(format!("{}/api/v1/metrics", base_url)).send().await.unwrap();
+        let res = client
+            .get(format!("{}/api/v1/metrics", base_url))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
 
         // 2. Login through /api/v1/auth/login
-        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let login_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "admin_pass_12345"
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(login_res.status(), reqwest::StatusCode::OK);
         let login_body: serde_json::Value = login_res.json().await.unwrap();
         let token = login_body["token"].as_str().unwrap();
 
         // 3. Authenticated request to /api/v1/metrics with session token succeeds
-        let metrics_res = client.get(format!("{}/api/v1/metrics", base_url))
+        let metrics_res = client
+            .get(format!("{}/api/v1/metrics", base_url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(metrics_res.status(), reqwest::StatusCode::OK);
 
         // 4. Logout revokes the session
-        let logout_res = client.post(format!("{}/api/v1/auth/logout", base_url))
+        let logout_res = client
+            .post(format!("{}/api/v1/auth/logout", base_url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(logout_res.status(), reqwest::StatusCode::OK);
 
         // 5. Subsequent request with revoked token is rejected
-        let post_logout = client.get(format!("{}/api/v1/metrics", base_url))
+        let post_logout = client
+            .get(format!("{}/api/v1/metrics", base_url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(post_logout.status(), reqwest::StatusCode::UNAUTHORIZED);
     }
 
@@ -1217,9 +1323,12 @@ mod tests {
         let (base_url, state, _dir) = spawn_test_admin().await;
         let client = reqwest::Client::new();
 
-        let res = client.get(format!("{}/api/v1/metrics", base_url))
+        let res = client
+            .get(format!("{}/api/v1/metrics", base_url))
             .header("Authorization", format!("Bearer {}", state.admin_token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(res.status(), reqwest::StatusCode::OK);
     }
 
@@ -1228,7 +1337,11 @@ mod tests {
         let (base_url, _state, _dir) = spawn_test_admin().await;
         let client = reqwest::Client::new();
 
-        let res = client.get(format!("{}/metrics", base_url)).send().await.unwrap();
+        let res = client
+            .get(format!("{}/metrics", base_url))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(res.status(), reqwest::StatusCode::OK);
     }
 
@@ -1238,64 +1351,85 @@ mod tests {
         let client = reqwest::Client::new();
 
         // 1. Login
-        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let login_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "admin_pass_12345"
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(login_res.status(), reqwest::StatusCode::OK);
-        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // 2. GET Profile
-        let prof_res = client.get(format!("{}/api/v1/admin/profile", base_url))
+        let prof_res = client
+            .get(format!("{}/api/v1/admin/profile", base_url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(prof_res.status(), reqwest::StatusCode::OK);
         let profile: serde_json::Value = prof_res.json().await.unwrap();
         assert_eq!(profile["username"], "admin");
         assert_eq!(profile["role"], "ciso_admin");
 
         // 3. PUT Profile update
-        let update_res = client.put(format!("{}/api/v1/admin/profile", base_url))
+        let update_res = client
+            .put(format!("{}/api/v1/admin/profile", base_url))
             .header("Authorization", format!("Bearer {}", token))
             .json(&serde_json::json!({
                 "display_name": "Lead Cryptographer",
                 "email": "lead@vardhan.quantum"
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(update_res.status(), reqwest::StatusCode::OK);
         let updated_profile: serde_json::Value = update_res.json().await.unwrap();
         assert_eq!(updated_profile["display_name"], "Lead Cryptographer");
         assert_eq!(updated_profile["email"], "lead@vardhan.quantum");
 
         // 4. Change Password
-        let change_pw_res = client.post(format!("{}/api/v1/admin/password", base_url))
+        let change_pw_res = client
+            .post(format!("{}/api/v1/admin/password", base_url))
             .header("Authorization", format!("Bearer {}", token))
             .json(&serde_json::json!({
                 "current_password": "admin_pass_12345",
                 "new_password": "quantum_pass_secure_987",
                 "confirm_password": "quantum_pass_secure_987"
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(change_pw_res.status(), reqwest::StatusCode::OK);
 
         // 5. Verify old password fails
-        let old_login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let old_login_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "admin_pass_12345"
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(old_login_res.status(), reqwest::StatusCode::UNAUTHORIZED);
 
         // 6. Verify new password succeeds
-        let new_login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let new_login_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "quantum_pass_secure_987"
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(new_login_res.status(), reqwest::StatusCode::OK);
     }
 
@@ -1305,25 +1439,41 @@ mod tests {
         let client = reqwest::Client::new();
 
         // Login
-        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let login_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "admin_pass_12345"
             }))
-            .send().await.unwrap();
-        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+            .send()
+            .await
+            .unwrap();
+        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // 1. GET Settings
-        let get_res = client.get(format!("{}/api/v1/settings", base_url))
+        let get_res = client
+            .get(format!("{}/api/v1/settings", base_url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(get_res.status(), reqwest::StatusCode::OK);
         let settings: serde_json::Value = get_res.json().await.unwrap();
-        assert_eq!(settings["cryptographic_identity"]["kem_algorithm"], "ML-KEM-1024");
-        assert_eq!(settings["cryptographic_identity"]["dsa_algorithm"], "ML-DSA-87");
+        assert_eq!(
+            settings["cryptographic_identity"]["kem_algorithm"],
+            "ML-KEM-1024"
+        );
+        assert_eq!(
+            settings["cryptographic_identity"]["dsa_algorithm"],
+            "ML-DSA-87"
+        );
 
         // 2. PUT valid settings update
-        let update_res = client.put(format!("{}/api/v1/settings", base_url))
+        let update_res = client
+            .put(format!("{}/api/v1/settings", base_url))
             .header("Authorization", format!("Bearer {}", token))
             .json(&serde_json::json!({
                 "user_settings": {
@@ -1334,7 +1484,9 @@ mod tests {
                     "log_level": "debug"
                 }
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(update_res.status(), reqwest::StatusCode::OK);
         let updated: serde_json::Value = update_res.json().await.unwrap();
         assert_eq!(updated["user_settings"]["theme"], "cyberpunk");
@@ -1342,14 +1494,17 @@ mod tests {
         assert_eq!(updated["system_settings"]["log_level"], "debug");
 
         // 3. PUT illegal modification of immutable cryptographic identity
-        let illegal_res = client.put(format!("{}/api/v1/settings", base_url))
+        let illegal_res = client
+            .put(format!("{}/api/v1/settings", base_url))
             .header("Authorization", format!("Bearer {}", token))
             .json(&serde_json::json!({
                 "cryptographic_identity": {
                     "kem_algorithm": "RSA2048"
                 }
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(illegal_res.status(), reqwest::StatusCode::BAD_REQUEST);
         let err_body: serde_json::Value = illegal_res.json().await.unwrap();
         assert!(err_body["error"].as_str().unwrap().contains("immutable"));
@@ -1361,31 +1516,50 @@ mod tests {
         let client = reqwest::Client::new();
 
         // 1. Unauthenticated /api/v1/sessions returns 401
-        let unauth = client.get(format!("{}/api/v1/sessions", base_url)).send().await.unwrap();
+        let unauth = client
+            .get(format!("{}/api/v1/sessions", base_url))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(unauth.status(), reqwest::StatusCode::UNAUTHORIZED);
 
         // 2. Login as admin (Session A)
-        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let login_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "admin_pass_12345"
             }))
-            .send().await.unwrap();
-        let token_a = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+            .send()
+            .await
+            .unwrap();
+        let token_a = login_res.json::<serde_json::Value>().await.unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // 3. Login again (Session B)
-        let login_b_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let login_b_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "admin_pass_12345"
             }))
-            .send().await.unwrap();
-        let token_b = login_b_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+            .send()
+            .await
+            .unwrap();
+        let token_b = login_b_res.json::<serde_json::Value>().await.unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // 4. GET /api/v1/sessions — returns 2 sessions with safe metadata
-        let list_res = client.get(format!("{}/api/v1/sessions", base_url))
+        let list_res = client
+            .get(format!("{}/api/v1/sessions", base_url))
             .header("Authorization", format!("Bearer {}", token_a))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(list_res.status(), reqwest::StatusCode::OK);
         let sessions: Vec<serde_json::Value> = list_res.json().await.unwrap();
         assert_eq!(sessions.len(), 2);
@@ -1400,45 +1574,63 @@ mod tests {
 
         // 5. Revoke Session B by safe session_id
         let sess_b_id = sessions[0]["session_id"].as_str().unwrap();
-        let revoke_res = client.post(format!("{}/api/v1/sessions/{}/revoke", base_url, sess_b_id))
+        let revoke_res = client
+            .post(format!("{}/api/v1/sessions/{}/revoke", base_url, sess_b_id))
             .header("Authorization", format!("Bearer {}", token_a))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(revoke_res.status(), reqwest::StatusCode::OK);
         let revoke_body: serde_json::Value = revoke_res.json().await.unwrap();
         assert_eq!(revoke_body["status"], "revoked");
 
         // Idempotent repeat revocation returns OK
-        let repeat_revoke = client.post(format!("{}/api/v1/sessions/{}/revoke", base_url, sess_b_id))
+        let repeat_revoke = client
+            .post(format!("{}/api/v1/sessions/{}/revoke", base_url, sess_b_id))
             .header("Authorization", format!("Bearer {}", token_a))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(repeat_revoke.status(), reqwest::StatusCode::OK);
 
         // 6. Test Flush Sessions without confirm -> 400
-        let unconf_flush = client.post(format!("{}/api/v1/sessions/flush", base_url))
+        let unconf_flush = client
+            .post(format!("{}/api/v1/sessions/flush", base_url))
             .header("Authorization", format!("Bearer {}", token_a))
             .json(&serde_json::json!({ "confirm": false }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(unconf_flush.status(), reqwest::StatusCode::BAD_REQUEST);
 
         // 7. Confirmed flush preserves caller Session A
-        let conf_flush = client.post(format!("{}/api/v1/sessions/flush", base_url))
+        let conf_flush = client
+            .post(format!("{}/api/v1/sessions/flush", base_url))
             .header("Authorization", format!("Bearer {}", token_a))
             .json(&serde_json::json!({ "confirm": true }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(conf_flush.status(), reqwest::StatusCode::OK);
         let flush_body: serde_json::Value = conf_flush.json().await.unwrap();
         assert_eq!(flush_body["status"], "flushed");
 
         // Session A is still valid
-        let test_a = client.get(format!("{}/api/v1/settings", base_url))
+        let test_a = client
+            .get(format!("{}/api/v1/settings", base_url))
             .header("Authorization", format!("Bearer {}", token_a))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(test_a.status(), reqwest::StatusCode::OK);
 
         // Session B was flushed and is unauthorized
-        let test_b = client.get(format!("{}/api/v1/settings", base_url))
+        let test_b = client
+            .get(format!("{}/api/v1/settings", base_url))
             .header("Authorization", format!("Bearer {}", token_b))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(test_b.status(), reqwest::StatusCode::UNAUTHORIZED);
     }
 
@@ -1448,22 +1640,31 @@ mod tests {
         let client = reqwest::Client::new();
 
         // Login as admin
-        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let login_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "admin_pass_12345"
             }))
-            .send().await.unwrap();
-        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+            .send()
+            .await
+            .unwrap();
+        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // 1. Create API key
-        let create_res = client.post(format!("{}/api/v1/admin/api-keys", base_url))
+        let create_res = client
+            .post(format!("{}/api/v1/admin/api-keys", base_url))
             .header("Authorization", format!("Bearer {}", token))
             .json(&serde_json::json!({
                 "name": "Integration-Bot",
                 "expires_in_days": 30
             }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(create_res.status(), reqwest::StatusCode::CREATED);
         let created_key: serde_json::Value = create_res.json().await.unwrap();
         let key_id = created_key["id"].as_str().unwrap().to_string();
@@ -1472,9 +1673,12 @@ mod tests {
         assert!(secret.starts_with("vq_live_"));
 
         // 2. GET API keys — secret MUST NOT appear in list
-        let list_res = client.get(format!("{}/api/v1/admin/api-keys", base_url))
+        let list_res = client
+            .get(format!("{}/api/v1/admin/api-keys", base_url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(list_res.status(), reqwest::StatusCode::OK);
         let keys: Vec<serde_json::Value> = list_res.json().await.unwrap();
         assert_eq!(keys.len(), 1);
@@ -1484,23 +1688,32 @@ mod tests {
         assert!(!keys[0]["revoked"].as_bool().unwrap());
 
         // 3. Authenticate with the API key secret — succeeds!
-        let api_key_res = client.get(format!("{}/api/v1/settings", base_url))
+        let api_key_res = client
+            .get(format!("{}/api/v1/settings", base_url))
             .header("Authorization", format!("Bearer {}", secret))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(api_key_res.status(), reqwest::StatusCode::OK);
 
         // 4. Revoke API key
-        let delete_res = client.delete(format!("{}/api/v1/admin/api-keys/{}", base_url, key_id))
+        let delete_res = client
+            .delete(format!("{}/api/v1/admin/api-keys/{}", base_url, key_id))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(delete_res.status(), reqwest::StatusCode::OK);
         let revoked_key: serde_json::Value = delete_res.json().await.unwrap();
         assert!(revoked_key["revoked"].as_bool().unwrap());
 
         // 5. Subsequent authentication with revoked API key is rejected (401)
-        let rejected_res = client.get(format!("{}/api/v1/settings", base_url))
+        let rejected_res = client
+            .get(format!("{}/api/v1/settings", base_url))
             .header("Authorization", format!("Bearer {}", secret))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(rejected_res.status(), reqwest::StatusCode::UNAUTHORIZED);
     }
 
@@ -1510,48 +1723,72 @@ mod tests {
         let client = reqwest::Client::new();
 
         // 1. Unauthenticated drain -> 401
-        let unauth_drain = client.post(format!("{}/api/v1/cluster/drain", base_url))
-            .send().await.unwrap();
+        let unauth_drain = client
+            .post(format!("{}/api/v1/cluster/drain", base_url))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(unauth_drain.status(), reqwest::StatusCode::UNAUTHORIZED);
 
         // Login as admin
-        let login_res = client.post(format!("{}/api/v1/auth/login", base_url))
+        let login_res = client
+            .post(format!("{}/api/v1/auth/login", base_url))
             .json(&serde_json::json!({
                 "username": "admin",
                 "password": "admin_pass_12345"
             }))
-            .send().await.unwrap();
-        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+            .send()
+            .await
+            .unwrap();
+        let token = login_res.json::<serde_json::Value>().await.unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // 2. First drain -> 200 OK
-        let drain_res = client.post(format!("{}/api/v1/cluster/drain", base_url))
+        let drain_res = client
+            .post(format!("{}/api/v1/cluster/drain", base_url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(drain_res.status(), reqwest::StatusCode::OK);
         let drain_body: serde_json::Value = drain_res.json().await.unwrap();
         assert_eq!(drain_body["status"], "draining");
 
         // 3. Repeated drain -> 409 CONFLICT ("already draining")
-        let repeat_drain = client.post(format!("{}/api/v1/cluster/drain", base_url))
+        let repeat_drain = client
+            .post(format!("{}/api/v1/cluster/drain", base_url))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(repeat_drain.status(), reqwest::StatusCode::CONFLICT);
 
         // 4. Reboot without confirm -> 400 Bad Request
-        let unconf_reboot = client.post(format!("{}/api/v1/cluster/reboot", base_url))
+        let unconf_reboot = client
+            .post(format!("{}/api/v1/cluster/reboot", base_url))
             .header("Authorization", format!("Bearer {}", token))
             .json(&serde_json::json!({ "confirm": false }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(unconf_reboot.status(), reqwest::StatusCode::BAD_REQUEST);
 
         // 5. Reboot with confirm -> 501 Not Implemented (honest response with guidance)
-        let conf_reboot = client.post(format!("{}/api/v1/cluster/reboot", base_url))
+        let conf_reboot = client
+            .post(format!("{}/api/v1/cluster/reboot", base_url))
             .header("Authorization", format!("Bearer {}", token))
             .json(&serde_json::json!({ "confirm": true, "reason": "Scheduled node maintenance" }))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(conf_reboot.status(), reqwest::StatusCode::NOT_IMPLEMENTED);
         let reboot_body: serde_json::Value = conf_reboot.json().await.unwrap();
-        assert!(reboot_body["orchestrator_guidance"].as_str().unwrap().contains("systemctl"));
+        assert!(reboot_body["orchestrator_guidance"]
+            .as_str()
+            .unwrap()
+            .contains("systemctl"));
 
         // 6. Verify audit ledger has durable entries
         let ledger_path = state.ledger_path.unwrap();

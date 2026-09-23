@@ -30,13 +30,13 @@ pub fn derive_session_context(
 
     let mut session_id = [0u8; 32];
     session_id.copy_from_slice(&okm[0..32]);
-    
+
     let mut c_to_s = [0u8; 32];
     c_to_s.copy_from_slice(&okm[32..64]);
-    
+
     let mut s_to_c = [0u8; 32];
     s_to_c.copy_from_slice(&okm[64..96]);
-    
+
     let mut session_salt = [0u8; 4];
     session_salt.copy_from_slice(&okm[96..100]);
 

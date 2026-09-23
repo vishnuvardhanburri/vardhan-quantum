@@ -241,9 +241,8 @@ impl QuantumNodeIdentity {
             old_pubkey_bytes: transition_payload.old_pubkey_bytes,
             new_pubkey_bytes: transition_payload.new_pubkey_bytes,
             transition_sig_bytes: old_sig.clone(),
-            transition_timestamp_ms: SystemTime::now()
-                .duration_since(UNIX_EPOCH)?
-                .as_millis() as u128,
+            transition_timestamp_ms: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis()
+                as u128,
         };
 
         // 3. Replace the signing key, zeroizing the old private key
@@ -398,15 +397,14 @@ impl QuantumNodeIdentity {
             .map_err(|_| CryptoError::Internal("Bad encap key slice length".to_string()))?;
         let ek_arr = ml_kem::Encoded::<<MlKem1024 as KemCore>::EncapsulationKey>::from(ek_fixed);
         let ek = <MlKem1024 as KemCore>::EncapsulationKey::from_bytes(&ek_arr);
-        let (ct, ss) = ek.encapsulate(&mut OsRng).map_err(|_| CryptoError::EncapsulationFailed)?;
+        let (ct, ss) = ek
+            .encapsulate(&mut OsRng)
+            .map_err(|_| CryptoError::EncapsulationFailed)?;
         Ok((ct.to_vec(), ss.to_vec()))
     }
 
     /// Decapsulate a shared secret from raw ciphertext bytes.
-    pub fn decapsulate_from_bytes(
-        &self,
-        ciphertext_bytes: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
+    pub fn decapsulate_from_bytes(&self, ciphertext_bytes: &[u8]) -> Result<Vec<u8>, CryptoError> {
         if ciphertext_bytes.len() != CIPHERTEXT_LEN {
             return Err(CryptoError::InvalidKeyLength {
                 expected: CIPHERTEXT_LEN,
@@ -430,7 +428,9 @@ impl QuantumNodeIdentity {
                 actual: self.kem_decap_key_bytes.len(),
             })?;
         let decap_key = <MlKem1024 as KemCore>::DecapsulationKey::from_bytes(&dk_arr);
-        let ss = decap_key.decapsulate(&ct).map_err(|_| CryptoError::DecapsulationFailed)?;
+        let ss = decap_key
+            .decapsulate(&ct)
+            .map_err(|_| CryptoError::DecapsulationFailed)?;
         Ok(ss.to_vec())
     }
 

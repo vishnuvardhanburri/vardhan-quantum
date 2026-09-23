@@ -43,9 +43,7 @@ impl Role {
             ),
             Role::User => matches!(
                 perm,
-                Permission::ReadDashboard
-                    | Permission::UpdateProfile
-                    | Permission::ChangePassword
+                Permission::ReadDashboard | Permission::UpdateProfile | Permission::ChangePassword
             ),
         }
     }

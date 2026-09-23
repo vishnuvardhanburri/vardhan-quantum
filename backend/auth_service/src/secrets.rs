@@ -44,7 +44,9 @@ impl SecretReader {
         // [F-C3 REMEDIATION]: VARDHAN_ADMIN_PASSWORD env var fallback removed.
         // Long-lived secrets must use file-based injection or KMS.
 
-        Err(SecretError::NotFound("No secure bootstrap password source configured (env vars disabled)".into()))
+        Err(SecretError::NotFound(
+            "No secure bootstrap password source configured (env vars disabled)".into(),
+        ))
     }
 
     /// Reads the admin username.

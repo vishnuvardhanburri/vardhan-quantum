@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use super::types::{ConfigurationHash, TenantId};
 use super::contracts::AssuranceStatus;
+use super::types::{ConfigurationHash, TenantId};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PolicyEvaluation {

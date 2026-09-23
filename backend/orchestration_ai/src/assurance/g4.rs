@@ -1,6 +1,6 @@
-use super::contracts::{SecurityIR, AssuranceStatus};
-use super::gates::G4PolicyEnforcement;
 use super::authorization::PolicyEvaluation;
+use super::contracts::{AssuranceStatus, SecurityIR};
+use super::gates::G4PolicyEnforcement;
 
 pub trait FormalPolicyVerifier {
     /// Connects to the underlying policy engine/SMT solver.
@@ -20,10 +20,10 @@ impl<V: FormalPolicyVerifier> G4PolicyEnforcement for G4EnforcementEngine<V> {
         match self.verifier.evaluate_policy(ir) {
             Ok(evaluation) => {
                 // Return the generated evaluation.
-                // Note: The Assembler will later inspect `evaluation.status` 
+                // Note: The Assembler will later inspect `evaluation.status`
                 // to determine if it is PASS, REJECT, or INDETERMINATE.
                 Ok(evaluation)
-            },
+            }
             Err(_) => {
                 // If the verifier is disconnected, missing, or errors out:
                 Err(AssuranceStatus::Indeterminate)

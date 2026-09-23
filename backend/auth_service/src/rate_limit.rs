@@ -35,7 +35,10 @@ struct Bucket {
 
 impl Bucket {
     fn new() -> Self {
-        Self { failures: 0, window_start: Instant::now() }
+        Self {
+            failures: 0,
+            window_start: Instant::now(),
+        }
     }
 
     /// True if the window has expired and the bucket should be reset.
@@ -52,7 +55,9 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new() -> Self {
-        Self { buckets: Arc::new(DashMap::new()) }
+        Self {
+            buckets: Arc::new(DashMap::new()),
+        }
     }
 
     /// Returns `true` if this IP is currently rate-limited (should be rejected).
@@ -94,7 +99,9 @@ impl RateLimiter {
 }
 
 impl Default for RateLimiter {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -102,7 +109,9 @@ mod tests {
     use super::*;
     use std::net::Ipv4Addr;
 
-    fn ip(n: u8) -> IpAddr { IpAddr::V4(Ipv4Addr::new(10, 0, 0, n)) }
+    fn ip(n: u8) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, n))
+    }
 
     #[test]
     fn test_not_blocked_initially() {
@@ -116,7 +125,11 @@ mod tests {
         for _ in 0..MAX_FAILURES {
             rl.record_failure(ip(2));
         }
-        assert!(rl.is_blocked(ip(2)), "should be blocked after {} failures", MAX_FAILURES);
+        assert!(
+            rl.is_blocked(ip(2)),
+            "should be blocked after {} failures",
+            MAX_FAILURES
+        );
     }
 
     #[test]

@@ -193,8 +193,9 @@ async fn spawn_test_node(
     peers: Vec<NodeId>,
     persist_path: &PathBuf,
     config: RaftConfig,
+    identity: std::sync::Arc<core_crypto::QuantumNodeIdentity>,
+    registry: ha_cluster::raft_listener::PeerRegistry,
 ) -> TestNode {
-    let identity = Arc::new(QuantumNodeIdentity::generate_node_identity().unwrap());
 
     let pm = Arc::new(RaftPeerManager::new(
         identity.clone(),
@@ -219,7 +220,7 @@ async fn spawn_test_node(
         identity.clone(),
     ));
 
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_with_registry(addr, identity.clone(), raft_node.clone(), registry.clone()).await.unwrap();
     membership.set_raft_port(id.clone(), bound_addr.port()).await;
     membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
     let lid = id.clone();
@@ -298,6 +299,7 @@ async fn spawn_cluster_with_config(
     membership.set_raft_port(node_c_id.clone(), addr_c.port()).await;
 
     let peers: Vec<NodeId> = vec![node_a_id.clone(), node_b_id.clone(), node_c_id.clone()];
+    let (identities, registry) = build_identities(&peers);
     let persist_a = PathBuf::from(format!("/tmp/raft_h31_{}_{}.json", run_id, node_a_id));
     let persist_b = PathBuf::from(format!("/tmp/raft_h31_{}_{}.json", run_id, node_b_id));
     let persist_c = PathBuf::from(format!("/tmp/raft_h31_{}_{}.json", run_id, node_c_id));
@@ -306,9 +308,9 @@ async fn spawn_cluster_with_config(
     }
 
     let mut nodes = vec![
-        spawn_test_node(node_a_id.clone(), addr_a, membership.clone(), peers.clone(), &persist_a, config.clone()).await,
-        spawn_test_node(node_b_id.clone(), addr_b, membership.clone(), peers.clone(), &persist_b, config.clone()).await,
-        spawn_test_node(node_c_id.clone(), addr_c, membership.clone(), peers.clone(), &persist_c, config).await,
+        spawn_test_node(node_a_id.clone(), addr_a, membership.clone(), peers.clone(), &persist_a, config.clone(), identities.get(&node_a_id.clone()).unwrap().clone(), registry.clone()).await,
+        spawn_test_node(node_b_id.clone(), addr_b, membership.clone(), peers.clone(), &persist_b, config.clone(), identities.get(&node_b_id.clone()).unwrap().clone(), registry.clone()).await,
+        spawn_test_node(node_c_id.clone(), addr_c, membership.clone(), peers.clone(), &persist_c, config, identities.get(&node_c_id.clone()).unwrap().clone(), registry.clone()).await,
     ];
 
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -388,7 +390,7 @@ async fn restart_node(
         identity.clone(),
     ));
 
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(new_addr, identity.clone(), raft_node.clone()).await.unwrap();
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_with_registry(new_addr, identity.clone(), raft_node.clone(), registry.clone()).await.unwrap();
 
     membership.set_raft_port(id.clone(), bound_addr.port()).await;
     membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
@@ -1526,4 +1528,17 @@ async fn run_bidirectional_partition_scenario(run_id: usize) -> Result<(), Strin
     abort_all(&mut nodes).await;
     let _ = membership;
     Ok(())
+}
+
+use std::collections::HashMap;
+fn build_identities(peers: &[ha_cluster::NodeId]) -> (HashMap<ha_cluster::NodeId, std::sync::Arc<core_crypto::QuantumNodeIdentity>>, ha_cluster::raft_listener::PeerRegistry) {
+    let mut identities = HashMap::new();
+    let mut registry = ha_cluster::raft_listener::PeerRegistry::new();
+    for id in peers {
+        let ident = std::sync::Arc::new(core_crypto::QuantumNodeIdentity::generate_node_identity().unwrap());
+        let fp = core_crypto::QuantumNodeIdentity::hash_ledger_block(&ident.dsa_public_key_bytes());
+        registry.insert(fp, id.clone());
+        identities.insert(id.clone(), ident);
+    }
+    (identities, registry)
 }

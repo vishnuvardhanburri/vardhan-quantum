@@ -68,17 +68,26 @@ pub enum Relationship {
 impl Relationship {
     /// Returns true if this relationship is transitive.
     pub fn is_transitive(&self) -> bool {
-        matches!(self,
-            Relationship::DependsOn | Relationship::Affects | Relationship::Contains | Relationship::Owns
+        matches!(
+            self,
+            Relationship::DependsOn
+                | Relationship::Affects
+                | Relationship::Contains
+                | Relationship::Owns
         )
     }
 
     /// Returns true if this is an inverse (backward) relationship variant.
     pub fn is_inverse(&self) -> bool {
-        matches!(self,
-            Relationship::AffectedBy | Relationship::Hosts | Relationship::UsedBy
-            | Relationship::RequiredBy | Relationship::ReferencedBy | Relationship::OwnedBy
-            | Relationship::ContainedIn
+        matches!(
+            self,
+            Relationship::AffectedBy
+                | Relationship::Hosts
+                | Relationship::UsedBy
+                | Relationship::RequiredBy
+                | Relationship::ReferencedBy
+                | Relationship::OwnedBy
+                | Relationship::ContainedIn
         )
     }
 
@@ -176,8 +185,12 @@ pub struct TraversalResult {
 }
 
 impl TraversalResult {
-    pub fn is_empty(&self) -> bool { self.reachable.is_empty() }
-    pub fn len(&self) -> usize { self.reachable.len() }
+    pub fn is_empty(&self) -> bool {
+        self.reachable.is_empty()
+    }
+    pub fn len(&self) -> usize {
+        self.reachable.len()
+    }
 }
 
 /// Errors from graph operations.
@@ -199,26 +212,39 @@ pub struct DependencyGraph {
 }
 
 impl DependencyGraph {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Add a directed relationship.
     pub fn add_edge(&mut self, edge: Edge) -> Result<(), GraphError> {
         // Cycle detection for DependsOn relationships
         if edge.relationship == Relationship::DependsOn {
             if self.path_exists(&edge.to, &edge.from, &[Relationship::DependsOn]) {
-                return Err(GraphError::CycleDetected(vec![edge.from.clone(), edge.to.clone()]));
+                return Err(GraphError::CycleDetected(vec![
+                    edge.from.clone(),
+                    edge.to.clone(),
+                ]));
             }
         }
 
         self.nodes.insert(edge.from.clone());
         self.nodes.insert(edge.to.clone());
-        self.forward.entry(edge.from.clone()).or_default().push(edge.clone());
+        self.forward
+            .entry(edge.from.clone())
+            .or_default()
+            .push(edge.clone());
         self.reverse.entry(edge.to.clone()).or_default().push(edge);
         Ok(())
     }
 
     /// Add a simple relationship.
-    pub fn add(&mut self, from: EntityId, to: EntityId, rel: Relationship) -> Result<(), GraphError> {
+    pub fn add(
+        &mut self,
+        from: EntityId,
+        to: EntityId,
+        rel: Relationship,
+    ) -> Result<(), GraphError> {
         self.add_edge(Edge::new(from, to, rel))
     }
 
@@ -278,7 +304,11 @@ impl DependencyGraph {
                 }
             }
         }
-        TraversalResult { reachable: visited, paths, edge_count }
+        TraversalResult {
+            reachable: visited,
+            paths,
+            edge_count,
+        }
     }
 
     /// Traverse backward: find all entities that reach `to` via `rels`.
@@ -302,7 +332,11 @@ impl DependencyGraph {
                 }
             }
         }
-        TraversalResult { reachable: visited, paths, edge_count }
+        TraversalResult {
+            reachable: visited,
+            paths,
+            edge_count,
+        }
     }
 
     /// Compute blast radius: given a failed entity, find all entities
@@ -349,17 +383,25 @@ impl DependencyGraph {
 mod tests {
     use super::*;
 
-    fn eid(s: &str) -> EntityId { EntityId::new(s) }
+    fn eid(s: &str) -> EntityId {
+        EntityId::new(s)
+    }
 
     #[test]
     fn test_add_and_traverse() {
         let mut g = DependencyGraph::new();
-        g.add(eid("app:api"), eid("svc:backend"), Relationship::DependsOn).unwrap();
-        g.add(eid("svc:backend"), eid("node:raft-1"), Relationship::RunsOn).unwrap();
-        g.add(eid("svc:backend"), eid("crypto:key-1"), Relationship::Uses).unwrap();
+        g.add(eid("app:api"), eid("svc:backend"), Relationship::DependsOn)
+            .unwrap();
+        g.add(eid("svc:backend"), eid("node:raft-1"), Relationship::RunsOn)
+            .unwrap();
+        g.add(eid("svc:backend"), eid("crypto:key-1"), Relationship::Uses)
+            .unwrap();
 
         // Forward traversal via multiple relationship types
-        let result = g.traverse_forward(&eid("svc:backend"), &[Relationship::RunsOn, Relationship::Uses]);
+        let result = g.traverse_forward(
+            &eid("svc:backend"),
+            &[Relationship::RunsOn, Relationship::Uses],
+        );
         assert!(result.reachable.contains(&eid("node:raft-1")));
         assert!(result.reachable.contains(&eid("crypto:key-1")));
         assert_eq!(result.len(), 2);
@@ -368,8 +410,14 @@ mod tests {
     #[test]
     fn test_blast_radius() {
         let mut g = DependencyGraph::new();
-        g.add(eid("app:api"), eid("svc:backend"), Relationship::DependsOn).unwrap();
-        g.add(eid("svc:backend"), eid("node:raft-1"), Relationship::DependsOn).unwrap();
+        g.add(eid("app:api"), eid("svc:backend"), Relationship::DependsOn)
+            .unwrap();
+        g.add(
+            eid("svc:backend"),
+            eid("node:raft-1"),
+            Relationship::DependsOn,
+        )
+        .unwrap();
 
         let blast = g.blast_radius(&eid("node:raft-1"));
         assert!(blast.reachable.contains(&eid("svc:backend")));
@@ -381,14 +429,17 @@ mod tests {
         let mut g = DependencyGraph::new();
         g.add(eid("a"), eid("b"), Relationship::DependsOn).unwrap();
         // Adding b→a creates a cycle
-        let err = g.add(eid("b"), eid("a"), Relationship::DependsOn).unwrap_err();
+        let err = g
+            .add(eid("b"), eid("a"), Relationship::DependsOn)
+            .unwrap_err();
         assert!(matches!(err, GraphError::CycleDetected(_)));
     }
 
     #[test]
     fn test_bidirectional_traversal() {
         let mut g = DependencyGraph::new();
-        g.add(eid("app:api"), eid("svc:backend"), Relationship::DependsOn).unwrap();
+        g.add(eid("app:api"), eid("svc:backend"), Relationship::DependsOn)
+            .unwrap();
 
         let fwd = g.traverse_forward(&eid("app:api"), &[Relationship::DependsOn]);
         assert!(fwd.reachable.contains(&eid("svc:backend")));
@@ -401,7 +452,10 @@ mod tests {
     fn test_edge_with_metadata() {
         let edge = Edge::new(eid("a"), eid("b"), Relationship::DependsOn)
             .with_metadata("evidence_ref", "ledger:42");
-        assert_eq!(edge.metadata.get("evidence_ref"), Some(&"ledger:42".to_string()));
+        assert_eq!(
+            edge.metadata.get("evidence_ref"),
+            Some(&"ledger:42".to_string())
+        );
     }
 
     #[test]
@@ -430,7 +484,10 @@ mod tests {
         assert_eq!(Relationship::AffectedBy.inverse(), Relationship::DependsOn);
         assert!(!Relationship::DependsOn.is_inverse());
         assert!(Relationship::AffectedBy.is_inverse());
-        assert_eq!(Relationship::AffectedBy.as_forward(), Relationship::DependsOn);
+        assert_eq!(
+            Relationship::AffectedBy.as_forward(),
+            Relationship::DependsOn
+        );
     }
 
     #[test]

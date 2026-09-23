@@ -59,9 +59,7 @@ impl CredentialStore {
                 .map_err(|e| format!("FATAL: {e}"))?;
 
             if password.len() < 12 {
-                return Err(
-                    "FATAL: Bootstrap password must be at least 12 characters.".to_string()
-                );
+                return Err("FATAL: Bootstrap password must be at least 12 characters.".to_string());
             }
 
             // Hash password — this is the only place a plaintext password exists in Rust memory
@@ -189,7 +187,10 @@ mod tests {
     async fn test_store_and_retrieve() {
         let s = temp_store();
         s.set_phc("alice", "$argon2id$placeholder").await.unwrap();
-        assert_eq!(s.get_phc("alice").await.as_deref(), Some("$argon2id$placeholder"));
+        assert_eq!(
+            s.get_phc("alice").await.as_deref(),
+            Some("$argon2id$placeholder")
+        );
     }
 
     #[tokio::test]
@@ -203,7 +204,7 @@ mod tests {
         let s = temp_store();
         assert_eq!(s.user_count(), 0);
         s.set_phc("alice", "hash1").await.unwrap();
-        s.set_phc("bob",   "hash2").await.unwrap();
+        s.set_phc("bob", "hash2").await.unwrap();
         assert_eq!(s.user_count(), 2);
     }
 

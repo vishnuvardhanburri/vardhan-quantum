@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use authority_gate::ActionStatus;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TwinState {
@@ -52,18 +52,27 @@ impl DecisionTwin {
             }
             (TwinState::Authorized, TwinState::Executing) => self.state = new_state,
             (TwinState::Executing, TwinState::Executed) => self.state = new_state,
-            
+
             // A8 Revalidation triggers
             (TwinState::Authorized, TwinState::RevalidationRequired) => {
                 self.state = new_state;
                 self.final_status = ActionStatus::Indeterminate;
             }
-            (TwinState::RevalidationRequired, TwinState::AssurancePending) => self.state = new_state,
-            
+            (TwinState::RevalidationRequired, TwinState::AssurancePending) => {
+                self.state = new_state
+            }
+
             // Terminal fallback states
-            (_, TwinState::Expired | TwinState::Cancelled | TwinState::Failed) => self.state = new_state,
-            
-            _ => return Err(format!("Invalid state transition from {:?} to {:?}", self.state, new_state)),
+            (_, TwinState::Expired | TwinState::Cancelled | TwinState::Failed) => {
+                self.state = new_state
+            }
+
+            _ => {
+                return Err(format!(
+                    "Invalid state transition from {:?} to {:?}",
+                    self.state, new_state
+                ));
+            }
         }
         Ok(())
     }
@@ -71,7 +80,7 @@ impl DecisionTwin {
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 /// Thread-safe active memory storage for Decision Twins during their lifecycle.
 /// Resolves immediately to the Audit Ledger upon reaching terminal states.

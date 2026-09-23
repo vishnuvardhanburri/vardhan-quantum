@@ -96,7 +96,10 @@ impl CredentialStore {
 
     pub fn get_profile(&self, username: &str) -> Result<AdminProfile, ProfileError> {
         let key = Self::profile_key(username);
-        let raw = self.db.get(&key).map_err(|e| ProfileError::DbError(e.to_string()))?;
+        let raw = self
+            .db
+            .get(&key)
+            .map_err(|e| ProfileError::DbError(e.to_string()))?;
 
         match raw {
             Some(ivec) => {
@@ -125,11 +128,12 @@ impl CredentialStore {
 
     pub fn save_profile(&self, profile: &AdminProfile) -> Result<(), ProfileError> {
         let key = Self::profile_key(&profile.username);
-        let val = serde_json::to_vec(profile)
+        let val = serde_json::to_vec(profile).map_err(|e| ProfileError::DbError(e.to_string()))?;
+        self.db
+            .insert(key, val)
             .map_err(|e| ProfileError::DbError(e.to_string()))?;
-        self.db.insert(key, val)
-            .map_err(|e| ProfileError::DbError(e.to_string()))?;
-        self.db.flush()
+        self.db
+            .flush()
             .map_err(|e| ProfileError::DbError(e.to_string()))?;
         Ok(())
     }
@@ -166,7 +170,9 @@ impl CredentialStore {
     ) -> Result<(), ProfileError> {
         validate_new_password(current_password, new_password, confirm_password)?;
 
-        let current_phc = self.get_phc_sync(username).ok_or(ProfileError::UserNotFound)?;
+        let current_phc = self
+            .get_phc_sync(username)
+            .ok_or(ProfileError::UserNotFound)?;
         if !verify_password(current_password, &current_phc) {
             return Err(ProfileError::InvalidCurrentPassword);
         }
@@ -226,36 +232,39 @@ mod tests {
         store.set_phc_sync("bob", &phc).unwrap();
 
         // Mismatched confirmation
-        assert!(store.change_user_password(
-            "bob",
-            "original_password_12",
-            "new_secure_password_12",
-            "different_confirmation"
-        ).is_err());
+        assert!(store
+            .change_user_password(
+                "bob",
+                "original_password_12",
+                "new_secure_password_12",
+                "different_confirmation"
+            )
+            .is_err());
 
         // Password too short (<12 chars)
-        assert!(store.change_user_password(
-            "bob",
-            "original_password_12",
-            "short",
-            "short"
-        ).is_err());
+        assert!(store
+            .change_user_password("bob", "original_password_12", "short", "short")
+            .is_err());
 
         // Wrong current password
-        assert!(store.change_user_password(
-            "bob",
-            "wrong_current_pass",
-            "new_secure_password_12",
-            "new_secure_password_12"
-        ).is_err());
+        assert!(store
+            .change_user_password(
+                "bob",
+                "wrong_current_pass",
+                "new_secure_password_12",
+                "new_secure_password_12"
+            )
+            .is_err());
 
         // Success
-        assert!(store.change_user_password(
-            "bob",
-            "original_password_12",
-            "new_secure_password_12",
-            "new_secure_password_12"
-        ).is_ok());
+        assert!(store
+            .change_user_password(
+                "bob",
+                "original_password_12",
+                "new_secure_password_12",
+                "new_secure_password_12"
+            )
+            .is_ok());
 
         // Verify old password no longer works
         let bob_phc = store.get_phc_sync("bob").unwrap();

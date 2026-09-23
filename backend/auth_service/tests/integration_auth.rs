@@ -1,14 +1,19 @@
 use std::sync::Arc;
 use tempfile::tempdir;
 
+use audit_ledger::LedgerWriter;
 use auth_service::{
     auth_router, credentials, rate_limit::RateLimiter, session::SessionStore,
     store::CredentialStore, AuthState,
 };
 use core_crypto::QuantumNodeIdentity;
-use audit_ledger::LedgerWriter;
 
-async fn spawn_test_server() -> (String, AuthState, tempfile::TempDir, Option<std::path::PathBuf>) {
+async fn spawn_test_server() -> (
+    String,
+    AuthState,
+    tempfile::TempDir,
+    Option<std::path::PathBuf>,
+) {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("test_auth_db");
     let cred_store = CredentialStore::open(&db_path).unwrap();

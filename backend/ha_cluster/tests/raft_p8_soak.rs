@@ -68,7 +68,7 @@ async fn spawn_node(
     let ledger = Arc::new(MerkleLedger::new());
     let applier = Arc::new(LedgerApplier::new(raft_node.clone(), ledger.clone(), identity.clone()));
 
-    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new_with_registry(addr, identity.clone(), raft_node.clone(), registry.clone()).await.unwrap();
     membership.set_raft_port(id.clone(), bound_addr.port()).await;
     membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
     let listener_id = id.clone();
@@ -314,4 +314,17 @@ async fn p8_9a_soak_continuous_writes_with_crashes() {
     for node in &mut nodes {
         node.run_handle.abort();
     }
+}
+
+use std::collections::HashMap;
+fn build_identities(peers: &[ha_cluster::NodeId]) -> (HashMap<ha_cluster::NodeId, std::sync::Arc<core_crypto::QuantumNodeIdentity>>, ha_cluster::raft_listener::PeerRegistry) {
+    let mut identities = HashMap::new();
+    let mut registry = ha_cluster::raft_listener::PeerRegistry::new();
+    for id in peers {
+        let ident = std::sync::Arc::new(core_crypto::QuantumNodeIdentity::generate_node_identity().unwrap());
+        let fp = core_crypto::QuantumNodeIdentity::hash_ledger_block(&ident.dsa_public_key_bytes());
+        registry.insert(fp, id.clone());
+        identities.insert(id.clone(), ident);
+    }
+    (identities, registry)
 }

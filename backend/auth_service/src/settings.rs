@@ -64,7 +64,7 @@ impl Default for SecurityPolicySettings {
         Self {
             require_pqc_handshake: true,
             min_password_length: 12,
-            session_idle_timeout_secs: 1800, // 30 min
+            session_idle_timeout_secs: 1800,  // 30 min
             session_hard_timeout_secs: 28800, // 8 hours
             max_failed_logins: 10,
         }
@@ -136,18 +136,25 @@ impl CredentialStore {
         node_id: &str,
         signer_fingerprint: &str,
     ) -> Result<SettingsConfig, SettingsError> {
-        let raw = self.db.get(SETTINGS_KEY).map_err(|e| SettingsError::DbError(e.to_string()))?;
+        let raw = self
+            .db
+            .get(SETTINGS_KEY)
+            .map_err(|e| SettingsError::DbError(e.to_string()))?;
 
         let mut config: SettingsConfig = match raw {
-            Some(ivec) => serde_json::from_slice(&ivec)
-                .map_err(|e| SettingsError::DbError(e.to_string()))?,
+            Some(ivec) => {
+                serde_json::from_slice(&ivec).map_err(|e| SettingsError::DbError(e.to_string()))?
+            }
             None => {
                 let default_cfg = SettingsConfig {
                     user_settings: UserSettings::default(),
                     system_settings: SystemOperationalSettings::default(),
                     security_policies: SecurityPolicySettings::default(),
                     cluster_configuration: ClusterSettings::default(),
-                    cryptographic_identity: CryptoIdentitySettings::new(node_id, signer_fingerprint),
+                    cryptographic_identity: CryptoIdentitySettings::new(
+                        node_id,
+                        signer_fingerprint,
+                    ),
                 };
                 let _ = self.save_settings(&default_cfg);
                 return Ok(default_cfg);
@@ -160,11 +167,12 @@ impl CredentialStore {
     }
 
     pub fn save_settings(&self, config: &SettingsConfig) -> Result<(), SettingsError> {
-        let val = serde_json::to_vec(config)
+        let val = serde_json::to_vec(config).map_err(|e| SettingsError::DbError(e.to_string()))?;
+        self.db
+            .insert(SETTINGS_KEY, val)
             .map_err(|e| SettingsError::DbError(e.to_string()))?;
-        self.db.insert(SETTINGS_KEY, val)
-            .map_err(|e| SettingsError::DbError(e.to_string()))?;
-        self.db.flush()
+        self.db
+            .flush()
             .map_err(|e| SettingsError::DbError(e.to_string()))?;
         Ok(())
     }
@@ -256,7 +264,9 @@ mod tests {
         let store = CredentialStore::open(dir.path()).unwrap();
 
         // 1. Initial settings
-        let settings = store.get_settings("node-test-1", "fingerprint-abc").unwrap();
+        let settings = store
+            .get_settings("node-test-1", "fingerprint-abc")
+            .unwrap();
         assert_eq!(settings.user_settings.theme, "cyber_midnight");
         assert_eq!(settings.cryptographic_identity.node_id, "node-test-1");
         assert_eq!(settings.cryptographic_identity.kem_algorithm, "ML-KEM-1024");
@@ -274,7 +284,9 @@ mod tests {
             cluster_configuration: None,
             cryptographic_identity: None,
         };
-        let updated = store.update_settings(update, "node-test-1", "fingerprint-abc").unwrap();
+        let updated = store
+            .update_settings(update, "node-test-1", "fingerprint-abc")
+            .unwrap();
         assert_eq!(updated.user_settings.theme, "dark_emerald");
         assert_eq!(updated.user_settings.refresh_interval_secs, 10);
 
@@ -289,7 +301,9 @@ mod tests {
                 "kem_algorithm": "RSA-1024"
             })),
         };
-        let err = store.update_settings(bad_update, "node-test-1", "fingerprint-abc").unwrap_err();
+        let err = store
+            .update_settings(bad_update, "node-test-1", "fingerprint-abc")
+            .unwrap_err();
         assert!(matches!(err, SettingsError::ImmutableFieldModified));
     }
 }

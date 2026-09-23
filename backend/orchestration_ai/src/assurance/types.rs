@@ -40,8 +40,14 @@ pub enum ActionId {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PrimitiveParameters {
-    DrainNode { node_id: NodeId, graceful_timeout_ms: u64 },
-    RevokeSession { session_id: SessionId, reason: ReasonCode },
+    DrainNode {
+        node_id: NodeId,
+        graceful_timeout_ms: u64,
+    },
+    RevokeSession {
+        session_id: SessionId,
+        reason: ReasonCode,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

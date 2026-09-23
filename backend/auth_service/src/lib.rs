@@ -10,10 +10,10 @@ pub mod credentials;
 pub mod middleware;
 pub mod profile;
 pub mod rate_limit;
+pub mod secrets;
 pub mod session;
 pub mod settings;
 pub mod store;
-pub mod secrets;
 
 use std::sync::Arc;
 
@@ -26,10 +26,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{
-    rate_limit::RateLimiter,
-    store::CredentialStore,
-};
+use crate::{rate_limit::RateLimiter, store::CredentialStore};
 
 pub use api_key::{ApiKeyView, CreateApiKeyRequest, CreateApiKeyResponse};
 pub use audit::emit_admin_audit;
@@ -80,17 +77,32 @@ pub fn auth_router(state: AuthState) -> Router {
         .route("/api/v1/auth/logout", post(logout_handler))
         .route("/api/v1/auth/session", get(session_info_handler))
         // Profile & password endpoints
-        .route("/api/v1/admin/profile", get(get_profile_handler).put(update_profile_handler))
+        .route(
+            "/api/v1/admin/profile",
+            get(get_profile_handler).put(update_profile_handler),
+        )
         .route("/api/v1/admin/password", post(change_password_handler))
         // Settings endpoints
-        .route("/api/v1/settings", get(get_settings_handler).put(update_settings_handler))
+        .route(
+            "/api/v1/settings",
+            get(get_settings_handler).put(update_settings_handler),
+        )
         // Session management endpoints (Priority 4.1 & 4.6)
         .route("/api/v1/sessions", get(list_sessions_handler))
-        .route("/api/v1/sessions/{session_id}/revoke", post(revoke_session_handler))
+        .route(
+            "/api/v1/sessions/{session_id}/revoke",
+            post(revoke_session_handler),
+        )
         .route("/api/v1/sessions/flush", post(flush_sessions_handler))
         // API key management endpoints (Priority 4.2)
-        .route("/api/v1/admin/api-keys", get(list_api_keys_handler).post(create_api_key_handler))
-        .route("/api/v1/admin/api-keys/{id}", delete(revoke_api_key_handler))
+        .route(
+            "/api/v1/admin/api-keys",
+            get(list_api_keys_handler).post(create_api_key_handler),
+        )
+        .route(
+            "/api/v1/admin/api-keys/{id}",
+            delete(revoke_api_key_handler),
+        )
         .with_state(state)
 }
 
@@ -130,7 +142,10 @@ pub async fn login_handler(
 
     if ok {
         state.rate_limiter.reset(ip);
-        let token = state.sessions.create_with_node(&req.username, ip, node_id).await;
+        let token = state
+            .sessions
+            .create_with_node(&req.username, ip, node_id)
+            .await;
 
         emit_admin_audit(
             state.ledger.as_ref(),
@@ -148,10 +163,13 @@ pub async fn login_handler(
 
         tracing::info!(username_hash = %audit::blake3_hex(&req.username), ip = %ip, "LoginSucceeded");
 
-        (StatusCode::OK, Json(serde_json::json!({
-            "token": token.as_str(),
-            "expires_in": session::SESSION_HARD_EXPIRY_SECS,
-        })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "token": token.as_str(),
+                "expires_in": session::SESSION_HARD_EXPIRY_SECS,
+            })),
+        )
     } else {
         state.rate_limiter.record_failure(ip);
 
@@ -168,7 +186,10 @@ pub async fn login_handler(
 
         tracing::warn!(ip = %ip, "LoginFailed");
 
-        (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Invalid credentials" })))
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Invalid credentials" })),
+        )
     }
 }
 
@@ -183,8 +204,12 @@ pub async fn logout_handler(
 
     let token_str = match extract_bearer_from_headers(&headers) {
         Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Missing Authorization header" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Missing Authorization header" })),
+            )
+        }
     };
 
     let token = SessionToken::from_str(&token_str);
@@ -201,9 +226,15 @@ pub async fn logout_handler(
             serde_json::json!({ "ip": ip.to_string() }),
         );
         tracing::info!(username_hash = %audit::blake3_hex(&entry.username), ip = %ip, "Logout");
-        (StatusCode::OK, Json(serde_json::json!({ "status": "logged_out" })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "logged_out" })),
+        )
     } else {
-        (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Invalid or expired session" })))
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Invalid or expired session" })),
+        )
     }
 }
 
@@ -214,20 +245,29 @@ pub async fn session_info_handler(
 ) -> impl IntoResponse {
     let token_str = match extract_bearer_from_headers(&headers) {
         Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Missing Authorization header" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Missing Authorization header" })),
+            )
+        }
     };
 
     let token = SessionToken::from_str(&token_str);
 
     match state.sessions.get_info(&token).await {
-        Some(info) => (StatusCode::OK, Json(serde_json::json!({
-            "username": info.username,
-            "issued_at_ms": info.issued_at_ms,
-            "expires_in": info.expires_in_secs,
-        }))),
-        None => (StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Invalid or expired session" }))),
+        Some(info) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "username": info.username,
+                "issued_at_ms": info.issued_at_ms,
+                "expires_in": info.expires_in_secs,
+            })),
+        ),
+        None => (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Invalid or expired session" })),
+        ),
     }
 }
 
@@ -238,12 +278,20 @@ pub async fn get_profile_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     match state.credentials.get_profile(&caller.username) {
         Ok(profile) => (StatusCode::OK, Json(serde_json::to_value(profile).unwrap())),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
     }
 }
 
@@ -255,14 +303,22 @@ pub async fn update_profile_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let ip = resolve_ip(&headers);
     let req_id = extract_request_id(&headers);
     let node_id = state.node_id.as_deref().unwrap_or("local-node");
 
-    match state.credentials.update_profile(&caller.username, req.display_name, req.email) {
+    match state
+        .credentials
+        .update_profile(&caller.username, req.display_name, req.email)
+    {
         Ok(profile) => {
             emit_admin_audit(
                 state.ledger.as_ref(),
@@ -276,10 +332,14 @@ pub async fn update_profile_handler(
             );
             (StatusCode::OK, Json(serde_json::to_value(profile).unwrap()))
         }
-        Err(profile::ProfileError::InvalidProfileData(msg)) => {
-            (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg })))
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+        Err(profile::ProfileError::InvalidProfileData(msg)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": msg })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
     }
 }
 
@@ -291,7 +351,12 @@ pub async fn change_password_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let ip = resolve_ip(&headers);
@@ -316,7 +381,10 @@ pub async fn change_password_handler(
                 serde_json::json!({ "ip": ip.to_string() }),
             );
             tracing::info!(username_hash = %audit::blake3_hex(&caller.username), ip = %ip, "PasswordChanged");
-            (StatusCode::OK, Json(serde_json::json!({ "status": "password_changed" })))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "status": "password_changed" })),
+            )
         }
         Err(profile::ProfileError::InvalidCurrentPassword) => {
             emit_admin_audit(
@@ -329,12 +397,19 @@ pub async fn change_password_handler(
                 req_id.as_deref(),
                 serde_json::json!({ "operation": "ChangePassword" }),
             );
-            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Invalid current password" })))
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Invalid current password" })),
+            )
         }
-        Err(profile::ProfileError::PasswordPolicyViolation(msg)) => {
-            (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg })))
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+        Err(profile::ProfileError::PasswordPolicyViolation(msg)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": msg })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
     }
 }
 
@@ -344,20 +419,33 @@ pub async fn get_settings_handler(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     if extract_authenticated_user(&state, &headers).await.is_none() {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" })));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        );
     }
 
     let node_id = state.node_id.as_deref().unwrap_or("local-node");
-    let fingerprint = state.identity.as_ref()
+    let fingerprint = state
+        .identity
+        .as_ref()
         .map(|id| {
             let pk = id.dsa_public_key_bytes();
             hex::encode(core_crypto::QuantumNodeIdentity::hash_ledger_block(&pk))
         })
-        .unwrap_or_else(|| "0000000000000000000000000000000000000000000000000000000000000000".to_string());
+        .unwrap_or_else(|| {
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
+        });
 
     match state.credentials.get_settings(node_id, &fingerprint) {
-        Ok(settings) => (StatusCode::OK, Json(serde_json::to_value(settings).unwrap())),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+        Ok(settings) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(settings).unwrap()),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
     }
 }
 
@@ -369,7 +457,12 @@ pub async fn update_settings_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let req_id = extract_request_id(&headers);
@@ -386,18 +479,30 @@ pub async fn update_settings_handler(
             req_id.as_deref(),
             serde_json::json!({ "operation": "UpdateSettings" }),
         );
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Forbidden: Admin privilege required to update settings" })));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(
+                serde_json::json!({ "error": "Forbidden: Admin privilege required to update settings" }),
+            ),
+        );
     }
 
     let ip = resolve_ip(&headers);
-    let fingerprint = state.identity.as_ref()
+    let fingerprint = state
+        .identity
+        .as_ref()
         .map(|id| {
             let pk = id.dsa_public_key_bytes();
             hex::encode(core_crypto::QuantumNodeIdentity::hash_ledger_block(&pk))
         })
-        .unwrap_or_else(|| "0000000000000000000000000000000000000000000000000000000000000000".to_string());
+        .unwrap_or_else(|| {
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string()
+        });
 
-    match state.credentials.update_settings(req, node_id, &fingerprint) {
+    match state
+        .credentials
+        .update_settings(req, node_id, &fingerprint)
+    {
         Ok(settings) => {
             emit_admin_audit(
                 state.ledger.as_ref(),
@@ -410,17 +515,25 @@ pub async fn update_settings_handler(
                 serde_json::json!({ "ip": ip.to_string() }),
             );
             tracing::info!(username_hash = %audit::blake3_hex(&caller.username), ip = %ip, "SettingsUpdated");
-            (StatusCode::OK, Json(serde_json::to_value(settings).unwrap()))
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(settings).unwrap()),
+            )
         }
-        Err(settings::SettingsError::ImmutableFieldModified) => {
-            (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+        Err(settings::SettingsError::ImmutableFieldModified) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
                 "error": "Cryptographic identity is immutable and cannot be modified via API"
-            })))
-        }
-        Err(settings::SettingsError::ValidationError(msg)) => {
-            (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg })))
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+            })),
+        ),
+        Err(settings::SettingsError::ValidationError(msg)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": msg })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
     }
 }
 
@@ -433,14 +546,21 @@ pub async fn list_sessions_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let all = state.sessions.list_sessions().await;
     let list = if caller.can(Permission::ReadSessions) {
         all
     } else {
-        all.into_iter().filter(|s| s.username == caller.username).collect()
+        all.into_iter()
+            .filter(|s| s.username == caller.username)
+            .collect()
     };
 
     (StatusCode::OK, Json(serde_json::to_value(list).unwrap()))
@@ -454,7 +574,12 @@ pub async fn revoke_session_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let req_id = extract_request_id(&headers);
@@ -462,7 +587,12 @@ pub async fn revoke_session_handler(
 
     let target = match state.sessions.get_session_by_id(&session_id).await {
         Some(s) => s,
-        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Session not found" }))),
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Session not found" })),
+            )
+        }
     };
 
     if !caller.can_revoke_session(&target.username) {
@@ -476,7 +606,10 @@ pub async fn revoke_session_handler(
             req_id.as_deref(),
             serde_json::json!({ "operation": "RevokeSession", "session_id": session_id }),
         );
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Forbidden: Cannot revoke another user's session" })));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Forbidden: Cannot revoke another user's session" })),
+        );
     }
 
     let is_already_revoked = target.session_state == "revoked";
@@ -498,11 +631,14 @@ pub async fn revoke_session_handler(
         );
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "status": if is_already_revoked { "already_revoked" } else { "revoked" },
-        "session_id": session_id,
-        "session": view,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": if is_already_revoked { "already_revoked" } else { "revoked" },
+            "session_id": session_id,
+            "session": view,
+        })),
+    )
 }
 
 /// POST /api/v1/sessions/flush — authenticated (Admin only)
@@ -513,7 +649,12 @@ pub async fn flush_sessions_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let req_id = extract_request_id(&headers);
@@ -530,16 +671,28 @@ pub async fn flush_sessions_handler(
             req_id.as_deref(),
             serde_json::json!({ "operation": "FlushSessions" }),
         );
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Forbidden: Admin privilege required for session flush" })));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(
+                serde_json::json!({ "error": "Forbidden: Admin privilege required for session flush" }),
+            ),
+        );
     }
 
     let is_confirmed = body.map(|b| b.confirm).unwrap_or(false)
-        || headers.get("x-confirm").and_then(|h| h.to_str().ok()).map(|v| v.eq_ignore_ascii_case("flush") || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+        || headers
+            .get("x-confirm")
+            .and_then(|h| h.to_str().ok())
+            .map(|v| v.eq_ignore_ascii_case("flush") || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
 
     if !is_confirmed {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": "Session flush requires explicit confirmation ({ 'confirm': true } or X-Confirm: flush)"
-        })));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Session flush requires explicit confirmation ({ 'confirm': true } or X-Confirm: flush)"
+            })),
+        );
     }
 
     let caller_token = extract_bearer_from_headers(&headers);
@@ -556,11 +709,14 @@ pub async fn flush_sessions_handler(
         serde_json::json!({ "revoked_count": count }),
     );
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "status": "flushed",
-        "revoked_count": count,
-        "message": "All other active sessions revoked. Caller session preserved."
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "flushed",
+            "revoked_count": count,
+            "message": "All other active sessions revoked. Caller session preserved."
+        })),
+    )
 }
 
 // ── Priority 4.2: API Key Management Handlers ────────────────────────────────
@@ -572,16 +728,27 @@ pub async fn list_api_keys_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     if !caller.can(Permission::ManageApiKeys) {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Forbidden: Admin privilege required" })));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Forbidden: Admin privilege required" })),
+        );
     }
 
     match state.credentials.list_api_keys() {
         Ok(keys) => (StatusCode::OK, Json(serde_json::to_value(keys).unwrap())),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
     }
 }
 
@@ -593,17 +760,28 @@ pub async fn create_api_key_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let req_id = extract_request_id(&headers);
     let node_id = state.node_id.as_deref().unwrap_or("local-node");
 
     if !caller.can(Permission::ManageApiKeys) {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Forbidden: Admin privilege required" })));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Forbidden: Admin privilege required" })),
+        );
     }
 
-    match state.credentials.create_api_key(&req.name, req.expires_in_days, &caller.username) {
+    match state
+        .credentials
+        .create_api_key(&req.name, req.expires_in_days, &caller.username)
+    {
         Ok(response) => {
             emit_admin_audit(
                 state.ledger.as_ref(),
@@ -618,12 +796,19 @@ pub async fn create_api_key_handler(
                     "name": response.name,
                 }),
             );
-            (StatusCode::CREATED, Json(serde_json::to_value(response).unwrap()))
+            (
+                StatusCode::CREATED,
+                Json(serde_json::to_value(response).unwrap()),
+            )
         }
-        Err(api_key::ApiKeyError::InvalidName(msg)) => {
-            (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg })))
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+        Err(api_key::ApiKeyError::InvalidName(msg)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": msg })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
     }
 }
 
@@ -635,14 +820,22 @@ pub async fn revoke_api_key_handler(
 ) -> impl IntoResponse {
     let caller = match extract_authenticated_user(&state, &headers).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
     };
 
     let req_id = extract_request_id(&headers);
     let node_id = state.node_id.as_deref().unwrap_or("local-node");
 
     if !caller.can(Permission::ManageApiKeys) {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Forbidden: Admin privilege required" })));
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Forbidden: Admin privilege required" })),
+        );
     }
 
     match state.credentials.revoke_api_key(&id) {
@@ -662,22 +855,31 @@ pub async fn revoke_api_key_handler(
             );
             (StatusCode::OK, Json(serde_json::to_value(view).unwrap()))
         }
-        Err(api_key::ApiKeyError::NotFound) => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "API key not found" })))
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+        Err(api_key::ApiKeyError::NotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "API key not found" })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-pub async fn extract_authenticated_user(state: &AuthState, headers: &axum::http::HeaderMap) -> Option<AuthenticatedUser> {
+pub async fn extract_authenticated_user(
+    state: &AuthState,
+    headers: &axum::http::HeaderMap,
+) -> Option<AuthenticatedUser> {
     let token_str = extract_bearer_from_headers(headers)?;
 
     // 1. Session token lookup
     let session_token = SessionToken::from_str(&token_str);
     if let Some(username) = state.sessions.validate(&session_token).await {
-        let role = state.credentials.get_profile(&username)
+        let role = state
+            .credentials
+            .get_profile(&username)
             .map(|p| Role::from_str(&p.role))
             .unwrap_or(Role::Admin);
         return Some(AuthenticatedUser { username, role });
@@ -685,7 +887,9 @@ pub async fn extract_authenticated_user(state: &AuthState, headers: &axum::http:
 
     // 2. Fallback: constant-time check against bootstrap admin token
     if let Some(ref admin_tok) = state.admin_token {
-        if !admin_tok.is_empty() && subtle::ConstantTimeEq::ct_eq(token_str.as_bytes(), admin_tok.as_bytes()).into() {
+        if !admin_tok.is_empty()
+            && subtle::ConstantTimeEq::ct_eq(token_str.as_bytes(), admin_tok.as_bytes()).into()
+        {
             return Some(AuthenticatedUser {
                 username: "admin".to_string(),
                 role: Role::Admin,
@@ -727,5 +931,8 @@ pub fn extract_bearer_from_headers(headers: &axum::http::HeaderMap) -> Option<St
 }
 
 pub fn extract_request_id(headers: &axum::http::HeaderMap) -> Option<String> {
-    headers.get("x-request-id").and_then(|h| h.to_str().ok()).map(|s| s.to_string())
+    headers
+        .get("x-request-id")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string())
 }

@@ -15,11 +15,23 @@ pub struct SchemaVersion {
 }
 
 impl SchemaVersion {
-    pub const VARDHAN_EVENT: Self = Self { major: 1, minor: 0, patch: 0 };
-    pub const VARDHAN_ENTERPRISE_MODEL: Self = Self { major: 1, minor: 0, patch: 0 };
+    pub const VARDHAN_EVENT: Self = Self {
+        major: 1,
+        minor: 0,
+        patch: 0,
+    };
+    pub const VARDHAN_ENTERPRISE_MODEL: Self = Self {
+        major: 1,
+        minor: 0,
+        patch: 0,
+    };
 
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self { major, minor, patch }
+        Self {
+            major,
+            minor,
+            patch,
+        }
     }
 
     pub fn is_compatible_with(&self, other: &Self) -> bool {
@@ -27,15 +39,27 @@ impl SchemaVersion {
     }
 
     pub fn bump_major(&self) -> Self {
-        Self { major: self.major + 1, minor: 0, patch: 0 }
+        Self {
+            major: self.major + 1,
+            minor: 0,
+            patch: 0,
+        }
     }
 
     pub fn bump_minor(&self) -> Self {
-        Self { major: self.major, minor: self.minor + 1, patch: 0 }
+        Self {
+            major: self.major,
+            minor: self.minor + 1,
+            patch: 0,
+        }
     }
 
     pub fn bump_patch(&self) -> Self {
-        Self { major: self.major, minor: self.minor, patch: self.patch + 1 }
+        Self {
+            major: self.major,
+            minor: self.minor,
+            patch: self.patch + 1,
+        }
     }
 }
 
@@ -78,9 +102,7 @@ impl SchemaCompatibility {
 /// In-memory schema registry.
 #[derive(Clone, Default)]
 pub struct SchemaRegistry {
-    schemas: std::sync::Arc<std::sync::RwLock<
-        std::collections::HashMap<String, SchemaVersion>,
-    >>,
+    schemas: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SchemaVersion>>>,
 }
 
 impl SchemaRegistry {
@@ -88,8 +110,15 @@ impl SchemaRegistry {
         Self::default()
     }
 
-    pub fn register(&self, schema_id: impl Into<String>, version: SchemaVersion) -> Result<(), SchemaError> {
-        self.schemas.write().unwrap().insert(schema_id.into(), version);
+    pub fn register(
+        &self,
+        schema_id: impl Into<String>,
+        version: SchemaVersion,
+    ) -> Result<(), SchemaError> {
+        self.schemas
+            .write()
+            .unwrap()
+            .insert(schema_id.into(), version);
         Ok(())
     }
 

@@ -20,9 +20,7 @@
 //!   1 = FAIL (cryptographic failure or structural violation)
 //!   2 = Usage / IO error
 
-use audit_ledger::{
-    canonical_hash, merkle_root_from_hashes, CommittedCheckpoint, LedgerEntry,
-};
+use audit_ledger::{canonical_hash, merkle_root_from_hashes, CommittedCheckpoint, LedgerEntry};
 use clap::Parser;
 use core_crypto::QuantumNodeIdentity;
 use serde::Serialize;
@@ -234,13 +232,12 @@ fn run_verification(args: &Args) -> VerificationReport {
 
     // ─── Verify checkpoints (P7.3) ───────────────────────────────────────────
     let checkpoint_path = args.evidence_dir.join("checkpoints.jsonl");
-    let (cp_verified, cp_chain_ok, cp_sig_ok, cp_merkle_ok, cp_raft_ok) =
-        verify_checkpoints(
-            &checkpoint_path,
-            &ledger_path,
-            &pub_key_bytes,
-            &mut failures,
-        );
+    let (cp_verified, cp_chain_ok, cp_sig_ok, cp_merkle_ok, cp_raft_ok) = verify_checkpoints(
+        &checkpoint_path,
+        &ledger_path,
+        &pub_key_bytes,
+        &mut failures,
+    );
 
     // ─── Determine verdict ───────────────────────────────────────────────────
     let has_evidence = entries_verified > 0 || cp_verified > 0;
@@ -304,7 +301,9 @@ fn verify_checkpoints(
         let file = match std::fs::File::open(ledger_path) {
             Ok(f) => f,
             Err(e) => {
-                failures.push(format!("Cannot open ledger for checkpoint Merkle verification: {e}"));
+                failures.push(format!(
+                    "Cannot open ledger for checkpoint Merkle verification: {e}"
+                ));
                 return (0, false, false, false, false);
             }
         };
@@ -312,14 +311,21 @@ fn verify_checkpoints(
         let mut hashes = Vec::new();
         for line_res in reader.lines() {
             let line = line_res.unwrap_or_default();
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let entry: LedgerEntry = match serde_json::from_str(&line) {
                 Ok(e) => e,
                 Err(_) => continue,
             };
             // FIX: Use the full canonical hash as the Merkle leaf.
             // This binds seq, timestamp, event, and prev_hash into the Merkle root.
-            hashes.push(entry.canonical_hash().expect("Canonical hash failed").to_vec());
+            hashes.push(
+                entry
+                    .canonical_hash()
+                    .expect("Canonical hash failed")
+                    .to_vec(),
+            );
         }
         hashes
     };
@@ -334,7 +340,9 @@ fn verify_checkpoints(
     let mut last_raft_index: u64 = 0;
 
     for (line_no, line) in content.lines().enumerate() {
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
 
         let cp: CommittedCheckpoint = match serde_json::from_str(line) {
             Ok(c) => c,
@@ -362,7 +370,9 @@ fn verify_checkpoints(
         let canonical = match cp.checkpoint.canonical_hash() {
             Ok(h) => h,
             Err(e) => {
-                failures.push(format!("Checkpoint line {line_no}: canonical hash computation failed: {e}"));
+                failures.push(format!(
+                    "Checkpoint line {line_no}: canonical hash computation failed: {e}"
+                ));
                 sig_ok = false;
                 continue;
             }
@@ -370,13 +380,17 @@ fn verify_checkpoints(
         let sig_bytes = match hex::decode(&cp.checkpoint.signature) {
             Ok(b) => b,
             Err(e) => {
-                failures.push(format!("Checkpoint line {line_no}: invalid signature hex: {e}"));
+                failures.push(format!(
+                    "Checkpoint line {line_no}: invalid signature hex: {e}"
+                ));
                 sig_ok = false;
                 continue;
             }
         };
         if !QuantumNodeIdentity::verify_signature(pub_key_bytes, &canonical, &sig_bytes) {
-            failures.push(format!("Checkpoint line {line_no}: ML-DSA-87 signature INVALID"));
+            failures.push(format!(
+                "Checkpoint line {line_no}: ML-DSA-87 signature INVALID"
+            ));
             sig_ok = false;
         }
 
@@ -394,7 +408,9 @@ fn verify_checkpoints(
         let expected_cp_hash = match cp.checkpoint.checkpoint_hash() {
             Ok(h) => h,
             Err(e) => {
-                failures.push(format!("Checkpoint line {line_no}: checkpoint hash computation failed: {e}"));
+                failures.push(format!(
+                    "Checkpoint line {line_no}: checkpoint hash computation failed: {e}"
+                ));
                 chain_ok = false;
                 continue;
             }
@@ -407,13 +423,16 @@ fn verify_checkpoints(
         if last >= ledger_hashes.len() {
             failures.push(format!(
                 "Checkpoint line {line_no}: ledger range [{}, {}] exceeds ledger entries ({})",
-                first, last, ledger_hashes.len()
+                first,
+                last,
+                ledger_hashes.len()
             ));
             merkle_ok = false;
         } else if count != (last.saturating_sub(first).saturating_add(1)) as u64 {
             failures.push(format!(
                 "Checkpoint line {line_no}: ledger_entry_count ({}) != range size ({})",
-                count, last.saturating_sub(first).saturating_add(1)
+                count,
+                last.saturating_sub(first).saturating_add(1)
             ));
             merkle_ok = false;
         } else if first > last {
@@ -428,7 +447,9 @@ fn verify_checkpoints(
             let stored_merkle = match hex::decode(&cp.checkpoint.merkle_root) {
                 Ok(b) => b,
                 Err(e) => {
-                    failures.push(format!("Checkpoint line {line_no}: invalid merkle_root hex: {e}"));
+                    failures.push(format!(
+                        "Checkpoint line {line_no}: invalid merkle_root hex: {e}"
+                    ));
                     merkle_ok = false;
                     continue;
                 }

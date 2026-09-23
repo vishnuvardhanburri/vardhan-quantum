@@ -15,23 +15,25 @@
 //! - Sentinel hash used when username is not found (prevents timing oracle)
 
 use argon2::{
-    password_hash::{
-        rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
-    },
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2, Params, Version,
 };
 
-
 // Argon2id parameters — OWASP recommended minimums (2024)
 const ARGON2_M_COST: u32 = 65_536; // 64 MiB memory
-const ARGON2_T_COST: u32 = 3;      // 3 iterations
-const ARGON2_P_COST: u32 = 4;      // 4 parallel lanes
-const ARGON2_OUTPUT: usize = 32;   // 32-byte output
+const ARGON2_T_COST: u32 = 3; // 3 iterations
+const ARGON2_P_COST: u32 = 4; // 4 parallel lanes
+const ARGON2_OUTPUT: usize = 32; // 32-byte output
 
 /// Build the Argon2id instance with our fixed parameters.
 fn argon2() -> Argon2<'static> {
-    let params = Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(ARGON2_OUTPUT))
-        .expect("Argon2 params are statically valid");
+    let params = Params::new(
+        ARGON2_M_COST,
+        ARGON2_T_COST,
+        ARGON2_P_COST,
+        Some(ARGON2_OUTPUT),
+    )
+    .expect("Argon2 params are statically valid");
     Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params)
 }
 
@@ -83,11 +85,9 @@ pub fn sentinel_hash() -> &'static str {
         let mut random_bytes = [0u8; 64];
         OsRng.fill_bytes(&mut random_bytes);
         // Hash a completely random secret — result is discarded but computation runs
-        hash_password(&hex::encode(random_bytes))
-            .expect("sentinel hash must succeed")
+        hash_password(&hex::encode(random_bytes)).expect("sentinel hash must succeed")
     })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -116,7 +116,10 @@ mod tests {
     fn test_sentinel_always_fails() {
         // Sentinel hash must never accidentally verify a real password
         assert!(!verify_password("any_password", sentinel_hash()));
-        assert!(!verify_password("__sentinel_vardhan_quantum_placeholder__", sentinel_hash()));
+        assert!(!verify_password(
+            "__sentinel_vardhan_quantum_placeholder__",
+            sentinel_hash()
+        ));
     }
 
     #[test]

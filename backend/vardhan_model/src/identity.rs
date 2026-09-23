@@ -4,10 +4,10 @@
 //! Every entity is addressable through a stable identity that may have
 //! multiple cryptographic representations (node keys, user credentials, etc.).
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
 /// A stable identity reference — the universal handle for any Vardhan principal.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -144,8 +144,11 @@ mod tests {
     #[test]
     fn test_type_mismatch() {
         let reg = PrincipalRegistry::new();
-        reg.register(PrincipalRef::new("node-1", PrincipalKind::Node)).unwrap();
-        let err = reg.register(PrincipalRef::new("node-1", PrincipalKind::Service)).unwrap_err();
+        reg.register(PrincipalRef::new("node-1", PrincipalKind::Node))
+            .unwrap();
+        let err = reg
+            .register(PrincipalRef::new("node-1", PrincipalKind::Service))
+            .unwrap_err();
         assert!(matches!(err, IdentityError::TypeMismatch { .. }));
     }
 
@@ -166,9 +169,16 @@ mod tests {
 
     #[test]
     fn test_all_principal_kinds_serializable() {
-        for kind in [PrincipalKind::Human, PrincipalKind::Service, PrincipalKind::Node,
-                      PrincipalKind::Container, PrincipalKind::Device, PrincipalKind::ApiClient,
-                      PrincipalKind::Machine, PrincipalKind::AiAgent] {
+        for kind in [
+            PrincipalKind::Human,
+            PrincipalKind::Service,
+            PrincipalKind::Node,
+            PrincipalKind::Container,
+            PrincipalKind::Device,
+            PrincipalKind::ApiClient,
+            PrincipalKind::Machine,
+            PrincipalKind::AiAgent,
+        ] {
             let json = serde_json::to_string(&kind).unwrap();
             let back: PrincipalKind = serde_json::from_str(&json).unwrap();
             assert_eq!(kind, back);
