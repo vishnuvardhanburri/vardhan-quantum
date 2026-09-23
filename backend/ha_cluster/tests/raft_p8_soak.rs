@@ -11,6 +11,7 @@
 //!
 //! Run: cargo test -p ha_cluster --test raft_p8_soak -- --test-threads=1 -- --test-threads=1
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -67,10 +68,12 @@ async fn spawn_node(
     let ledger = Arc::new(MerkleLedger::new());
     let applier = Arc::new(LedgerApplier::new(raft_node.clone(), ledger.clone(), identity.clone()));
 
-    let listener = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone());
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    membership.set_raft_port(id.clone(), bound_addr.port()).await;
+    membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
     let listener_id = id.clone();
     let listener_handle = tokio::spawn(async move {
-        if let Err(e) = listener.run().await {
+        if let Err(e) = listener.run(tcp_listener).await {
             warn!(node = %listener_id, err = %e, "Raft listener failed");
         }
     });
@@ -107,7 +110,9 @@ async fn spawn_node(
 
 async fn abort_node(node: &mut TestNode) {
     node.run_handle.abort();
-    // Give it a moment to clean up
+    node._listener_handle.abort();
+    node._apply_handle.abort();
+    tokio::task::yield_now().await;
     sleep(Duration::from_millis(100)).await;
 }
 
@@ -222,16 +227,11 @@ async fn p8_9a_soak_continuous_writes_with_crashes() {
             ));
             let _ = std::fs::remove_file(&persist_path);
 
-            // Re-spawn the node
+            // Re-spawn the node on ephemeral port
             let node_id = nodes[crash_idx].id.clone();
-            let node_addr = match node_id.as_str() {
-                "node-a" => addr_a,
-                "node-b" => addr_b,
-                "node-c" => addr_c,
-                _ => addr_a,
-            };
+            let new_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
-            nodes[crash_idx] = spawn_node(node_id, node_addr, membership.clone(), peers.clone()).await;
+            nodes[crash_idx] = spawn_node(node_id, new_addr, membership.clone(), peers.clone()).await;
             info!("Restarted node {}", nodes[crash_idx].id);
 
             // Wait for recovery + re-election

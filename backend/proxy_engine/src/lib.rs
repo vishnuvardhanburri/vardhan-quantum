@@ -416,7 +416,7 @@ pub async fn run_responder(
     // 6. Combine secrets + derive session key
     let raw_secret = xor_secrets(&ss_b, &ss_a);
     let salt = transcript_hash(negotiated_version, &f1, &our_hello, &f4, &f3);
-    let session_ctx = derive_session_context(&raw_secret, &salt)?;
+    let session_ctx = derive_session_context(&raw_secret, &salt, peer_dsa_pub)?;
 
     info!("Responder: handshake complete — session context derived");
     Ok(session_ctx)
@@ -472,7 +472,7 @@ pub async fn run_initiator(
     // 6. Combine + derive
     let raw_secret = xor_secrets(&ss_b, &ss_a);
     let salt = transcript_hash(negotiated_version, &our_hello, &f2, &f4, &f3);
-    let session_ctx = derive_session_context(&raw_secret, &salt)?;
+    let session_ctx = derive_session_context(&raw_secret, &salt, peer_dsa_pub)?;
 
     info!("Initiator: handshake complete — session context derived");
     Ok(session_ctx)
@@ -716,8 +716,8 @@ mod tests {
         let secret = [0x42u8; 32];
         let salt = b"HANDSHAKE_TRANSCRIPT_HASH";
 
-        let k1 = derive_session_keys(&secret, salt).unwrap();
-        let k2 = derive_session_keys(&secret, salt).unwrap();
+        let k1 = derive_session_keys(&secret, salt, vec![]).unwrap();
+        let k2 = derive_session_keys(&secret, salt, vec![]).unwrap();
 
         assert_eq!(k1.as_slice(), k2.as_slice(), "HKDF must be deterministic");
         assert_ne!(
@@ -731,8 +731,8 @@ mod tests {
     #[test]
     fn test_hkdf_key_derivation_salt_sensitivity() {
         let secret = [0x42u8; 32];
-        let k1 = derive_session_keys(&secret, b"salt_A").unwrap();
-        let k2 = derive_session_keys(&secret, b"salt_B").unwrap();
+        let k1 = derive_session_keys(&secret, b"salt_A", vec![]).unwrap();
+        let k2 = derive_session_keys(&secret, b"salt_B", vec![]).unwrap();
         assert_ne!(k1.as_slice(), k2.as_slice());
     }
 
@@ -741,7 +741,7 @@ mod tests {
     fn test_hkdf_key_derivation_zeroization() {
         let raw_secret = [0x42u8; 32];
         let salt = b"HANDSHAKE_TRANSCRIPT_HASH";
-        let derived_key = derive_session_keys(&raw_secret, salt).unwrap();
+        let derived_key = derive_session_keys(&raw_secret, salt, vec![]).unwrap();
         assert_ne!(derived_key.as_slice(), &[0u8; 32]);
     }
 
@@ -793,7 +793,7 @@ mod tests {
         let identity = QuantumNodeIdentity::generate_node_identity().unwrap();
         let frame = Bytes::from(build_hello(&identity).unwrap());
         assert_eq!(frame.len(), HELLO_FRAME_LEN);
-        let (version, ek, dsa_pub, _versions) = parse_hello(&frame).unwrap();
+        let (_version, ek, dsa_pub, _versions) = parse_hello(&frame).unwrap();
         assert_eq!(ek.len(), ENCAP_KEY_LEN);
         assert_eq!(dsa_pub.len(), DSA_PUB_LEN);
     }

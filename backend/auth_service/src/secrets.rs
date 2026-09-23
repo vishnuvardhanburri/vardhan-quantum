@@ -41,15 +41,10 @@ impl SecretReader {
             }
         }
 
-        // 2. Fallback to environment variable (Legacy/Dev)
-        if let Ok(password) = std::env::var("VARDHAN_ADMIN_PASSWORD") {
-            if password.trim().is_empty() {
-                return Err(SecretError::InvalidFormat);
-            }
-            return Ok(Zeroizing::new(password));
-        }
+        // [F-C3 REMEDIATION]: VARDHAN_ADMIN_PASSWORD env var fallback removed.
+        // Long-lived secrets must use file-based injection or KMS.
 
-        Err(SecretError::NotFound("No bootstrap password source configured".into()))
+        Err(SecretError::NotFound("No secure bootstrap password source configured (env vars disabled)".into()))
     }
 
     /// Reads the admin username.

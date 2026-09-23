@@ -38,15 +38,15 @@ async fn spawn_node(
     ));
 
     // 3. Start the Network Listener
-    let listener = RaftNetworkListener::new(
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(
         addr,
         identity.clone(),
         raft_node.clone(),
-    );
+    ).await.unwrap();
 
     let listener_id = id.clone();
     let listener_handle = tokio::spawn(async move {
-        if let Err(e) = listener.run().await {
+        if let Err(e) = listener.run(tcp_listener).await {
             error!(node = %listener_id, err = %e, "Raft listener failed");
         }
     });

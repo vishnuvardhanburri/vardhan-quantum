@@ -63,6 +63,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             QuantumNodeIdentity::load_or_generate(vault_path, &protector)?
         }
         "aws-kms" => {
+            if env_mode == "production" {
+                eprintln!("FATAL SECURITY ERROR: SEC-014: MockKmsClient is strictly forbidden in production (VARDHAN_ENV=production).");
+                eprintln!("Real AwsKmsClient must be compiled with --features aws-kms-real.");
+                std::process::exit(1);
+            }
+            
             let key_id = std::env::var("KMS_KEY_ID").unwrap_or_else(|_| {
                 "arn:aws:kms:us-east-1:123456789012:key/vardhan-gateway-root".to_string()
             });
@@ -214,11 +220,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let raft_listen_addr: std::net::SocketAddr =
         format!("0.0.0.0:{}", raft_port).parse()?;
-    let raft_listener = RaftNetworkListener::new(
+    let (raft_listener, tcp_listener, _) = RaftNetworkListener::new(
         raft_listen_addr,
         Arc::clone(&identity),
         Arc::clone(&raft_node),
-    );
+    ).await.expect("Failed to bind raft listener");
 
     // P7.3: Set up ledger applier with MerkleLedger + CheckpointWriter for
     // Raft-committed signed ledger checkpoints.
@@ -318,7 +324,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let raft_l = raft_listener;
     tokio::spawn(async move {
-        if let Err(e) = raft_l.run().await {
+        if let Err(e) = raft_l.run(tcp_listener).await {
             eprintln!("Raft network listener fatal error: {}", e);
         }
     });

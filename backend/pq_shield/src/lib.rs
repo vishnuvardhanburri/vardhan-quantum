@@ -223,6 +223,7 @@ impl IngressShield {
             self_node_id: self.self_node_id.clone(),
             raft_node: self.raft_node.clone(),
             auth_state,
+            execution_validator: None,
         };
         tokio::spawn(async move {
             run_admin_server(admin_state).await;
@@ -515,9 +516,11 @@ impl IngressShield {
                                     }
                                     let _ = tx.try_send(InternalMsg::LatencySample(req_start.elapsed().as_micros() as u64));
                                     let _ = tx.try_send(InternalMsg::RequestCompleted);
-                                    if fastrand::usize(..) % 50 == 0 {
+                                    use rand::RngCore;
+                                    use rand::Rng;
+                                    if rand::thread_rng().gen_range(0..50) == 0 {
                                         let mut sample = vec![0u8; 12];
-                                        fastrand::fill(&mut sample);
+                                        rand::thread_rng().fill_bytes(&mut sample);
                                         let _ = tx.try_send(InternalMsg::NonceEntropySample(sample));
                                     }
                                 }

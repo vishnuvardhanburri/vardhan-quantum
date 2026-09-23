@@ -11,11 +11,16 @@ pub struct SessionContext {
     pub client_to_server_key: Zeroizing<[u8; 32]>,
     pub server_to_client_key: Zeroizing<[u8; 32]>,
     pub session_salt: [u8; 4],
+    /// The authenticated peer's ML-DSA-87 public key bytes, as verified by
+    /// signature checking during the PQ handshake. Callers MUST use this to
+    /// cross-validate any claimed sender identity in application-layer envelopes.
+    pub peer_dsa_pub_bytes: Vec<u8>,
 }
 
 pub fn derive_session_context(
     shared_secret: &[u8],
     transcript: &[u8],
+    peer_dsa_pub_bytes: Vec<u8>,
 ) -> Result<SessionContext, ProxyError> {
     let hk = Hkdf::<Sha256>::new(Some(transcript), shared_secret);
 
@@ -45,13 +50,15 @@ pub fn derive_session_context(
         client_to_server_key: Zeroizing::new(c_to_s),
         server_to_client_key: Zeroizing::new(s_to_c),
         session_salt,
+        peer_dsa_pub_bytes,
     })
 }
 
 pub fn derive_session_keys(
     shared_secret: &[u8],
     transcript: &[u8],
+    peer_dsa_pub_bytes: Vec<u8>,
 ) -> Result<Zeroizing<[u8; 32]>, ProxyError> {
-    let ctx = derive_session_context(shared_secret, transcript)?;
+    let ctx = derive_session_context(shared_secret, transcript, peer_dsa_pub_bytes)?;
     Ok(ctx.session_key.clone())
 }

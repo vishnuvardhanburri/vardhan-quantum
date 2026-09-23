@@ -43,6 +43,13 @@ pub struct RaftPersistentState {
     pub config_epoch: u64,
 }
 
+/// SEC-002: Integrity envelope for Raft persistent state
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SecureEnvelope {
+    pub payload_json: String,
+    pub mac: String,
+}
+
 fn default_config_epoch() -> u64 {
     1
 }
@@ -119,7 +126,6 @@ pub struct RaftNodeStatus {
     pub configured_peer_count: usize,
     pub match_index: HashMap<String, u64>,
     pub next_index: HashMap<String, u64>,
-    pub voted_for: Option<String>,
     pub timestamp_ms: u64,
     pub cluster_id: String,
     pub config_epoch: u64,
@@ -139,6 +145,8 @@ pub struct RaftConfig {
     /// handle_append_entries. Needed for crash-recovery tests.
     /// Default false avoids file I/O contention in timing-sensitive tests.
     pub persist_on_submit: bool,
+    /// SEC-002: Key used to HMAC the persistent state. If None, state is written without HMAC (legacy/test).
+    pub state_machine_mac_key: Option<[u8; 32]>,
 }
 
 impl Default for RaftConfig {
@@ -147,7 +155,8 @@ impl Default for RaftConfig {
             election_timeout_min_ms: ELECTION_TIMEOUT_MIN,
             election_timeout_max_ms: ELECTION_TIMEOUT_MAX,
             heartbeat_interval_ms: HEARTBEAT_INTERVAL_MS,
-            persist_on_submit: false,
+            persist_on_submit: true, // SEC-013: Default to true for safety
+            state_machine_mac_key: None,
         }
     }
 }
@@ -246,7 +255,7 @@ impl RaftNode {
         config: RaftConfig,
     ) -> Self {
         config.validate().expect("invalid RaftConfig: timing invariant violated");
-        let state = Self::load_persistent_state(&persistence_path).unwrap_or(RaftPersistentState {
+        let state = Self::load_persistent_state(&persistence_path, config.state_machine_mac_key.as_ref()).unwrap_or(RaftPersistentState {
             current_term: 0,
             voted_for: None,
             log: Vec::new(),
@@ -305,11 +314,73 @@ impl RaftNode {
         }
     }
 
-    fn load_persistent_state(path: &PathBuf) -> Option<RaftPersistentState> {
-        let mut file = OpenOptions::new().read(true).open(path).ok()?;
+    fn load_persistent_state(path: &PathBuf, mac_key: Option<&[u8; 32]>) -> Option<RaftPersistentState> {
+        let mut file = match OpenOptions::new().read(true).open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(path = %path.display(), err = %e, "Failed to open persistent Raft state file");
+                }
+                return None;
+            }
+        };
         let mut buf = Vec::new();
-        file.read_to_end(&mut buf).ok()?;
-        serde_json::from_slice(&buf).ok()
+        if let Err(e) = file.read_to_end(&mut buf) {
+            tracing::warn!(path = %path.display(), err = %e, "Failed to read persistent Raft state file");
+            return None;
+        }
+
+        // SEC-002: Try to parse as SecureEnvelope first
+        if let Ok(env) = serde_json::from_slice::<SecureEnvelope>(&buf) {
+            if let Some(key) = mac_key {
+                let expected_mac = blake3::keyed_hash(key, env.payload_json.as_bytes());
+                if expected_mac.to_hex().as_str() != env.mac {
+                    tracing::error!(path = %path.display(), "SEC-002 VIOLATION: Raft state file MAC mismatch! Tampering detected.");
+                    // Fail closed - do not load
+                    panic!("FATAL: Raft state file integrity check failed (MAC mismatch). Node refusing to start.");
+                }
+            }
+            
+            match serde_json::from_str::<RaftPersistentState>(&env.payload_json) {
+                Ok(state) => {
+                    tracing::info!(
+                        path = %path.display(),
+                        term = state.current_term,
+                        commit_index = state.commit_index,
+                        log_len = state.log.len(),
+                        "Loaded MAC-protected persistent Raft state from disk"
+                    );
+                    return Some(state);
+                }
+                Err(e) => {
+                    tracing::error!(path = %path.display(), err = %e, "Failed to parse inner state from SecureEnvelope");
+                    return None;
+                }
+            }
+        }
+
+        // Fallback for legacy plaintext state
+        if mac_key.is_some() {
+            tracing::error!(path = %path.display(), "SEC-002 VIOLATION: Expected SecureEnvelope but found plaintext Raft state.");
+            panic!("FATAL: Raft state file must be MAC-protected when state_machine_mac_key is configured. Node refusing to start.");
+        }
+
+        match serde_json::from_slice::<RaftPersistentState>(&buf) {
+            Ok(state) => {
+                tracing::info!(
+                    path = %path.display(),
+                    term = state.current_term,
+                    commit_index = state.commit_index,
+                    log_len = state.log.len(),
+                    "Loaded legacy unencrypted persistent Raft state from disk"
+                );
+                Some(state)
+            }
+            Err(e) => {
+                tracing::warn!(path = %path.display(), err = %e, "Failed to parse persistent Raft state JSON");
+                None
+            }
+        }
     }
 
 
@@ -325,6 +396,13 @@ impl RaftNode {
 
     /// Persist Raft state with explicit values. Used when the caller already
     /// holds write locks and must avoid re-entrant lock acquisition.
+    ///
+    /// Durability contract:
+    /// 1. Serialize state to canonical JSON bytes.
+    /// 2. Write to unique temporary file in the same directory.
+    /// 3. Explicit flush + sync_all (fsync) on temporary file descriptor.
+    /// 4. Atomic rename temporary file over target persistent state file.
+    /// 5. Explicit sync_all (fsync) on parent directory to ensure directory entry durability.
     async fn persist_state_with(
         &self,
         term: u64,
@@ -334,6 +412,11 @@ impl RaftNode {
         cluster_id: String,
         config_epoch: u64,
     ) -> std::io::Result<()> {
+        let log_len = log.len();
+        let last_log_index = log.last().map(|e| e.index).unwrap_or(0);
+        let last_log_term = log.last().map(|e| e.term).unwrap_or(0);
+        let start_time = std::time::Instant::now();
+
         let state = RaftPersistentState {
             current_term: term,
             voted_for,
@@ -342,10 +425,63 @@ impl RaftNode {
             cluster_id,
             config_epoch,
         };
-        let bytes = serde_json::to_vec(&state).unwrap();
-        let tmp_path = self.persistence_path.with_extension("tmp");
-        std::fs::write(&tmp_path, bytes)?;
-        std::fs::rename(tmp_path, &self.persistence_path)
+        
+        let bytes = if let Some(key) = &self.config.state_machine_mac_key {
+            let payload_json = serde_json::to_string_pretty(&state)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            let mac = blake3::keyed_hash(key, payload_json.as_bytes());
+            let env = SecureEnvelope {
+                payload_json,
+                mac: mac.to_hex().to_string(),
+            };
+            serde_json::to_vec_pretty(&env)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+        } else {
+            serde_json::to_vec_pretty(&state)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+        };
+
+        let tmp_path = self.persistence_path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
+
+        // 1. Write and sync temporary file
+        {
+            use tokio::io::AsyncWriteExt;
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&tmp_path)
+                .await?;
+            file.write_all(&bytes).await?;
+            file.flush().await?;
+            // Ensure data & inode metadata are durably committed to storage
+            file.sync_all().await?;
+        }
+
+        // 2. Atomic rename over destination
+        tokio::fs::rename(&tmp_path, &self.persistence_path).await?;
+
+        // 3. Fsync parent directory to ensure directory entry creation is durable
+        if let Some(parent) = self.persistence_path.parent() {
+            if let Ok(dir) = tokio::fs::File::open(parent).await {
+                let _ = dir.sync_all().await;
+            }
+        }
+
+        let elapsed = start_time.elapsed();
+        tracing::info!(
+            node_id = %self.id,
+            term = term,
+            commit_index = commit_index,
+            log_len = log_len,
+            last_log_index = last_log_index,
+            last_log_term = last_log_term,
+            path = %self.persistence_path.display(),
+            elapsed_us = elapsed.as_micros(),
+            "Durable Raft state synchronization complete (write+flush+sync+rename+dir_sync)"
+        );
+
+        Ok(())
     }
 
     pub async fn update_term(&self, new_term: u64) {
@@ -435,7 +571,6 @@ impl RaftNode {
         } else {
             0
         };
-        let voted_for = self.voted_for.read().await.clone();
         let match_index = self.match_index.read().await.clone();
         let next_index = self.next_index.read().await.clone();
         let cluster_id = self.cluster_id.read().await.clone();
@@ -474,7 +609,6 @@ impl RaftNode {
             configured_peer_count: peers.len(),
             match_index: match_index_str,
             next_index: next_index_str,
-            voted_for: voted_for.map(|v| v.as_str().to_string()),
             timestamp_ms: crate::epoch_ms(),
             cluster_id,
             config_epoch,
@@ -634,27 +768,27 @@ impl RaftNode {
         let term_for_persist = *self.current_term.read().await;
         let voted_for_for_persist = self.voted_for.read().await.clone();
         let log_clone = log.clone();
-        let needs_persist_val = needs_persist && self.config.persist_on_submit;
         drop(log);
 
-        if needs_persist_val {
-            // Fire-and-forget persist — do NOT await, to avoid blocking the
-            // heartbeat cycle on single-threaded test runtimes.
-            let persist_path = self.persistence_path.clone();
-            tokio::task::spawn_blocking(move || {
-                let state = RaftPersistentState {
-                    current_term: term_for_persist,
-                    voted_for: voted_for_for_persist,
-                    log: log_clone,
-                    commit_index: commit_idx_val,
-                    cluster_id: String::new(),
-                    config_epoch: 0,
+        if needs_persist {
+            if let Err(e) = self.persist_state_with(
+                term_for_persist,
+                voted_for_for_persist,
+                log_clone,
+                commit_idx_val,
+                self.cluster_id.read().await.clone(),
+                *self.config_epoch.read().await,
+            ).await {
+                tracing::error!(
+                    node_id = %self.id,
+                    err = %e,
+                    "Failed to durably persist AppendEntries log mutation, rejecting RPC"
+                );
+                return AppendEntriesReply {
+                    term: reply_term,
+                    success: false,
                 };
-                let bytes = match serde_json::to_vec(&state) { Ok(b) => b, Err(_) => return };
-                let tmp_path = persist_path.with_extension("tmp");
-                let _ = std::fs::write(&tmp_path, &bytes);
-                let _ = std::fs::rename(tmp_path, &persist_path);
-            });
+            }
         }
 
         let mut commit_idx = self.commit_index.write().await;
@@ -717,10 +851,10 @@ impl RaftNode {
 
         info!(candidate_id = %self.id, "DEBUG_BEFORE_REQUEST_VOTE_LOOP");
 
-        // Dispatch all RequestVote RPCs concurrently via bounded join_all.
-        // This ensures one slow peer cannot delay requests to other peers.
-        // Bounded by RPC timeout (2s) inside RaftPeerManager::send_request_vote.
-        let rpc_futures: Vec<_> = peers
+        // Dispatch all RequestVote RPCs concurrently via FuturesUnordered.
+        // As soon as a majority is reached, short-circuit immediately without
+        // blocking on slow or crashed peers. (Raft §5.2)
+        let mut rpc_futures: FuturesUnordered<_> = peers
             .iter()
             .map(|peer| {
                 let client = self.rpc_client.clone();
@@ -734,7 +868,6 @@ impl RaftNode {
                     last_log_term = last_term,
                     "REQUEST_VOTE_SENT"
                 );
-                info!(candidate_id = %self.id, target_id = %peer_id, "DEBUG_CALLING_RPC");
                 let fut = Box::pin(async move {
                     let reply = client.send_request_vote(peer_id.clone(), rpc_args).await;
                     (peer_id, reply)
@@ -743,13 +876,12 @@ impl RaftNode {
             })
             .collect();
 
-        let replies = join_all(rpc_futures).await;
-
         let mut votes = 1; // self
         let mut should_step_down = false;
         let mut max_reply_term = cur_term;
+        let needed_votes = (peers.len() + 1) / 2 + 1;
 
-        for (peer, result) in replies {
+        while let Some((peer, result)) = rpc_futures.next().await {
             if let Ok(reply) = result {
                 info!(
                     candidate_id = %self.id,
@@ -763,10 +895,20 @@ impl RaftNode {
                     if reply.term > max_reply_term {
                         max_reply_term = reply.term;
                     }
+                    break;
                 }
                 // Only count votes if not seeing a higher term
                 if reply.vote_granted && !should_step_down {
                     votes += 1;
+                    if votes >= needed_votes {
+                        info!(
+                            candidate_id = %self.id,
+                            votes = votes,
+                            needed = needed_votes,
+                            "Quorum achieved early; short-circuiting RequestVote RPCs"
+                        );
+                        break;
+                    }
                 }
             } else {
                 info!(
@@ -834,6 +976,13 @@ impl RaftNode {
         let quorum = (match_indices.len() + 1) / 2 + 1;
         if let Some(&n) = possible_commits.get(quorum - 1) {
             if n > *commit_idx && n > 0 && log[(n - 1) as usize].term == term {
+                if self.config.persist_on_submit {
+                    let voted_for = self.voted_for.read().await.clone();
+                    let log_clone = log.clone();
+                    let cluster_id = self.cluster_id.read().await.clone();
+                    let config_epoch = *self.config_epoch.read().await;
+                    let _ = self.persist_state_with(term, voted_for, log_clone, n, cluster_id, config_epoch).await;
+                }
                 *commit_idx = n;
                 drop(commit_idx);
                 drop(log);

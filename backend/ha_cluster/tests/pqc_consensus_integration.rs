@@ -297,7 +297,8 @@ async fn pqc_2_1_request_vote_over_pq_transport() {
         election_timeout_min_ms: 200,
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
 
     let node_b = Arc::new(RaftNode::with_config(
@@ -321,8 +322,8 @@ async fn pqc_2_1_request_vote_over_pq_transport() {
         };
         let mut transport = AeadTransport::new(
             stream,
-            _session.server_to_client_key,
-            _session.client_to_server_key,
+            *_session.server_to_client_key,
+            *_session.client_to_server_key,
             _session.session_id,
             _session.session_salt,
             false,
@@ -356,8 +357,8 @@ async fn pqc_2_1_request_vote_over_pq_transport() {
     let init_session = run_initiator(&mut client, &identity_a).await.unwrap();
     let mut transport = AeadTransport::new(
         client,
-        init_session.client_to_server_key,
-        init_session.server_to_client_key,
+        *init_session.client_to_server_key,
+        *init_session.server_to_client_key,
         init_session.session_id,
         init_session.session_salt,
         true,
@@ -411,7 +412,8 @@ async fn pqc_2_2_append_entries_over_pq_transport() {
         election_timeout_min_ms: 200,
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
 
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
@@ -435,8 +437,8 @@ async fn pqc_2_2_append_entries_over_pq_transport() {
         };
         let mut transport = AeadTransport::new(
             stream,
-            session.server_to_client_key,
-            session.client_to_server_key,
+            *session.server_to_client_key,
+            *session.client_to_server_key,
             session.session_id,
             session.session_salt,
             false,
@@ -470,8 +472,8 @@ async fn pqc_2_2_append_entries_over_pq_transport() {
     let init_session = run_initiator(&mut client, &identity_a).await.unwrap();
     let mut transport = AeadTransport::new(
         client,
-        init_session.client_to_server_key,
-        init_session.server_to_client_key,
+        *init_session.client_to_server_key,
+        *init_session.server_to_client_key,
         init_session.session_id,
         init_session.session_salt,
         true,
@@ -542,7 +544,8 @@ async fn pqc_2_4_leader_election() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 300,
         heartbeat_interval_ms: 100,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
 
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
@@ -618,7 +621,8 @@ async fn pqc_2_5_leader_replacement() {
         election_timeout_min_ms: 200,
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -684,7 +688,8 @@ async fn pqc_2_6_network_partition_rejoin() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 250,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
 
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
@@ -933,7 +938,8 @@ async fn pqc_3_9_modified_raft_term_rejected() {
         election_timeout_min_ms: 200,
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -1047,7 +1053,8 @@ async fn pqc_4_1_partition_elects_new_leader() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 250,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -1192,6 +1199,7 @@ async fn pqc_4_3_committed_entries_survive() {
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
         persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -1300,6 +1308,7 @@ async fn pqc_4_5_restarted_node_recovers_state() {
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
         persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -1396,7 +1405,8 @@ async fn pqc_5_3_partition_stale_certificate() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 250,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -1501,7 +1511,8 @@ async fn pqc_5_7_new_leader_old_leader_reconnect() {
         election_timeout_min_ms: 200,
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -1887,6 +1898,7 @@ async fn pqc_7_4_committed_state_survives_restart() {
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
         persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -1997,7 +2009,8 @@ async fn pqc_7_8_partition_no_split_history() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 250,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -2084,6 +2097,7 @@ async fn pqc_7_10_evidence_corresponds_to_committed_state() {
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
         persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -2119,7 +2133,7 @@ async fn pqc_7_10_evidence_corresponds_to_committed_state() {
 
     // Read back from persistence
     let persisted = std::fs::read_to_string("/tmp/pqc_7_10.json").unwrap();
-    let state: ha_cluster::raft::RaftPersistentState = serde_json::from_str(&persisted).unwrap();
+    let payload = if let Ok(env) = serde_json::from_str::<ha_cluster::raft::SecureEnvelope>(&persisted) { env.payload_json } else { persisted.clone() }; let state: ha_cluster::raft::RaftPersistentState = serde_json::from_str(&payload).unwrap();
     let log = state.log;
     assert_eq!(log.len(), 1, "I10: Evidence log must contain the committed entry");
 
@@ -2154,6 +2168,7 @@ async fn pqc_8_1_end_to_end_with_boundary_attacks() {
         election_timeout_max_ms: 300,
         heartbeat_interval_ms: 100,
         persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
 
     let cluster_map: Arc<RwLock<HashMap<NodeId, Arc<RaftNode>>>> =
@@ -2224,7 +2239,7 @@ async fn pqc_8_1_end_to_end_with_boundary_attacks() {
         let path = format!("/tmp/pqc_e2e_{}.json", i);
         if std::path::Path::new(&path).exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(state) = serde_json::from_str::<ha_cluster::raft::RaftPersistentState>(&content) {
+                let payload = if let Ok(env) = serde_json::from_str::<ha_cluster::raft::SecureEnvelope>(&content) { env.payload_json } else { content.clone() }; if let Ok(state) = serde_json::from_str::<ha_cluster::raft::RaftPersistentState>(&payload) {
                     if state.log.len() > 0 {
                         let entry_hash = blake3::hash(&serde_json::to_vec(&entry).unwrap());
                         let persisted_hash = blake3::hash(&serde_json::to_vec(&state.log[0]).unwrap());
@@ -2244,3 +2259,4 @@ async fn pqc_8_1_end_to_end_with_boundary_attacks() {
         std::fs::remove_file(format!("/tmp/pqc_e2e_{}.json", i)).ok();
     }
 }
+

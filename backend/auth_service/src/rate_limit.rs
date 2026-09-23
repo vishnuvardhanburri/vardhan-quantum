@@ -14,7 +14,9 @@
 //! admin panel where an attacker who can restart the process already has
 //! greater access than the rate limiter would prevent.
 //!
-//! For a multi-node deployment, replace with a shared Redis/Valkey counter.
+//! SEC-009 NOTE: For a multi-node deployment, replace with a shared Redis/Valkey counter.
+//! Currently, an attacker can bypass rate limits by rotating requests across multiple nodes
+//! or intentionally crashing the process to reset the counter.
 
 use std::net::IpAddr;
 use std::sync::Arc;

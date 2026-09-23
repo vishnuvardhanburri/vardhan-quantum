@@ -43,10 +43,10 @@ impl PeerRequest {
         }
     }
 
-    fn payload(&self) -> Vec<u8> {
+    fn payload(&self) -> Result<Vec<u8>, serde_json::Error> {
         match self {
-            PeerRequest::RequestVote { args, .. } => serde_json::to_vec(args).unwrap(),
-            PeerRequest::AppendEntries { args, .. } => serde_json::to_vec(args).unwrap(),
+            PeerRequest::RequestVote { args, .. } => serde_json::to_vec(args),
+            PeerRequest::AppendEntries { args, .. } => serde_json::to_vec(args),
         }
     }
 
@@ -84,7 +84,9 @@ impl RaftPeerManager {
                 membership,
                 self_node_id,
                 workers: RwLock::new(HashMap::new()),
-                next_request_id: AtomicU64::new(0),
+                next_request_id: AtomicU64::new(
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64
+                ),
             }),
         }
     }
@@ -104,10 +106,15 @@ impl RaftPeerManagerInner {
     pub async fn get_or_spawn_worker(&self, to: NodeId) -> Result<mpsc::Sender<PeerRequest>, String> {
         info!(to = %to, "get_or_spawn_worker called");
         {
-            let workers = self.workers.read().await;
+            let mut workers = self.workers.write().await;
             if let Some(tx) = workers.get(&to) {
-                info!(to = %to, "Worker already exists");
-                return Ok(tx.clone());
+                if !tx.is_closed() {
+                    info!(to = %to, "Worker already exists and active");
+                    return Ok(tx.clone());
+                } else {
+                    info!(to = %to, "Cached worker is closed, removing");
+                    workers.remove(&to);
+                }
             }
         }
 
@@ -166,10 +173,11 @@ impl RaftRpcClient for RaftPeerManager {
                 response_tx,
             };
 
-            tx.send(req)
-                .await
-                .map_err(|_| "Peer worker closed".to_string())?;
-            let resp_bytes = timeout(Duration::from_millis(500), response_rx)
+            if let Err(_) = tx.send(req).await {
+                inner.clear_worker(&to).await;
+                return Err("Peer worker closed".to_string());
+            }
+            let resp_bytes = timeout(Duration::from_millis(3000), response_rx)
                 .await
                 .map_err(|_| "RPC timeout".to_string())?
                 .map_err(|_| "Response channel closed".to_string())?;
@@ -197,10 +205,11 @@ impl RaftRpcClient for RaftPeerManager {
                 response_tx,
             };
 
-            tx.send(req)
-                .await
-                .map_err(|_| "Peer worker closed".to_string())?;
-            let resp_bytes = timeout(Duration::from_millis(500), response_rx)
+            if let Err(_) = tx.send(req).await {
+                inner.clear_worker(&to).await;
+                return Err("Peer worker closed".to_string());
+            }
+            let resp_bytes = timeout(Duration::from_millis(3000), response_rx)
                 .await
                 .map_err(|_| "RPC timeout".to_string())?
                 .map_err(|_| "Response channel closed".to_string())?;
@@ -244,13 +253,20 @@ async fn run_peer_worker(
         };
 
         info!(peer = %to_id, "Starting PQ handshake");
-        let session = match run_initiator(&mut stream, &identity).await {
-            Ok(s) => {
+        let handshake_fut = run_initiator(&mut stream, &identity);
+        let session = match tokio::time::timeout(tokio::time::Duration::from_millis(1500), handshake_fut).await {
+            Ok(Ok(s)) => {
                 info!(peer = %to_id, "PQ handshake successful");
                 s
             },
-            Err(e) => {
+            Ok(Err(e)) => {
                 error!(peer = %to_id, err = %e, "PQ handshake failed, retrying in {:?}...", backoff);
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_secs(30));
+                continue;
+            },
+            Err(_) => {
+                error!(peer = %to_id, "PQ handshake TIMEOUT (network starved), retrying...");
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(30));
                 continue;
@@ -276,7 +292,13 @@ async fn run_peer_worker(
                 Some(req) = rx.recv() => {
                     let request_id = req.request_id();
                     let rpc_type = req.rpc_type();
-                    let payload = req.payload();
+                    let payload = match req.payload() {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let _ = req.take_response_tx().send(Err(format!("Serialization error: {}", e)));
+                            continue;
+                        }
+                    };
                     let response_tx = req.take_response_tx();
 
                     let envelope = RaftRpcEnvelope {
@@ -287,7 +309,13 @@ async fn run_peer_worker(
                         request_id,
                         payload,
                     };
-                    let env_bytes = serde_json::to_vec(&envelope).unwrap();
+                    let env_bytes = match serde_json::to_vec(&envelope) {
+                        Ok(b) => b,
+                        Err(e) => {
+                            let _ = response_tx.send(Err(format!("Envelope serialization error: {}", e)));
+                            continue;
+                        }
+                    };
 
                     pending_responses.insert(request_id, response_tx);
 

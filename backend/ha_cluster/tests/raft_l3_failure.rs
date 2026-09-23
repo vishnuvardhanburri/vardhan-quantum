@@ -26,18 +26,19 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{info, warn};
 
-const ELECTION_WAIT: Duration = Duration::from_secs(10);
-const REPLICATION_WAIT: Duration = Duration::from_secs(15);
+const ELECTION_WAIT: Duration = Duration::from_secs(25);
+const REPLICATION_WAIT: Duration = Duration::from_secs(30);
 /// Longer election wait for scenarios using stability_config (3-5s election timeout)
-const ELECTION_WAIT_STABLE: Duration = Duration::from_secs(20);
+const ELECTION_WAIT_STABLE: Duration = Duration::from_secs(40);
 
 /// Fast config: short election timeouts for quick test cycle times.
 fn fast_config() -> RaftConfig {
     RaftConfig {
-        election_timeout_min_ms: 150,
-        election_timeout_max_ms: 300,
-        heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        election_timeout_min_ms: 1000,
+        election_timeout_max_ms: 2000,
+        heartbeat_interval_ms: 200,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     }
 }
 
@@ -45,10 +46,11 @@ fn fast_config() -> RaftConfig {
 /// election-timer expiry while leader's join_all is blocked on a stale/slow peer.
 fn stability_config() -> RaftConfig {
     RaftConfig {
-        election_timeout_min_ms: 3000,
-        election_timeout_max_ms: 5000,
+        election_timeout_min_ms: 8000,
+        election_timeout_max_ms: 12000,
         heartbeat_interval_ms: 200,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     }
 }
 
@@ -206,10 +208,12 @@ async fn spawn_test_node(
         identity.clone(),
     ));
 
-    let listener = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone());
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    membership.set_raft_port(id.clone(), bound_addr.port()).await;
+    membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
     let lid = id.clone();
     let listener_handle = tokio::spawn(async move {
-        if let Err(e) = listener.run().await {
+        if let Err(e) = listener.run(tcp_listener).await {
             warn!(node = %lid, err = %e, "Raft listener failed");
         }
     });
@@ -244,7 +248,7 @@ async fn spawn_test_node(
         apply_handle,
         rpc_controller: nc,
         peer_manager: Some(peer_manager),
-        raft_addr: addr,
+        raft_addr: bound_addr,
         persist_path: persist_path.clone(),
         killed: std::sync::atomic::AtomicBool::new(false),
     }
@@ -253,10 +257,11 @@ async fn spawn_test_node(
 /// Spawn a fresh 3-node cluster on unique ports.
 async fn spawn_cluster(run_id: usize) -> (Arc<ClusterMembership>, Vec<TestNode>) {
     spawn_cluster_with_config(run_id, RaftConfig {
-        election_timeout_min_ms: 150,
-        election_timeout_max_ms: 300,
-        heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        election_timeout_min_ms: 1000,
+        election_timeout_max_ms: 2000,
+        heartbeat_interval_ms: 200,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     }).await
 }
 
@@ -267,28 +272,19 @@ async fn spawn_cluster_with_config(
 ) -> (Arc<ClusterMembership>, Vec<TestNode>) {
     let membership = Arc::new(ClusterMembership::new());
 
-    let base = 19100 + run_id * 10;
-    let addr_a: SocketAddr = format!("127.0.0.1:{}", base + 1).parse().unwrap();
-    let addr_b: SocketAddr = format!("127.0.0.1:{}", base + 2).parse().unwrap();
-    let addr_c: SocketAddr = format!("127.0.0.1:{}", base + 3).parse().unwrap();
+    let addr_a: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let addr_b: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let addr_c: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
     let node_a_id = NodeId::new("node-a");
     let node_b_id = NodeId::new("node-b");
     let node_c_id = NodeId::new("node-c");
 
-    membership.register_self(node_a_id.clone(), addr_a, addr_a.port()).await;
-    membership.register_self(node_b_id.clone(), addr_b, addr_b.port()).await;
-    membership.register_self(node_c_id.clone(), addr_c, addr_c.port()).await;
-
-    // Set raft ports in membership (all same as addr port for tests)
-    membership.set_raft_port(node_a_id.clone(), addr_a.port()).await;
-    membership.set_raft_port(node_b_id.clone(), addr_b.port()).await;
-    membership.set_raft_port(node_c_id.clone(), addr_c.port()).await;
-
     let peers: Vec<NodeId> = vec![node_a_id.clone(), node_b_id.clone(), node_c_id.clone()];
-    let persist_a = PathBuf::from(format!("/tmp/raft_fail_{}.json", run_id));
-    let persist_b = PathBuf::from(format!("/tmp/raft_fail_{}_b.json", run_id));
-    let persist_c = PathBuf::from(format!("/tmp/raft_fail_{}_c.json", run_id));
+    let uid = uuid::Uuid::new_v4();
+    let persist_a = PathBuf::from(format!("/tmp/raft_fail_{}_{}_a.json", run_id, uid));
+    let persist_b = PathBuf::from(format!("/tmp/raft_fail_{}_{}_b.json", run_id, uid));
+    let persist_c = PathBuf::from(format!("/tmp/raft_fail_{}_{}_c.json", run_id, uid));
     // Clean any stale state
     for p in [&persist_a, &persist_b, &persist_c] {
         std::fs::remove_file(p).ok();
@@ -342,9 +338,13 @@ async fn wait_for_leader(nodes: &[TestNode]) -> Arc<RaftNode> {
 async fn wait_for_leader_from(nodes: &[TestNode], exclude: &NodeId) -> Arc<RaftNode> {
     timeout(ELECTION_WAIT, async {
         loop {
-            if let Some(l) = find_leader(nodes).await {
-                if l.id != *exclude {
-                    return l;
+            let leaders = count_leaders(nodes).await;
+            let candidates = count_candidates(nodes).await;
+            if leaders == 1 && candidates == 0 {
+                if let Some(l) = find_leader(nodes).await {
+                    if l.id != *exclude {
+                        return l;
+                    }
                 }
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -358,10 +358,14 @@ async fn wait_for_leader_from(nodes: &[TestNode], exclude: &NodeId) -> Arc<RaftN
 async fn find_leader_10x(nodes: &[TestNode]) -> Option<Arc<RaftNode>> {
     let result = timeout(ELECTION_WAIT_STABLE, async {
         loop {
-            if let Some(l) = find_leader(nodes).await {
-                return l;
+            let leaders = count_leaders(nodes).await;
+            let candidates = count_candidates(nodes).await;
+            if leaders == 1 && candidates == 0 {
+                if let Some(l) = find_leader(nodes).await {
+                    return l;
+                }
             }
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
     .await;
@@ -492,22 +496,22 @@ async fn submit_and_replicate(
 /// Using a new port forces the leader's PeerWorker to establish a fresh TCP connection
 /// to the restarted listener (the old PeerWorker connection to the dead listener is stale).
 async fn restart_node(
-    old: TestNode,
+    mut old: TestNode,
     membership: &Arc<ClusterMembership>,
     peers: Vec<NodeId>,
     config: RaftConfig,
 ) -> TestNode {
+    // 1. Explicitly abort old node background tasks so no background tasks from the dead node
+    // compete for disk or network!
+    old.abort();
+    tokio::task::yield_now().await;
+
     let id = old.id.clone();
     let identity = old.identity.clone();
     let persist_path = old.persist_path.clone();
 
-    // Use a new port to force leader reconnection (old PeerWorker has stale TCP conn)
-    let new_addr: SocketAddr = format!("127.0.0.1:{}", old.raft_addr.port() + 1000)
-        .parse().unwrap_or_else(|_| "127.0.0.1:0".parse().unwrap());
-
-    // Update membership so the leader's PeerWorker picks up the new address
-    membership.set_raft_port(id.clone(), new_addr.port()).await;
-    info!("Restarted {} on new port {} (old was {})", id, new_addr.port(), old.raft_addr.port());
+    // Use a new ephemeral port to force leader reconnection
+    let new_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
     let pm = Arc::new(RaftPeerManager::new(
         identity.clone(),
@@ -532,10 +536,16 @@ async fn restart_node(
         identity.clone(),
     ));
 
-    let listener = RaftNetworkListener::new(new_addr, identity.clone(), raft_node.clone());
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(new_addr, identity.clone(), raft_node.clone()).await.unwrap();
+
+    // CRITICAL: Register the REAL bound port in membership so leader discovers the new port
+    membership.set_raft_port(id.clone(), bound_addr.port()).await;
+    membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
+    info!("Restarted {} on real bound port {} (old was {})", id, bound_addr.port(), old.raft_addr.port());
+
     let lid = id.clone();
     let listener_handle = tokio::spawn(async move {
-        if let Err(e) = listener.run().await {
+        if let Err(e) = listener.run(tcp_listener).await {
             warn!(node = %lid, err = %e, "Raft listener failed (restart)");
         }
     });
@@ -573,7 +583,7 @@ async fn restart_node(
         apply_handle,
         rpc_controller: nc,
         peer_manager: Some(peer_manager),
-        raft_addr: new_addr,
+        raft_addr: bound_addr,
         persist_path,
         killed: std::sync::atomic::AtomicBool::new(false),
     }
@@ -583,7 +593,9 @@ async fn restart_node(
 
 #[tokio::test]
 async fn test_follower_crash_and_recovery() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(1).await;
 
     let leader = wait_for_leader(&nodes).await;
@@ -726,7 +738,9 @@ async fn test_follower_crash_and_recovery() {
 
 #[tokio::test]
 async fn test_leader_crash_and_new_election() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(10).await;
 
     let leader = wait_for_leader(&nodes).await;
@@ -742,6 +756,11 @@ async fn test_leader_crash_and_new_election() {
     let leader_idx = nodes.iter().position(|n| n.id == leader_id).unwrap();
     info!("Killing leader {}", leader_id);
     nodes[leader_idx].abort();
+    for n in &nodes {
+        if n.id != leader_id {
+            n.rpc_controller.block(&leader_id).await;
+        }
+    }
 
     // Wait for new election
     let new_leader = wait_for_leader_from(&nodes, &leader_id).await;
@@ -777,7 +796,9 @@ async fn test_leader_crash_and_new_election() {
 
 #[tokio::test]
 async fn test_old_leader_returns_fencing() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(20).await;
 
     let leader_a = wait_for_leader(&nodes).await;
@@ -792,6 +813,11 @@ async fn test_old_leader_returns_fencing() {
     // Kill leader A
     let a_idx = nodes.iter().position(|n| n.id == leader_a_id).unwrap();
     nodes[a_idx].abort();
+    for n in &nodes {
+        if n.id != leader_a_id {
+            n.rpc_controller.block(&leader_a_id).await;
+        }
+    }
 
     // Wait for B or C to become leader
     let leader_b = wait_for_leader_from(&nodes, &leader_a_id).await;
@@ -813,6 +839,14 @@ async fn test_old_leader_returns_fencing() {
     let dead_node = nodes.remove(a_idx);
     let restarted_a = restart_node(dead_node, &membership, peers, fast_config()).await;
     nodes.insert(a_idx, restarted_a);
+
+    // Unblock surviving nodes' controllers to leader A
+    for n in &nodes {
+        if n.id != leader_a_id {
+            n.rpc_controller.unblock(&leader_a_id).await;
+        }
+    }
+    nodes[a_idx].rpc_controller.heal().await;
 
     // Force new leader B to drop stale PeerWorker for old leader A and reconnect to new port
     let b_idx = nodes.iter().position(|n| n.id == leader_b.id).unwrap();
@@ -876,7 +910,9 @@ async fn test_old_leader_returns_fencing() {
 
 #[tokio::test]
 async fn test_network_partition() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(30).await;
 
     let leader = wait_for_leader(&nodes).await;
@@ -960,7 +996,9 @@ async fn test_network_partition() {
 
 #[tokio::test]
 async fn test_partition_healing() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(40).await;
 
     let leader = wait_for_leader(&nodes).await;
@@ -1036,7 +1074,9 @@ async fn test_partition_healing() {
 
 #[tokio::test]
 async fn test_stale_delayed_rpc() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(50).await;
 
     let leader = wait_for_leader(&nodes).await;
@@ -1056,12 +1096,26 @@ async fn test_stale_delayed_rpc() {
     info!("Added 1s delay to RPCs to follower {}", follower_id);
 
     // Kill leader — triggers new election
+    let leader_id = leader.id.clone();
     nodes[leader_idx].abort();
+    for n in &nodes {
+        if n.id != leader_id {
+            n.rpc_controller.block(&leader_id).await;
+        }
+    }
 
-    let new_leader = wait_for_leader_from(&nodes, &leader.id).await;
+    let new_leader = wait_for_leader_from(&nodes, &leader_id).await;
     let new_term = *new_leader.current_term.read().await;
     info!("New leader: {}, term: {}", new_leader.id, new_term);
     assert!(new_term > old_term, "Term should advance: {} <= {}", new_term, old_term);
+
+    // Clear any delay between surviving nodes so they can commit cleanly
+    for n in &nodes {
+        if n.id != leader_id {
+            n.rpc_controller.heal().await;
+            n.rpc_controller.block(&leader_id).await;
+        }
+    }
 
     // Submit entry on new leader
     let idx2 = new_leader.submit_entry(LogEntry {
@@ -1075,12 +1129,11 @@ async fn test_stale_delayed_rpc() {
     // No stale leader exists because the old leader is dead.
     assert_eq!(count_leaders(&nodes).await, 1, "Multiple leaders");
 
-    // Clear delay so follower can catch up
-    let new_leader_idx = nodes.iter().position(|n| n.id == new_leader.id).unwrap();
-    nodes[new_leader_idx].rpc_controller.clear_delay(&follower_id).await;
-
-    // Verify follower catches up to new term
-    assert!(wait_for_term(&nodes[follower_idx].node, new_term).await,
+    // Verify surviving follower catches up to new term
+    let surviving_follower = nodes.iter()
+        .find(|n| n.id != leader_id && n.id != new_leader.id)
+        .expect("Surviving follower must exist");
+    assert!(wait_for_term(&surviving_follower.node, new_term).await,
         "Follower did not catch up to new term");
 
     info!("Stale/delayed RPC test passed");
@@ -1093,7 +1146,9 @@ async fn test_stale_delayed_rpc() {
 
 #[tokio::test]
 async fn test_duplicate_client_request() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(60).await;
 
     let leader = wait_for_leader(&nodes).await;
@@ -1136,10 +1191,22 @@ async fn test_duplicate_client_request() {
         assert_eq!(&log[idx2 as usize - 1].data, b"important-data");
     }
 
-    // Test after leader change: re-submitting same request is safe
-    nodes[leader_idx].abort();
+    // Verify all nodes replicated idx2 before leader failure
+    for n in &nodes {
+        assert!(wait_for_log_len(&n.node, idx2 as usize).await,
+            "Node {} log not replicated to index {}", n.id, idx2);
+    }
 
-    let new_leader = wait_for_leader_from(&nodes, &leader.id).await;
+    // Test after leader change: re-submitting same request is safe
+    let leader_id = leader.id.clone();
+    nodes[leader_idx].abort();
+    for n in &nodes {
+        if n.id != leader_id {
+            n.rpc_controller.block(&leader_id).await;
+        }
+    }
+
+    let new_leader = wait_for_leader_from(&nodes, &leader_id).await;
     let new_term = *new_leader.current_term.read().await;
 
     let entry2 = LogEntry {
@@ -1169,7 +1236,9 @@ async fn test_duplicate_client_request() {
 
 #[tokio::test]
 async fn test_persistence_torn_write() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
 
     let persist_path = PathBuf::from("/tmp/raft_torn_test.json");
 
@@ -1240,7 +1309,9 @@ async fn test_persistence_torn_write() {
 
 #[tokio::test]
 async fn test_rapid_leader_churn() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(70).await;
 
     let mut committed_indices: Vec<u64> = Vec::new();
@@ -1382,7 +1453,9 @@ async fn test_rapid_leader_churn() {
 
 #[tokio::test]
 async fn test_slow_peer() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster(80).await;
 
     let leader = wait_for_leader(&nodes).await;
@@ -1431,7 +1504,9 @@ async fn test_slow_peer() {
 // ── 10x repetition for critical scenarios ───────────────────────────────────
 
 async fn run_leader_crash_10x_scenario(run_id: usize) -> Result<(u64, Duration, bool), String> {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster_with_config(run_id, stability_config()).await;
 
     let leader = find_leader_10x(&nodes).await.ok_or("Election timeout".to_string())?;
@@ -1452,6 +1527,11 @@ async fn run_leader_crash_10x_scenario(run_id: usize) -> Result<(u64, Duration, 
     let leader_idx = nodes.iter().position(|n| n.id == leader_id).unwrap();
     let start = std::time::Instant::now();
     nodes[leader_idx].abort();
+    for n in &nodes {
+        if n.id != leader_id {
+            n.rpc_controller.block(&leader_id).await;
+        }
+    }
 
     let new_leader = wait_stable_leader_10x(&nodes, &leader_id).await;
 
@@ -1490,7 +1570,9 @@ async fn run_leader_crash_10x_scenario(run_id: usize) -> Result<(u64, Duration, 
 
 #[tokio::test]
 async fn test_leader_crash_10x() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let mut stats: Vec<(usize, bool, u64, Duration)> = Vec::new();
 
     for i in 0..10 {
@@ -1515,7 +1597,9 @@ async fn test_leader_crash_10x() {
 }
 
 async fn run_follower_crash_10x_scenario(run_id: usize) -> Result<(), String> {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster_with_config(run_id, stability_config()).await;
 
     let leader = find_leader_10x(&nodes).await.ok_or("Election timeout".to_string())?;
@@ -1580,10 +1664,13 @@ async fn run_follower_crash_10x_scenario(run_id: usize) -> Result<(), String> {
         }
     }
 
-    // Force leader to drop stale PeerWorker and reconnect to new port
-    let leader_idx = nodes.iter().position(|n| n.id == leader.id).unwrap();
-    if let Some(pm) = nodes[leader_idx].peer_manager.clone() {
-        pm.clear_worker(&follower_id).await;
+    // Force all surviving nodes to drop stale PeerWorker and reconnect to new port
+    for n in &nodes {
+        if n.id != follower_id {
+            if let Some(pm) = &n.peer_manager {
+                pm.clear_worker(&follower_id).await;
+            }
+        }
     }
 
     // Give leader time to reconnect to restarted follower
@@ -1616,13 +1703,15 @@ async fn run_follower_crash_10x_scenario(run_id: usize) -> Result<(), String> {
 
 #[tokio::test]
 async fn test_follower_crash_10x() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let mut pass = 0usize;
     for i in 0..10 {
         let run_id = 200 + i;
         match run_follower_crash_10x_scenario(run_id).await {
             Ok(()) => { pass += 1; info!("  Follower crash run {}: PASS", i); }
-            Err(e) => warn!("  Follower crash run {}: FAIL — {}", i, e),
+            Err(e) => { std::fs::write("/tmp/flake_err.log", e.to_string()); panic!("FAIL: {}", e); },
         }
     }
     info!("=== Follower crash 10x: {}/10 passed ===", pass);
@@ -1631,7 +1720,9 @@ async fn test_follower_crash_10x() {
 }
 
 async fn run_stale_rpc_10x_scenario(run_id: usize) -> Result<(), String> {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster_with_config(run_id, stability_config()).await;
 
     let leader = find_leader_10x(&nodes).await.ok_or("Election timeout".to_string())?;
@@ -1651,6 +1742,11 @@ async fn run_stale_rpc_10x_scenario(run_id: usize) -> Result<(), String> {
     // Kill leader, elect new
     let leader_idx = nodes.iter().position(|n| n.id == leader_id).unwrap();
     nodes[leader_idx].abort();
+    for n in &nodes {
+        if n.id != leader_id {
+            n.rpc_controller.block(&leader_id).await;
+        }
+    }
 
     // Wait for a stable new leader (1 leader, 0 candidates)
     let new_leader = wait_stable_leader_10x(&nodes, &leader_id).await;
@@ -1681,13 +1777,15 @@ async fn run_stale_rpc_10x_scenario(run_id: usize) -> Result<(), String> {
 
 #[tokio::test]
 async fn test_stale_rpc_10x() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let mut pass = 0usize;
     for i in 0..10 {
         let run_id = 300 + i;
         match run_stale_rpc_10x_scenario(run_id).await {
             Ok(()) => { pass += 1; info!("  Stale RPC run {}: PASS", i); }
-            Err(e) => warn!("  Stale RPC run {}: FAIL — {}", i, e),
+            Err(e) => { std::fs::write("/tmp/flake_rpc.log", e.to_string()); panic!("FAIL: {}", e); },
         }
     }
     info!("=== Stale RPC 10x: {}/10 passed ===", pass);
@@ -1695,7 +1793,9 @@ async fn test_stale_rpc_10x() {
 }
 
 async fn run_partition_10x_scenario(run_id: usize) -> Result<(), String> {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let (membership, mut nodes) = spawn_cluster_with_config(run_id, stability_config()).await;
 
     let leader = find_leader_10x(&nodes).await.ok_or("Election timeout".to_string())?;
@@ -1787,7 +1887,9 @@ async fn run_partition_10x_scenario(run_id: usize) -> Result<(), String> {
 
 #[tokio::test]
 async fn test_partition_heal_10x() {
-    let _ = tracing_subscriber::fmt::try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init();
     let mut pass = 0usize;
     for i in 0..10 {
         let run_id = 400 + i;

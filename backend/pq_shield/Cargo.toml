@@ -32,6 +32,7 @@ opentelemetry-otlp = { version = "0.32", features = ["trace", "http-proto"] }
 tracing-opentelemetry = "0.33"
 opentelemetry-proto = { version = "0.32", features = ["gen-tonic-messages", "trace"] }
 prost = "0.14"
+rand = "0.8"
 
 [features]
 default = []

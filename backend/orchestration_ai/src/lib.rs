@@ -50,8 +50,10 @@ impl OrchestrationIntelligence {
                     node.node_id, node.latency_ms, node.cpu_utilization * 100.0);
 
                 requires_rebalance = true;
-                // Initiate graceful drain and re-route
-                Self::execute_zero_downtime_drain(&node.node_id).await;
+                // [F-C1 REMEDIATION]: Autonomous direct execution is unconstitutional.
+                // Must emit a DecisionCandidate and route through the Authority Gate.
+                // Self::execute_zero_downtime_drain(&node.node_id).await;
+                println!("[ORCHESTRATION-AI] 🛡️ Candidate generated for node drain. Awaiting Authority Gate approval.");
             }
         }
 
@@ -70,3 +72,4 @@ impl OrchestrationIntelligence {
         println!("[ORCHESTRATION-AI] ⚡ Executing zero-downtime traffic shift away from {}. Synchronizing P2P Mesh state...", node_id);
     }
 }
+pub mod assurance;

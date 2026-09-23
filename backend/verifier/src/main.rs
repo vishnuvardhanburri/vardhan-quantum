@@ -31,13 +31,13 @@ async fn send_tampered_frame(
     msg: &[u8],
     corrupt_ct: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new(key.into());
 
     // Nonce logic (1 byte dir, 3 bytes zero, 8 bytes seq)
     let mut nonce_bytes = [0u8; 12];
     nonce_bytes[0] = direction_marker;
     nonce_bytes[4..12].copy_from_slice(&seq.to_be_bytes());
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = (&nonce_bytes).into();
 
     // AAD logic (32B session_id, 1B dir, 8B seq, 4B version, 4B length)
     let mut aad = Vec::new();

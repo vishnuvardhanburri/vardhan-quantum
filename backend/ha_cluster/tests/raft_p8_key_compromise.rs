@@ -105,7 +105,7 @@ fn p8_7a_signature_verification_detects_key_substitution() {
     // legitimate signer's (we don't change it). This simulates an attacker
     // who has access to a compromised signing environment.
     let event_json = serde_json::to_string(&entry1.event).unwrap();
-    let canonical = entry1.canonical_hash();
+    let canonical = entry1.canonical_hash().unwrap();
     let attacker_sig = attacker.sign_payload(&canonical).unwrap();
     entry1.signature = hex::encode(&attacker_sig);
 
@@ -125,7 +125,7 @@ fn p8_7a_signature_verification_detects_key_substitution() {
 
         let valid = QuantumNodeIdentity::verify_signature(
             &legit_pub,
-            &canonical,
+            &canonical.unwrap(),
             &sig_bytes,
         );
 
@@ -290,18 +290,16 @@ fn p8_7d_signer_fingerprint_not_in_signature() {
         &sig_bytes,
     );
 
-    // VULNERABILITY: signature still verifies even though fingerprint was changed
-    assert!(sig_valid,
-        "P8-004: Signature verifies despite fingerprint tampering — fingerprint is NOT in signed data");
+    // P8-004 FIX: signature fails because fingerprint IS in signed data (canonical_bytes)
+    assert!(!sig_valid,
+        "P8-004 FIX: Signature verification fails when fingerprint is tampered — fingerprint is bound in signed data");
 
-    // The fingerprint MISMATCH is only caught by pq_verify's separate check:
+    // The fingerprint MISMATCH is also caught by pq_verify's separate check:
     let expected_fp_a = hex::encode(QuantumNodeIdentity::hash_ledger_block(&pub_key_a));
     assert_ne!(tampered_cp.checkpoint.signer_pub_fingerprint, expected_fp_a,
         "Fingerprint should have been changed to identity_b's");
-    // This mismatch would be caught by pq_verify line 383-389:
-    // if cp.checkpoint.signer_pub_fingerprint != expected_fp { ... FAIL }
 
-    println!("P8.7d PASSED: P8-004 confirmed — signer_pub_fingerprint is NOT cryptographically bound to signature (only caught by separate pq_verify check)");
+    println!("P8.7d PASSED: P8-004 resolved — signer_pub_fingerprint is cryptographically bound to signature");
 }
 
 /// P8.7e: No signing key rotation mechanism (gap assessment).
@@ -314,23 +312,20 @@ fn p8_7d_signer_fingerprint_not_in_signature() {
 /// with the same key — revocation is impossible.
 #[test]
 fn p8_7e_no_signing_key_rotation_mechanism() {
-    let source_path = "/tmp/p4-clean-checkout/backend/core_crypto/src/lib.rs";
+    let source_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../core_crypto/src/lib.rs");
     let content = std::fs::read_to_string(source_path).unwrap_or_default();
 
-    // rotate_key_protector rotates the key *protector* (encryption at rest),
-    // NOT the signing key itself
+    // rotate_key_protector rotates the key *protector* (encryption at rest)
     assert!(content.contains("rotate_key_protector"),
         "rotate_key_protector should exist (protects key at rest)");
 
-    // Verify there's no function to rotate the DSA signing key itself
-    let has_dsa_rotation = content.contains("rotate_dsa") ||
-        content.contains("rotate_signing_key") ||
-        content.contains("generate_new_dsa");
-    assert!(!has_dsa_rotation,
-        "P8-003: No DSA signing key rotation mechanism (confirmed gap)");
+    // P8-003 RESOLVED: rotate_signing_key was implemented in core_crypto
+    let has_dsa_rotation = content.contains("rotate_signing_key");
+    assert!(has_dsa_rotation,
+        "P8-003 RESOLVED: DSA signing key rotation mechanism exists (rotate_signing_key)");
 
     // Check pq_shield for key rotation APIs
-    let pq_shield_path = "/tmp/p4-clean-checkout/backend/pq_shield/src/admin.rs";
+    let pq_shield_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../pq_shield/src/admin.rs");
     if let Ok(admin_content) = std::fs::read_to_string(pq_shield_path) {
         let has_signing_key_api = admin_content.contains("rotate_signing_key") ||
             admin_content.contains("rotate_key") && !admin_content.contains("rotate_key_protector");
@@ -339,13 +334,13 @@ fn p8_7e_no_signing_key_rotation_mechanism() {
     }
 
     // Session/API key revocation IS implemented
-    let session_path = "/tmp/p4-clean-checkout/backend/auth_service/src/session.rs";
+    let session_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../auth_service/src/session.rs");
     if let Ok(session_content) = std::fs::read_to_string(session_path) {
         assert!(session_content.contains("revoke_by_id") || session_content.contains("revoked"),
             "Session revocation exists in auth_service");
     }
 
-    println!("P8.7e PASSED: No signing key rotation/revocation mechanism (P8-003 gap confirmed, session revocation exists)");
+    println!("P8.7e PASSED: P8-003 resolved — signing key rotation implemented in core_crypto, session revocation exists in auth_service");
 }
 
 /// P8.7f: Merkle root integrity under key compromise.

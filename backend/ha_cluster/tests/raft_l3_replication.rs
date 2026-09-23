@@ -29,6 +29,7 @@ struct TestNode {
     listener_handle: tokio::task::JoinHandle<()>,
     run_handle: tokio::task::JoinHandle<()>,
     apply_handle: tokio::task::JoinHandle<()>,
+    persist_path: std::path::PathBuf,
 }
 
 async fn spawn_node(
@@ -45,20 +46,25 @@ async fn spawn_node(
         id.clone(),
     ));
 
-    let persistence_path = std::path::PathBuf::from(format!("/tmp/raft_l3_{}.json", id.as_str()));
+    let uid = uuid::Uuid::new_v4();
+    let persistence_path = std::env::temp_dir().join(format!("raft_l3_rep_{}_{}_{}.json", id.as_str(), uid, std::process::id()));
+    let _ = std::fs::remove_file(&persistence_path);
+
     let raft_node = Arc::new(RaftNode::new(
         id.clone(),
-        persistence_path,
+        persistence_path.clone(),
         peer_manager.clone() as Arc<dyn RaftRpcClient>,
     ));
 
     let ledger = Arc::new(MerkleLedger::new());
     let applier = Arc::new(LedgerApplier::new(raft_node.clone(), ledger.clone(), identity.clone()));
 
-    let listener = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone());
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
+    membership.set_raft_port(id.clone(), bound_addr.port()).await;
+    membership.register_self(id.clone(), bound_addr, bound_addr.port()).await;
     let listener_id = id.clone();
     let listener_handle = tokio::spawn(async move {
-        if let Err(e) = listener.run().await {
+        if let Err(e) = listener.run(tcp_listener).await {
             error!(node = %listener_id, err = %e, "Raft listener failed");
         }
     });
@@ -91,6 +97,7 @@ async fn spawn_node(
         listener_handle,
         run_handle,
         apply_handle,
+        persist_path: persistence_path,
     }
 }
 
@@ -99,6 +106,7 @@ async fn abort_all(nodes: &mut [TestNode]) {
         node.run_handle.abort();
         node.listener_handle.abort();
         node.apply_handle.abort();
+        let _ = std::fs::remove_file(&node.persist_path);
     }
 }
 
@@ -705,7 +713,8 @@ async fn test_election_timer_persistence() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 300,
         heartbeat_interval_ms: 50, // < 150, satisfies invariant
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     config.validate().expect("config should be valid");
 
@@ -826,7 +835,8 @@ async fn test_config_timing_invariant() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 300,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     assert!(valid.validate().is_ok(), "Valid config should pass validation");
 
@@ -835,7 +845,8 @@ async fn test_config_timing_invariant() {
         election_timeout_min_ms: 150,
         election_timeout_max_ms: 300,
         heartbeat_interval_ms: 200,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     assert!(invalid.validate().is_err(), "Invalid config should fail validation");
 
@@ -844,7 +855,8 @@ async fn test_config_timing_invariant() {
         election_timeout_min_ms: 300,
         election_timeout_max_ms: 150,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     assert!(invalid2.validate().is_err(), "min > max should fail validation");
 }

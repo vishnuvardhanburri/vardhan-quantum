@@ -916,6 +916,13 @@ impl SegmentedLedgerWriter {
         max_bytes: u64,
     ) -> Result<Self, SegmentError> {
         std::fs::create_dir_all(ledger_dir)?;
+        
+        // SEC-019: Enforce 0o700 permissions on ledger directory for security
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(ledger_dir, std::fs::Permissions::from_mode(0o700))?;
+        }
 
         let manifest_path = ledger_dir.join("ledger_manifest.json");
         let mut manifest = if manifest_path.exists() {

@@ -237,7 +237,8 @@ async fn p8_3a_raft_level_replay() {
         election_timeout_min_ms: 200,
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     };
     let id_a = ha_cluster::NodeId::new("node-a");
     let id_b = ha_cluster::NodeId::new("node-b");

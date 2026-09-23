@@ -16,6 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use dashmap::DashMap;
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub use crate::authorization::{AuthenticatedUser, Permission, Role};
 
@@ -33,7 +34,7 @@ fn now_ms() -> u128 {
 
 /// Opaque session token: 32 random bytes as lowercase hex (64 characters).
 /// This secret is sent in the Authorization header and MUST NEVER be exposed in metadata APIs.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Zeroize, ZeroizeOnDrop)]
 pub struct SessionToken(String);
 
 impl SessionToken {
@@ -66,9 +67,9 @@ pub struct SessionEntry {
     pub node_id: String,
     pub revoked: bool,
     /// The current valid secret token.
-    pub current_token: String,
+    pub current_token: Zeroizing<String>,
     /// The immediately preceding token, kept for race condition handling.
-    pub previous_token: Option<String>,
+    pub previous_token: Option<Zeroizing<String>>,
 }
 
 impl SessionEntry {
@@ -177,7 +178,7 @@ impl SessionStore {
             ip: ip.to_string(),
             node_id: node_id.to_string(),
             revoked: false,
-            current_token: token.as_str().to_string(),
+            current_token: Zeroizing::new(token.as_str().to_string()),
             previous_token: None,
         };
 
@@ -204,13 +205,13 @@ impl SessionStore {
         }
 
         // --- Token Rotation Logic ---
-        if token_str == entry.current_token {
+        if token_str == entry.current_token.as_str() {
             // Normal path: rotate current to previous
             let new_token = SessionToken::generate();
             let new_token_str = new_token.as_str().to_string();
             
             entry.previous_token = Some(entry.current_token.clone());
-            entry.current_token = new_token_str.clone();
+            entry.current_token = Zeroizing::new(new_token_str.clone());
             entry.last_activity_ms = now_ms();
             
             let username = entry.username.clone();
@@ -219,10 +220,10 @@ impl SessionStore {
             self.token_to_id.insert(new_token_str, session_id);
             
             Some((username, new_token))
-        } else if entry.previous_token.as_deref() == Some(token_str) {
+        } else if entry.previous_token.as_ref().map(|s| s.as_str()) == Some(token_str) {
             // Race condition path: token is the previous one.
             // Still valid, but must return the current one.
-            let current_token_str = entry.current_token.clone();
+            let current_token_str = entry.current_token.as_str().to_string();
             entry.last_activity_ms = now_ms();
             
             let current_token = SessionToken::from_str(&current_token_str);
@@ -329,9 +330,9 @@ impl SessionStore {
             self.revoked.insert(session_id.to_string(), view.clone());
             
             // Also remove all associated tokens from the lookup map
-            self.token_to_id.remove(&entry.current_token);
+            self.token_to_id.remove(entry.current_token.as_str());
             if let Some(prev) = &entry.previous_token {
-                self.token_to_id.remove(prev);
+                self.token_to_id.remove(prev.as_str());
             }
             
             Some(view)
@@ -348,7 +349,7 @@ impl SessionStore {
             .iter()
             .filter(|e| {
                 if let Some(p) = preserve_token {
-                    e.value().current_token != p && e.value().previous_token.as_deref() != Some(p)
+                    e.value().current_token.as_str() != p && e.value().previous_token.as_ref().map(|s| s.as_str()) != Some(p)
                 } else {
                     true
                 }
@@ -362,9 +363,9 @@ impl SessionStore {
                 self.revoked.insert(session_id, entry.to_view());
                 
                 // Clean up tokens
-                self.token_to_id.remove(&entry.current_token);
+                self.token_to_id.remove(entry.current_token.as_str());
                 if let Some(prev) = &entry.previous_token {
-                    self.token_to_id.remove(prev);
+                    self.token_to_id.remove(prev.as_str());
                 }
                 count += 1;
             }

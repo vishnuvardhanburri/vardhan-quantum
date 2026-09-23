@@ -30,7 +30,8 @@ fn test_config() -> RaftConfig {
         election_timeout_min_ms: 200,
         election_timeout_max_ms: 400,
         heartbeat_interval_ms: 50,
-        persist_on_submit: false,
+        persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     }
 }
 
@@ -161,7 +162,7 @@ fn p8_5b_torn_ledger_write() {
     // to the last valid line
     let writer2 = LedgerWriter::open(&ledger_path, &identity)
         .unwrap_or_else(|e| panic!("{}", e));
-    let (next_seq, _) = writer2.chain_tip();
+    let (next_seq, _) = writer2.chain_tip().unwrap();
 
     assert_eq!(next_seq, 3,
         "After torn write, ledger should resume at seq=3 (3 valid entries + truncated 4th)");

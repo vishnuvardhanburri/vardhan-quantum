@@ -25,6 +25,10 @@ use tokio_stream::StreamExt;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 
+pub trait ExecutionValidator: Send + Sync {
+    fn validate_execution(&self, action_id: &str, authorization_id: &str) -> Result<String, String>;
+}
+
 #[derive(Clone)]
 pub struct AdminState {
     pub metrics: Arc<RwLock<MetricsSnapshot>>,
@@ -46,6 +50,7 @@ pub struct AdminState {
     pub self_node_id: Option<NodeId>,
     /// Production authentication state
     pub auth_state: auth_service::AuthState,
+    pub execution_validator: Option<Arc<dyn ExecutionValidator>>,
 }
 
 async fn auth_middleware(
@@ -69,6 +74,12 @@ async fn auth_middleware(
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string());
+
+    // SEC-009: Rate limiting on all authenticated paths
+    let ip = auth_service::resolve_ip(req.headers());
+    if state.auth_state.rate_limiter.is_blocked(ip) {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
 
     let token_query = req.uri().query().and_then(|q| {
         q.split('&').find_map(|pair| {
@@ -119,6 +130,8 @@ async fn auth_middleware(
         }
     }
 
+    // Authentication failed - record failure for rate limiting
+    state.auth_state.rate_limiter.record_failure(ip);
     Err(StatusCode::UNAUTHORIZED)
 }
 
@@ -127,7 +140,11 @@ pub async fn run_admin_server(state: AdminState) {
         "FATAL: VARDHAN_ADMIN_CORS_ORIGIN must be explicitly set (e.g., 'null' for local files)",
     );
 
+    let env = std::env::var("VARDHAN_ENV").unwrap_or_else(|_| "development".to_string());
     let cors_origin = if origins_str == "*" {
+        if env == "production" {
+            panic!("FATAL (SEC-006): VARDHAN_ADMIN_CORS_ORIGIN='*' is not allowed in production.");
+        }
         AllowOrigin::any()
     } else {
         let origins: Vec<axum::http::HeaderValue> = origins_str
@@ -836,7 +853,27 @@ async fn cluster_status(State(state): State<AdminState>) -> impl IntoResponse {
 /// Uses RaftNode::raft_status() which acquires read locks on all fields
 /// and returns a consistent snapshot. Does NOT expose private keys,
 /// KMS secrets, or cryptographic material.
-async fn raft_status(State(state): State<AdminState>) -> impl IntoResponse {
+async fn raft_status(
+    State(state): State<AdminState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let caller = match auth_service::extract_authenticated_user(&state.auth_state, &headers).await {
+        Some(u) => u,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Unauthorized" })),
+            )
+        }
+    };
+
+    if !caller.can(auth_service::authorization::Permission::ReadDashboard) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Forbidden: Requires Operator or Admin role" })),
+        );
+    }
+
     match &state.raft_node {
         Some(raft_node) => {
             // Get configured peer count from cluster membership
@@ -1065,6 +1102,10 @@ mod tests {
     use tokio::sync::broadcast;
 
     async fn spawn_test_admin() -> (String, AdminState, tempfile::TempDir) {
+        struct MockValidator;
+        impl super::ExecutionValidator for MockValidator {
+            fn validate_execution(&self, _a: &str, _b: &str) -> Result<String, String> { Ok("ok".into()) }
+        }
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("auth_db");
         let cred_store = auth_service::store::CredentialStore::open(&db_path).unwrap();
@@ -1118,6 +1159,7 @@ mod tests {
             raft_node: None,
             self_node_id: Some(self_id),
             auth_state,
+            execution_validator: Some(Arc::new(MockValidator)),
         };
 
         let app = build_admin_router(admin_state.clone());

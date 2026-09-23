@@ -33,6 +33,7 @@ fn fast_config() -> RaftConfig {
         election_timeout_max_ms: 4000,
         heartbeat_interval_ms: 100,
         persist_on_submit: true,
+            state_machine_mac_key: Some([0x42; 32]),
     }
 }
 
@@ -104,10 +105,10 @@ async fn spawn_test_node_cp(
         .with_checkpoint_writer(std::sync::Arc::new(checkpoint_writer)),
     );
 
-    let listener = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone());
+    let (listener, tcp_listener, bound_addr) = RaftNetworkListener::new(addr, identity.clone(), raft_node.clone()).await.unwrap();
     let lid = id.clone();
     let listener_handle = tokio::spawn(async move {
-        if let Err(e) = listener.run().await {
+        if let Err(e) = listener.run(tcp_listener).await {
             warn!(node = %lid, err = %e, "Raft listener failed");
         }
     });
@@ -141,7 +142,7 @@ async fn spawn_test_node_cp(
         run_handle,
         apply_handle,
         peer_manager,
-        raft_addr: addr,
+        raft_addr: bound_addr,
         persist_path: persist_path.clone(),
         checkpoint_path: checkpoint_path.clone(),
         killed: AtomicBool::new(false),
@@ -415,10 +416,22 @@ async fn test_c2_timer_triggered_checkpoint() {
     assert!(wait_for_commit_cp(&leader, log_len as u64).await);
 
     // Apply committed entries (including checkpoint) on all nodes to persist
-    for n in &mut nodes {
-        n.applier.apply_committed_entries().await.ok();
-    }
-    let _ = wait_for_all_nodes_have_checkpoints(&nodes, 1, Duration::from_secs(5)).await;
+    // Since background loops are dead and followers might not have received the updated commit_index yet,
+    // we must loop and apply until the checkpoints appear.
+    let _ = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            for n in &nodes {
+                n.applier.apply_committed_entries().await.ok();
+            }
+            let mut all_done = true;
+            for n in &nodes {
+                let cps = read_checkpoint_file(&n.checkpoint_path);
+                if cps.len() < 1 { all_done = false; break; }
+            }
+            if all_done { break; }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }).await.expect("Nodes failed to persist checkpoints in time");
 
     let checkpoints = read_checkpoint_file(&nodes[leader_idx].checkpoint_path);
     assert_eq!(checkpoints.len(), 1, "Should have exactly 1 checkpoint from timer trigger");
@@ -491,10 +504,22 @@ async fn test_c4_racing_triggers() {
     assert!(wait_for_commit_cp(&leader, log_len as u64).await);
 
     // Apply committed entries (including checkpoint) on all nodes to persist
-    for n in &mut nodes {
-        n.applier.apply_committed_entries().await.ok();
-    }
-    let _ = wait_for_all_nodes_have_checkpoints(&nodes, 1, Duration::from_secs(5)).await;
+    // Since background loops are dead and followers might not have received the updated commit_index yet,
+    // we must loop and apply until the checkpoints appear.
+    let _ = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            for n in &nodes {
+                n.applier.apply_committed_entries().await.ok();
+            }
+            let mut all_done = true;
+            for n in &nodes {
+                let cps = read_checkpoint_file(&n.checkpoint_path);
+                if cps.len() < 1 { all_done = false; break; }
+            }
+            if all_done { break; }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }).await.expect("Nodes failed to persist checkpoints in time");
 
     let checkpoints = read_checkpoint_file(&nodes[leader_idx].checkpoint_path);
     assert_eq!(checkpoints.len(), 1, "Racing triggers produce exactly one checkpoint");
@@ -1361,7 +1386,7 @@ async fn test_c22_restart_during_commitment() {
     let persist = &nodes[leader_idx].persist_path;
     assert!(persist.exists(), "Persist file should exist");
     let content = std::fs::read_to_string(persist).unwrap();
-    let state: RaftPersistentState = serde_json::from_str(&content)
+    let payload = if let Ok(env) = serde_json::from_str::<ha_cluster::raft::SecureEnvelope>(&content) { env.payload_json } else { content.clone() }; let state: RaftPersistentState = serde_json::from_str(&payload)
         .expect("Persisted state should be valid JSON");
     assert!(state.log.iter().any(|e| e.client_id == CHECKPOINT_CLIENT_ID),
         "Persisted state should contain checkpoint entry");
@@ -1413,7 +1438,7 @@ async fn test_c22_restart_during_commitment() {
     let peers: Vec<NodeId> = nodes.iter().map(|n| n.id.clone()).collect();
     let restarted = spawn_test_node_cp(
         old.id.clone(),
-        format!("127.0.0.1:{}", old.raft_addr.port() + 1000).parse().unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
         membership.clone(),
         peers,
         &new_persist,
