@@ -508,7 +508,7 @@ impl EvidenceStore for MemoryEvidenceStore {
                 })
                 .as_bytes();
             }
-            EvidenceCategory::Assurance => {
+            EvidenceCategory::Assurance | EvidenceCategory::Verification => {
                 // Assurance evidence goes to the decision tree (it's decision-related)
                 guard.decision_tree_leaves.push(*evidence_id.as_bytes());
                 guard.decision_tree_root = *blake3::hash(&{
@@ -583,7 +583,7 @@ impl EvidenceStore for MemoryEvidenceStore {
     ) -> Result<CommitIndex, StoreError> {
         let guard = self.inner.read().unwrap();
         let tree_root = match category {
-            EvidenceCategory::Decision | EvidenceCategory::Assurance => &guard.decision_tree_root,
+            EvidenceCategory::Decision | EvidenceCategory::Assurance | EvidenceCategory::Verification => &guard.decision_tree_root,
             EvidenceCategory::Outcome => &guard.outcome_tree_root,
         };
 

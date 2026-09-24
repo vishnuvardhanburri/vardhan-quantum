@@ -31,6 +31,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EvidenceCategory {
+    Verification,
     /// Decision pipeline evidence — written to Decision Merkle tree (A5)
     Decision,
     /// Outcome pipeline evidence — written to Outcome Merkle tree (A5)
@@ -247,6 +248,7 @@ impl EvidenceRecord {
             EvidenceCategory::Decision => b"DECISION",
             EvidenceCategory::Outcome => b"OUTCOME",
             EvidenceCategory::Assurance => b"ASSURANCE",
+            EvidenceCategory::Verification => b"VERIFICATION",
         });
         ContentHash(*blake3::hash(&combined).as_bytes())
     }
@@ -372,6 +374,7 @@ impl EvidenceRecord {
                     EvidenceCategory::Decision => "DECISION",
                     EvidenceCategory::Outcome => "OUTCOME",
                     EvidenceCategory::Assurance => "ASSURANCE",
+                    EvidenceCategory::Verification => "VERIFICATION",
                 }
                 .to_string(),
             ),

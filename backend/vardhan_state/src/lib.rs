@@ -155,3 +155,4 @@ pub use objects::{
 
 // Stores
 pub use store::{EvidenceStore, MemoryEvidenceStore, MemoryStateStore, StateStore};
+pub mod authorization;

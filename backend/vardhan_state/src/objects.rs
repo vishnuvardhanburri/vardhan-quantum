@@ -1073,6 +1073,7 @@ impl VardhanEvent {
                     crate::evidence::EvidenceCategory::Decision => "DECISION",
                     crate::evidence::EvidenceCategory::Outcome => "OUTCOME",
                     crate::evidence::EvidenceCategory::Assurance => "ASSURANCE",
+                    crate::evidence::EvidenceCategory::Verification => "VERIFICATION",
                 }
                 .to_string(),
             ),
@@ -1290,6 +1291,7 @@ impl Observation {
                     crate::evidence::EvidenceCategory::Decision => "DECISION",
                     crate::evidence::EvidenceCategory::Outcome => "OUTCOME",
                     crate::evidence::EvidenceCategory::Assurance => "ASSURANCE",
+                    crate::evidence::EvidenceCategory::Verification => "VERIFICATION",
                 }
                 .to_string(),
             ),
