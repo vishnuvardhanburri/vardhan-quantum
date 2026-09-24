@@ -5,7 +5,7 @@ use crate::identity::{
     ExecutionPlanId, FaultScenarioId, ReplayCapsuleId, VerificationClaimId, VerificationRunRecordId,
 };
 use crate::execution_plan::ExecutionPool;
-use crate::authorization::ProvenanceTrail;
+use vardhan_state::authorization::ProvenanceTrail;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunOutcome {

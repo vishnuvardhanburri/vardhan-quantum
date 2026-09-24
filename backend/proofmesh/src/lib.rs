@@ -1,6 +1,5 @@
 pub mod identity;
 pub mod transition;
-pub mod authorization;
 
 #[cfg(test)]
 mod tests {
@@ -51,3 +50,13 @@ pub mod fault;
 pub mod run_record;
 pub mod scope;
 pub mod graph;
+
+use vardhan_state::scope::{Hashable, canonical_json};
+impl Hashable for claim_registry::VerificationClaim { fn canonical_bytes(&self) -> Vec<u8> { canonical_json(self) } }
+impl Hashable for execution_plan::ExecutionPlan { fn canonical_bytes(&self) -> Vec<u8> { canonical_json(self) } }
+impl Hashable for quorum::EvidenceQuorumSnapshot { fn canonical_bytes(&self) -> Vec<u8> { canonical_json(self) } }
+impl Hashable for finding::VerificationFinding { fn canonical_bytes(&self) -> Vec<u8> { canonical_json(self) } }
+impl Hashable for fault::FaultScenario { fn canonical_bytes(&self) -> Vec<u8> { canonical_json(self) } }
+impl Hashable for replay::ReplayCapsule { fn canonical_bytes(&self) -> Vec<u8> { canonical_json(self) } }
+impl Hashable for run_record::VerificationRunRecord { fn canonical_bytes(&self) -> Vec<u8> { canonical_json(self) } }
+pub mod evidence_pipeline;

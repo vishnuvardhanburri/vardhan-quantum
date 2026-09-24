@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use vardhan_state::id::{ContentHash, EvidenceId, StateHash};
 use crate::identity::{ExecutionPlanId, ReplayCapsuleId, VerificationRunRecordId};
-use crate::authorization::ProvenanceTrail;
+use vardhan_state::authorization::ProvenanceTrail;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReplayResultClassification {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::identity::FaultScenarioId;
-use crate::authorization::ProvenanceTrail;
+use vardhan_state::authorization::ProvenanceTrail;
 use vardhan_state::id::EvidenceId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

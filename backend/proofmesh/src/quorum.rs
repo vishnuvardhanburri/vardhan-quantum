@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use vardhan_state::id::{CommitIndex, ContentHash, EvidenceId, ExecutionId};
 use crate::identity::{EvidenceQuorumSnapshotId, VerificationClaimId};
-use crate::authorization::ProvenanceTrail;
+use vardhan_state::authorization::ProvenanceTrail;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QuorumStatus {

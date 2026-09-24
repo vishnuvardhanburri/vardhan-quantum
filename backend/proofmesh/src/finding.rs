@@ -3,7 +3,7 @@ use vardhan_state::id::{ContentHash, EvidenceId, ExecutionId, StateHash};
 use crate::identity::{
     EvidenceQuorumSnapshotId, PolicyEvaluationId, VerificationClaimId, VerificationFindingId,
 };
-use crate::authorization::ProvenanceTrail;
+use vardhan_state::authorization::ProvenanceTrail;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FindingStatus {

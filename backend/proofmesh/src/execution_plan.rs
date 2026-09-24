@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use vardhan_state::id::{TenantId, ContentHash, StateHash};
+use vardhan_state::id::{ContentHash, StateHash};
 use crate::identity::{ExecutionPlanId, VerificationClaimId};
-use crate::authorization::ProvenanceTrail;
+use vardhan_state::authorization::ProvenanceTrail;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExecutionPool {
@@ -15,6 +15,16 @@ pub enum ExecutionPool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExecutionTarget {
+    RustTest(String),
+    CargoNextest(String),
+    Replay(String),
+    FaultHarness(String),
+    InternalVerification(String),
+    Process(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceBounds {
     pub max_cpu_ms: u64,
     pub max_memory_bytes: u64,
@@ -23,7 +33,7 @@ pub struct ResourceBounds {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionStep {
     pub step_id: String,
-    pub command: String,
+    pub target: ExecutionTarget,
     pub arguments: Vec<String>,
 }
 
@@ -31,7 +41,6 @@ pub struct ExecutionStep {
 pub struct ExecutionPlan {
     pub plan_id: ExecutionPlanId,
     pub claim_ref: VerificationClaimId,
-    pub tenant_id: TenantId,
     pub steps: Vec<ExecutionStep>,
     pub pool: ExecutionPool,
     pub resource_bounds: ResourceBounds,
