@@ -1,0 +1,53 @@
+pub mod identity;
+pub mod transition;
+pub mod authorization;
+
+#[cfg(test)]
+mod tests {
+    use super::identity::*;
+    use super::transition::*;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_transparent_id_serialization() {
+        let u = Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap();
+        let plan_id = ExecutionPlanId(u);
+        
+        let serialized = serde_json::to_string(&plan_id).unwrap();
+        assert_eq!(serialized, "\"123e4567-e89b-12d3-a456-426614174000\"");
+        
+        let deserialized: ExecutionPlanId = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, plan_id);
+    }
+
+    #[test]
+    fn test_transition_type_historical_roundtrip() {
+        let t = TransitionType::CreateEntity;
+        let s = serde_json::to_string(&t).unwrap();
+        assert_eq!(s, "\"ENTITY_CREATE\"");
+        
+        let d: TransitionType = serde_json::from_str("\"ENTITY_CREATE\"").unwrap();
+        assert_eq!(d, TransitionType::CreateEntity);
+    }
+
+    #[test]
+    fn test_transition_type_proofmesh_roundtrip() {
+        let t = TransitionType::VerificationClaimCreate;
+        let s = serde_json::to_string(&t).unwrap();
+        assert_eq!(s, "\"VERIFICATION_CLAIM_CREATE\"");
+        
+        let d: TransitionType = serde_json::from_str("\"VERIFICATION_CLAIM_CREATE\"").unwrap();
+        assert_eq!(d, TransitionType::VerificationClaimCreate);
+    }
+}
+pub mod claim_registry;
+pub mod execution_plan;
+pub mod adaptive_scheduler;
+pub mod quorum;
+pub mod finding;
+pub mod replay;
+pub mod fault;
+pub mod run_record;
+pub mod scope;
+pub mod graph;

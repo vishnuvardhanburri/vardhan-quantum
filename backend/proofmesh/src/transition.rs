@@ -1,0 +1,46 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TransitionType {
+    // ── VERIFIED-HISTORICAL ──
+    #[serde(rename = "TENANT_CREATE")]             CreateTenant,
+    #[serde(rename = "TENANT_UPDATE")]             UpdateTenant,
+    #[serde(rename = "DELETE_TENANT")]             DeleteTenant,
+    #[serde(rename = "DEACTIVATE")]                Deactivate,
+    #[serde(rename = "ENTITY_CREATE")]             CreateEntity,
+    #[serde(rename = "ATTRIBUTE_UPDATE")]          UpdateEntity,
+    #[serde(rename = "DELETE_ENTITY")]             DeleteEntity,
+    #[serde(rename = "ARCHIVE")]                   Archive,
+    #[serde(rename = "DEPRECATE")]                 Deprecate,
+    #[serde(rename = "CREATE_RELATIONSHIP")]       CreateRelationship,
+    #[serde(rename = "DELETE_RELATIONSHIP")]       DeleteRelationship,
+    #[serde(rename = "CONFIG_UPDATE")]             ConfigUpdate,
+    #[serde(rename = "POLICY_CREATE")]             PolicyCreate,
+    #[serde(rename = "POLICY_UPDATE")]             PolicyUpdate,
+    #[serde(rename = "CONSTRAINT_CREATE")]         ConstraintCreate,
+    #[serde(rename = "CONSTRAINT_UPDATE")]         ConstraintUpdate,
+    #[serde(rename = "DECISION_CONTEXTUALIZED")]   DecisionContextualized,
+    #[serde(rename = "DECISION_OPTIONS_GENERATED")]DecisionOptionsGenerated,
+    #[serde(rename = "DECISION_ASSESSED")]         DecisionAssessed,
+    #[serde(rename = "DECISION_POLICY_CHECKED")]   DecisionPolicyChecked,
+    #[serde(rename = "ASSURANCE_RESULT_CREATE")]   AssuranceResultCreate,
+    #[serde(rename = "AUTHORIZATION_CREATE")]      AuthorizationCreate,
+    #[serde(rename = "AUTHORIZATION_REVOKE")]      AuthorizationRevoke,
+    #[serde(rename = "EXECUTION_CREATE")]          ExecutionCreate,
+    #[serde(rename = "EXECUTION_UPDATE")]          ExecutionUpdate,
+    #[serde(rename = "OBSERVATION_CREATE")]        ObservationCreate,
+    #[serde(rename = "MODEL_PROVENANCE_CREATE")]   ModelProvenanceCreate,
+    #[serde(rename = "RISK_PROFILE_CREATE")]       RiskProfileCreate,
+    #[serde(rename = "SCENARIO_CREATE")]           ScenarioCreate,
+
+    // ── NEW-CANONICAL (ProofMesh) ──
+    #[serde(rename = "VERIFICATION_CLAIM_CREATE")] VerificationClaimCreate,
+    #[serde(rename = "VERIFICATION_CLAIM_UPDATE")] VerificationClaimUpdate,
+    #[serde(rename = "EXECUTION_PLAN_CREATE")]     ExecutionPlanCreate,
+    #[serde(rename = "EXECUTION_PLAN_UPDATE")]     ExecutionPlanUpdate,
+    #[serde(rename = "VERIFICATION_RUN_RECORD_CREATE")] VerificationRunRecordCreate,
+    #[serde(rename = "REPLAY_CAPSULE_CREATE")]     ReplayCapsuleCreate,
+    #[serde(rename = "QUORUM_SNAPSHOT_CREATE")]    QuorumSnapshotCreate,
+    #[serde(rename = "VERIFICATION_FINDING_CREATE")] VerificationFindingCreate,
+    #[serde(rename = "FAULT_SCENARIO_CREATE")]     FaultScenarioCreate,
+}
