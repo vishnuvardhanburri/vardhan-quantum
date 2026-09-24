@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+vardhan_state = { path = "../vardhan_state" }
 tokio = { version = "1", features = ["full"] }
 quantum_network = { path = "../quantum_network" }
 saas_metering = { path = "../saas_metering" }

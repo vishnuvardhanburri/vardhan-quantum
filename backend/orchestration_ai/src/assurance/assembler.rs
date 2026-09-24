@@ -22,9 +22,9 @@ impl<I: IdentityGenerator> AssuranceAssembler<I> {
     ) -> AssuranceResult {
         let (g4_status, pe_ref, proof_ref, pe_opt) = match &g4_result {
             Ok(pe) => (
-                pe.status.clone(),
-                Some(pe.policy_id.clone()),
-                pe.proof_ref.clone(),
+                match pe.status { vardhan_state::authorization::PolicyStatus::Pass => AssuranceStatus::Pass, vardhan_state::authorization::PolicyStatus::Fail => AssuranceStatus::Fail, vardhan_state::authorization::PolicyStatus::Indeterminate => AssuranceStatus::Indeterminate },
+                Some("policy".to_string()),
+                pe.proof_ref.as_ref().map(|_| "evidence".to_string()),
                 Some(pe),
             ),
             Err(status) => (status.clone(), None, None, None),
