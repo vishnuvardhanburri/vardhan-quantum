@@ -88,3 +88,57 @@ impl AuthorityGate for VardhanGate {
         Ok(receipt)
     }
 }
+
+use vardhan_state::authorization::{Authorization, AuthorizationContext, ActionType};
+use vardhan_state::scope::CanonicalTenantId;
+
+pub trait SystemicAuthorityGate {
+    fn authorize_systemic_fault(
+        &self,
+        tenant_id: CanonicalTenantId,
+        authorization: &Authorization,
+        current_config_hash: &vardhan_state::id::ConfigurationHash,
+        current_state_hash: &vardhan_state::id::StateHash,
+    ) -> Result<ExecutionReceipt, String>;
+}
+
+impl SystemicAuthorityGate for VardhanGate {
+    fn authorize_systemic_fault(
+        &self,
+        tenant_id: CanonicalTenantId,
+        authorization: &Authorization,
+        current_config_hash: &vardhan_state::id::ConfigurationHash,
+        _current_state_hash: &vardhan_state::id::StateHash, // In real impl, check state hash
+    ) -> Result<ExecutionReceipt, String> {
+        info!("VardhanGate evaluating Systemic Fault Authorization: {:?}", authorization.auth_id);
+        
+        // Tenant boundary enforcement
+        if authorization.tenant_scoped.tenant_id() != tenant_id.0 {
+            return Err("Tenant boundary violation".to_string());
+        }
+        
+        // Action Type validation
+        if authorization.action_type != ActionType::SystemicFaultInjection {
+            return Err("Invalid action type for systemic fault".to_string());
+        }
+        
+        // Authorization Context Validation
+        match &authorization.authorization_context {
+            AuthorizationContext::SystemicVerification { .. } => {},
+            _ => return Err("Invalid authorization context for systemic fault".to_string()),
+        }
+        
+        // Configuration alignment
+        if &authorization.config_hash != current_config_hash {
+            return Err("Configuration mismatch".to_string());
+        }
+        
+        // Success
+        Ok(ExecutionReceipt {
+            receipt_id: format!("sys-receipt-{}", authorization.auth_id),
+            action_id: authorization.action_id.to_string(),
+            timestamp_ms: 1234567890,
+            authorized_by: "VardhanGate-Systemic".to_string(),
+        })
+    }
+}
